@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSettingsStore } from '../stores/settingsStore';
 import type { ProviderName } from '../lib/ai/providers';
 import { DEFAULT_BASE_URLS } from '../lib/ai/providers';
+import type { AISettings } from '../lib/db/schema';
 
 const PROVIDER_INFO: { key: ProviderName; label: string; desc: string; icon: string }[] = [
   { key: 'relay', label: '中转站', desc: '主力入口 — 你最常用的中转服务', icon: '🔄' },
@@ -12,16 +13,39 @@ const PROVIDER_INFO: { key: ProviderName; label: string; desc: string; icon: str
 
 export default function SettingsPage() {
   const { settings, load, updateAI } = useSettingsStore();
-  const [saving, setSaving] = useState(false);
+  // 本地表单状态 — 避免每次按键都写 IndexedDB
+  const [localProviders, setLocalProviders] = useState<AISettings | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { load(); }, []);
 
-  if (!settings) return <div className="flex items-center justify-center h-64"><p className="text-gray-500">加载中...</p></div>;
+  // 当 settings 从数据库加载完成后，同步到本地状态
+  useEffect(() => {
+    if (settings && !localProviders) {
+      setLocalProviders(JSON.parse(JSON.stringify(settings.aiProviders)));
+    }
+  }, [settings, localProviders]);
 
-  const handleSave = async () => {
-    setSaving(true);
-    await new Promise(r => setTimeout(r, 300));
-    setSaving(false);
+  // 防抖保存：本地状态变化后 500ms 才写入 IndexedDB
+  useEffect(() => {
+    if (!localProviders) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      updateAI(localProviders);
+    }, 500);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [localProviders]);
+
+  if (!settings || !localProviders) {
+    return <div className="flex items-center justify-center h-64"><p className="text-gray-500">加载中...</p></div>;
+  }
+
+  // 更新单个 provider 的字段（本地状态）
+  const updateField = (key: ProviderName, field: 'baseUrl' | 'apiKey' | 'enabled', value: string | boolean) => {
+    setLocalProviders(prev => prev ? {
+      ...prev,
+      [key]: { ...prev[key], [field]: value },
+    } : null);
   };
 
   return (
@@ -37,7 +61,7 @@ export default function SettingsPage() {
         <p className="text-xs text-gray-400">你有 4 个 API 入口，App 会根据任务自动选择最优的入口和模型</p>
 
         {PROVIDER_INFO.map(({ key, label, desc, icon }) => {
-          const prov = settings.aiProviders[key];
+          const prov = localProviders[key];
           return (
             <div key={key} className="card space-y-3">
               <div className="flex items-center justify-between">
@@ -52,7 +76,7 @@ export default function SettingsPage() {
                   <input
                     type="checkbox"
                     checked={prov.enabled}
-                    onChange={(e) => updateAI({ [key]: { ...prov, enabled: e.target.checked } })}
+                    onChange={(e) => updateField(key, 'enabled', e.target.checked)}
                     className="sr-only peer"
                   />
                   <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
@@ -66,7 +90,7 @@ export default function SettingsPage() {
                     <input
                       className="input-field mt-1 text-xs font-mono"
                       value={prov.baseUrl || DEFAULT_BASE_URLS[key]}
-                      onChange={(e) => updateAI({ [key]: { ...prov, baseUrl: e.target.value } })}
+                      onChange={(e) => updateField(key, 'baseUrl', e.target.value)}
                       placeholder={DEFAULT_BASE_URLS[key]}
                     />
                   </div>
@@ -76,9 +100,10 @@ export default function SettingsPage() {
                       type="password"
                       className="input-field mt-1 text-xs font-mono"
                       value={prov.apiKey}
-                      onChange={(e) => updateAI({ [key]: { ...prov, apiKey: e.target.value } })}
+                      onChange={(e) => updateField(key, 'apiKey', e.target.value)}
                       placeholder="sk-..."
                     />
+                    <p className="text-[10px] text-gray-400 mt-1">🔒 Key 仅存储在本地 IndexedDB，不会上传到任何服务器</p>
                   </div>
                 </div>
               )}
@@ -162,13 +187,10 @@ function ConnectionTest() {
       }
 
       try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
         const res = await fetch(`${prov.baseUrl.replace(/\/+$/, '')}/models`, {
           headers: { Authorization: `Bearer ${prov.apiKey}` },
-          signal: controller.signal,
+          signal: AbortSignal.timeout(10000),
         });
-        clearTimeout(timeout);
         if (res.ok) {
           const data = await res.json();
           const count = data.data?.length ?? 0;

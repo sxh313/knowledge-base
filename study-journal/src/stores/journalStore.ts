@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import type { JournalEntry } from '../lib/db/schema';
 import { createJournal, updateJournal, deleteJournal, getJournal, getAllJournals } from '../lib/db/queries';
 
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
 interface JournalStore {
   entries: JournalEntry[];
   currentEntry: JournalEntry | null;
@@ -10,6 +12,7 @@ interface JournalStore {
   searchQuery: string;
   selectedTag: string | null;
   selectedSubject: string | null;
+  saveStatus: SaveStatus;
 
   loadAll: () => Promise<void>;
   loadOne: (id: string) => Promise<void>;
@@ -21,6 +24,7 @@ interface JournalStore {
   setSelectedTag: (tag: string | null) => void;
   setSelectedSubject: (subject: string | null) => void;
   getFilteredEntries: () => JournalEntry[];
+  setSaveStatus: (status: SaveStatus) => void;
 }
 
 export const useJournalStore = create<JournalStore>((set, get) => ({
@@ -31,6 +35,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   searchQuery: '',
   selectedTag: null,
   selectedSubject: null,
+  saveStatus: 'idle' as SaveStatus,
 
   loadAll: async () => {
     set({ isLoading: true, error: null });
@@ -54,19 +59,32 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   },
 
   create: async (data) => {
-    const entry = await createJournal(data);
-    set((state) => ({ entries: [entry, ...state.entries] }));
-    return entry;
+    set({ saveStatus: 'saving' });
+    try {
+      const entry = await createJournal(data);
+      set((state) => ({ entries: [entry, ...state.entries], saveStatus: 'saved' }));
+      return entry;
+    } catch (e) {
+      set({ saveStatus: 'error', error: (e as Error).message });
+      throw e;
+    }
   },
 
   update: async (id, data) => {
-    await updateJournal(id, data);
-    const updated = await getJournal(id);
-    if (!updated) return;
-    set((state) => ({
-      entries: state.entries.map((e) => (e.id === id ? updated : e)),
-      currentEntry: state.currentEntry?.id === id ? updated : state.currentEntry,
-    }));
+    set({ saveStatus: 'saving' });
+    try {
+      await updateJournal(id, data);
+      const updated = await getJournal(id);
+      if (!updated) return;
+      set((state) => ({
+        entries: state.entries.map((e) => (e.id === id ? updated : e)),
+        currentEntry: state.currentEntry?.id === id ? updated : state.currentEntry,
+        saveStatus: 'saved',
+      }));
+    } catch (e) {
+      set({ saveStatus: 'error', error: (e as Error).message });
+      throw e;
+    }
   },
 
   remove: async (id) => {
@@ -81,6 +99,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   setSearchQuery: (q) => set({ searchQuery: q }),
   setSelectedTag: (tag) => set({ selectedTag: tag }),
   setSelectedSubject: (subject) => set({ selectedSubject: subject }),
+  setSaveStatus: (status) => set({ saveStatus: status }),
 
   getFilteredEntries: () => {
     const { entries, searchQuery, selectedTag, selectedSubject } = get();

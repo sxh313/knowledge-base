@@ -6,6 +6,33 @@ import { getSettings } from '../lib/db/queries';
 import type { TaskType, ProviderName } from '../lib/ai/providers';
 import type { KnowledgeCard } from '../lib/db/schema';
 
+/** 检查是否至少有一个 Provider 已配置 */
+async function checkProvidersConfigured(): Promise<boolean> {
+  const settings = await getSettings();
+  const providers = settings.aiProviders;
+  return (Object.keys(providers) as ProviderName[]).some(
+    (key) => providers[key].enabled && providers[key].apiKey,
+  );
+}
+
+/** 用户友好的错误消息 */
+export function friendlyAIError(err: unknown): string {
+  const msg = (err as Error).message || '';
+  if (msg.includes('All AI endpoints failed')) {
+    return '所有 AI 入口均不可用，请检查网络连接或 API 配置';
+  }
+  if (msg.includes('未配置') || msg.includes('HTTP 401')) {
+    return 'API Key 无效或未配置，请前往「设置」检查';
+  }
+  if (msg.includes('HTTP 429')) {
+    return 'AI 请求过于频繁，请稍后再试';
+  }
+  if (msg.includes('timeout') || msg.includes('AbortError')) {
+    return 'AI 请求超时，请检查网络后重试';
+  }
+  return msg || 'AI 处理失败，请重试';
+}
+
 interface AIStore {
   /** 是否正在处理 AI 请求 */
   isProcessing: boolean;
@@ -103,14 +130,24 @@ export const useAIStore = create<AIStore>((set, get) => ({
   callAI: async (taskType, messages, onToken) => {
     set({ isProcessing: true, error: null, streamingContent: '' });
     try {
+      // 前置检查：是否已配置任何 Provider
+      const configured = await checkProvidersConfigured();
+      if (!configured) {
+        const friendlyMsg = '尚未配置 AI API Key，请前往「设置」配置后使用';
+        set({ isProcessing: false, error: friendlyMsg });
+        throw new Error(friendlyMsg);
+      }
+
       const result = await routeAI(taskType, messages, onToken);
       const fullContent = result.content;
       set({ isProcessing: false, streamingContent: fullContent });
       return fullContent;
     } catch (e) {
       const msg = (e as Error).message;
-      set({ isProcessing: false, error: msg });
-      throw e;
+      // 如果已经是友好消息就直接用，否则转换
+      const friendly = msg.includes('尚未配置') ? msg : friendlyAIError(e);
+      set({ isProcessing: false, error: friendly });
+      throw new Error(friendly);
     }
   },
 

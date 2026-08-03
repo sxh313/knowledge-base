@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, CheckCircle } from 'lucide-react';
+import { ArrowLeft, RefreshCw, CheckCircle, PackageOpen } from 'lucide-react';
 import { useReviewStore } from '../stores/reviewStore';
+import { db } from '../lib/db/schema';
 
 export default function ReviewPage() {
   const navigate = useNavigate();
@@ -9,8 +10,12 @@ export default function ReviewPage() {
     cards, index, isFlipped, isLoading, isComplete, stats,
     load, flip, rate,
   } = useReviewStore();
+  const [totalCardsInSystem, setTotalCardsInSystem] = useState(0);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    db.cards.count().then(setTotalCardsInSystem);
+  }, []);
 
   const card = cards[index] ?? null;
   const total = cards.length;
@@ -50,14 +55,47 @@ export default function ReviewPage() {
       </div>
 
       {!card ? (
-        <div className="flex flex-col items-center gap-4 py-16 text-[var(--color-text-secondary)]">
-          <CheckCircle className="h-16 w-16 text-green-400" />
-          <p className="text-lg font-medium">已完成全部复习！</p>
-          <p className="text-sm">今日目标已达成，明天再来吧</p>
-          <button onClick={() => navigate('/')} className="btn-secondary mt-4">
-            继续学习
-          </button>
-        </div>
+        totalCardsInSystem === 0 ? (
+          /* 从未创建过卡片 */
+          <div className="flex flex-col items-center gap-4 py-16 text-[var(--color-text-secondary)]">
+            <PackageOpen className="h-16 w-16 text-gray-300" />
+            <p className="text-lg font-medium">还没有复习卡片</p>
+            <p className="text-sm max-w-xs text-center">
+              在日记编辑器中使用 AI 生成知识卡片，然后来这里间隔复习
+            </p>
+            <button onClick={() => navigate('/')} className="btn-primary mt-4">
+              ✏️ 去写日记
+            </button>
+          </div>
+        ) : isComplete ? (
+          /* 今天确实复习完了 */
+          <div className="flex flex-col items-center gap-4 py-16 text-[var(--color-text-secondary)]">
+            <CheckCircle className="h-16 w-16 text-green-400" />
+            <p className="text-lg font-medium">🎉 今日复习完成！</p>
+            <p className="text-sm">
+              复习了 {stats.reviewed} 张卡片
+              {stats.again > 0 && `，${stats.again} 张需要再次复习`}
+            </p>
+            <div className="flex gap-3 mt-2">
+              <button onClick={() => navigate('/stats')} className="btn-secondary">
+                查看统计
+              </button>
+              <button onClick={() => navigate('/')} className="btn-ghost">
+                继续学习
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* 有卡片但今天没有到期的 */
+          <div className="flex flex-col items-center gap-4 py-16 text-[var(--color-text-secondary)]">
+            <CheckCircle className="h-16 w-16 text-blue-300" />
+            <p className="text-lg font-medium">今天没有需要复习的卡片</p>
+            <p className="text-sm">下次复习时间还没到，先去学习新内容吧</p>
+            <button onClick={() => navigate('/')} className="btn-secondary mt-4">
+              继续学习
+            </button>
+          </div>
+        )
       ) : (
         <div className="mx-auto max-w-lg">
           {/* Card */}
@@ -77,7 +115,7 @@ export default function ReviewPage() {
                   {card.front}
                 </p>
                 <p className="mt-6 text-xs text-[var(--color-text-secondary)]">
-                  点击翻转查看答案
+                  👆 点击翻转查看答案
                 </p>
               </div>
               {/* Back */}
@@ -98,17 +136,18 @@ export default function ReviewPage() {
               </p>
               <div className="grid grid-cols-4 gap-3">
                 {([
-                  { rating: 1, label: '忘了', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 hover:bg-red-200' },
-                  { rating: 2, label: '困难', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 hover:bg-orange-200' },
-                  { rating: 3, label: '良好', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-200' },
-                  { rating: 4, label: '轻松', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 hover:bg-green-200' },
-                ]).map(({ rating: r, label, color }) => (
+                  { rating: 1, label: '忘了', hint: '1天后', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 hover:bg-red-200' },
+                  { rating: 2, label: '困难', hint: '3天后', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 hover:bg-orange-200' },
+                  { rating: 3, label: '良好', hint: '7天后', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-200' },
+                  { rating: 4, label: '轻松', hint: '14天后', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 hover:bg-green-200' },
+                ]).map(({ rating: r, label, hint, color }) => (
                   <button
                     key={r}
                     onClick={() => rate(r as 1 | 2 | 3 | 4)}
-                    className={`rounded-lg px-4 py-3 text-sm font-semibold transition-all active:scale-95 ${color}`}
+                    className={`rounded-lg px-4 py-3 text-sm font-semibold transition-all active:scale-95 flex flex-col items-center ${color}`}
                   >
-                    {label}
+                    <span>{label}</span>
+                    <span className="text-[10px] opacity-70 font-normal mt-0.5">{hint}</span>
                   </button>
                 ))}
               </div>

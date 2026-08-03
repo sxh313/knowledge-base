@@ -2,116 +2,308 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ═══════════════════════════════════════════════════════════════
+   设计系统 — 学习日记
+   分层：tokens → base → components → utilities
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Tokens ─────────────────────────────────────────────────── */
 @layer base {
   :root {
-    --color-bg: #f8f9fa;
+    /* 背景：温暖的米白，比纯白更柔和 */
+    --color-bg: #fafaf9;
+    --color-bg-grad: linear-gradient(180deg, #fafaf9 0%, #f3f4f6 100%);
+    /* 表面：纯白卡片 */
     --color-surface: #ffffff;
+    --color-surface-hover: #f9fafb;
+    /* 次级表面：稍暗用于嵌套区域 */
+    --color-surface-2: #f3f4f6;
+    /* 边框 */
     --color-border: #e5e7eb;
+    --color-border-strong: #d1d5db;
+    /* 文字 */
     --color-text: #111827;
     --color-text-secondary: #6b7280;
+    --color-text-tertiary: #9ca3af;
+    /* 主色：深靛蓝 */
     --color-primary: #4f46e5;
+    --color-primary-hover: #4338ca;
     --color-primary-light: #eef2ff;
+    /* 强调色：温暖琥珀 */
     --color-accent: #f59e0b;
+    --color-accent-hover: #d97706;
     --color-accent-light: #fffbeb;
+    /* 语义色 */
+    --color-success: #10b981;
+    --color-success-light: #ecfdf5;
+    --color-danger: #ef4444;
+    --color-danger-light: #fef2f2;
+    --color-info: #3b82f6;
+    --color-info-light: #eff6ff;
+
+    /* 阴影系统：分层柔和阴影 */
+    --shadow-xs: 0 1px 2px 0 rgba(0,0,0,0.04);
+    --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.06), 0 1px 2px -1px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.04);
+    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04);
+    --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.04);
+    --shadow-glow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+    --shadow-card-hover: 0 12px 24px -8px rgba(0,0,0,0.12), 0 4px 8px -4px rgba(0,0,0,0.04);
+
+    /* 圆角 */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 18px;
   }
 
   .dark {
-    --color-bg: #0f0f1a;
-    --color-surface: #1a1a2e;
-    --color-border: #2a2a45;
+    /* 背景：深邃午夜蓝黑，比纯黑更有质感 */
+    --color-bg: #0c0c14;
+    --color-bg-grad: linear-gradient(180deg, #0c0c14 0%, #111119 100%);
+    /* 表面：稍亮的深蓝灰 */
+    --color-surface: #181826;
+    --color-surface-hover: #1f1f30;
+    --color-surface-2: #1f1f30;
+    /* 边框 */
+    --color-border: #2a2a3c;
+    --color-border-strong: #3a3a4f;
+    /* 文字 */
     --color-text: #f3f4f6;
-    --color-text-secondary: #9ca3af;
+    --color-text-secondary: #a1a1b5;
+    --color-text-tertiary: #6b7280;
+    /* 主色：夜间柔和靛蓝 */
     --color-primary: #818cf8;
+    --color-primary-hover: #a5b4fc;
     --color-primary-light: #1e1b4b;
+    /* 强调色 */
     --color-accent: #fbbf24;
-    --color-accent-light: #78350f;
+    --color-accent-hover: #fcd34d;
+    --color-accent-light: #422006;
+
+    /* 语义色（夜间） */
+    --color-success: #34d399;
+    --color-success-light: #052e1f;
+    --color-danger: #f87171;
+    --color-danger-light: #3b0a0a;
+    --color-info: #60a5fa;
+    --color-info-light: #0a1f3b;
+
+    /* 阴影：夜间用更深、更明显的阴影 */
+    --shadow-xs: 0 1px 2px 0 rgba(0,0,0,0.3);
+    --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.4), 0 1px 2px -1px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.4), 0 2px 4px -2px rgba(0,0,0,0.3);
+    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.5), 0 4px 6px -4px rgba(0,0,0,0.3);
+    --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.6), 0 8px 10px -6px rgba(0,0,0,0.3);
+    --shadow-glow: 0 0 0 3px rgba(129, 140, 248, 0.2);
+    --shadow-card-hover: 0 12px 24px -8px rgba(0,0,0,0.6), 0 4px 8px -4px rgba(0,0,0,0.4);
   }
 
   html {
     scroll-behavior: smooth;
+    /* 主题切换时的平滑过渡 */
+    transition: background-color 0.3s ease;
   }
 
   body {
-    background-color: var(--color-bg);
+    background: var(--color-bg-grad);
+    background-attachment: fixed;
     color: var(--color-text);
-    font-family: 'Noto Sans SC', system-ui, sans-serif;
+    font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background-color 0.3s ease, color 0.3s ease;
+    min-height: 100vh;
   }
 
-  /* Custom scrollbar */
+  /* 滚动条 — 更精致 */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background-color: var(--color-border);
-    border-radius: 3px;
+    background-color: var(--color-border-strong);
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+    transition: background-color 0.2s;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background-color: var(--color-text-secondary);
+    background-color: var(--color-text-tertiary);
+    background-clip: content-box;
+  }
+
+  /* 文字选中颜色 */
+  ::selection {
+    background-color: rgba(79, 70, 229, 0.2);
+  }
+  .dark ::selection {
+    background-color: rgba(129, 140, 248, 0.25);
+  }
+
+  /* 焦点环统一 */
+  *:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-glow);
+    border-radius: var(--radius-sm);
   }
 }
 
+/* ─── Components ─────────────────────────────────────────────── */
 @layer components {
+  /* 主按钮：带渐变和阴影 */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-brand-700 active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white transition-all active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed;
+    background-image: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255,255,255,0.1) inset;
+  }
+  .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+    box-shadow: var(--shadow-md), 0 0 0 1px rgba(255,255,255,0.15) inset;
+    transform: translateY(-1px);
   }
 
+  /* 次级按钮 */
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-sm font-medium text-[var(--color-text)] transition-all hover:bg-gray-50 dark:hover:bg-surface-cardHover active:scale-[0.97];
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-all active:scale-[0.97];
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-xs);
+  }
+  .btn-secondary:hover {
+    background-color: var(--color-surface-hover);
+    border-color: var(--color-border-strong);
+    box-shadow: var(--shadow-sm);
   }
 
+  /* Ghost 按钮 */
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[var(--color-text-secondary)] transition-all hover:bg-gray-100 dark:hover:bg-surface-cardHover active:scale-[0.97];
+    @apply inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium transition-all active:scale-[0.97];
+    color: var(--color-text-secondary);
+    border-radius: var(--radius-md);
+  }
+  .btn-ghost:hover {
+    background-color: var(--color-surface-2);
+    color: var(--color-text);
   }
 
+  /* 卡片：浮起的白色表面 */
   .card {
-    @apply rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-sm;
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+  }
+  .card-hoverable:hover {
+    box-shadow: var(--shadow-card-hover);
+    border-color: var(--color-border-strong);
+    transform: translateY(-2px);
   }
 
+  /* 输入框 */
   .input-field {
-    @apply w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-secondary)] transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500;
+    @apply w-full px-4 py-2.5 text-sm transition-all;
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-xs);
+  }
+  .input-field::placeholder {
+    color: var(--color-text-tertiary);
+  }
+  .input-field:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-glow);
   }
 
+  /* 标签 */
   .tag {
-    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-medium;
+    border-radius: 9999px;
   }
-
   .tag-accent {
-    @apply tag bg-accent-100 text-accent-800 dark:bg-accent-900/30 dark:text-accent-300;
+    @apply tag;
+    background-color: var(--color-accent-light);
+    color: var(--color-accent-hover);
   }
-
+  .dark .tag-accent {
+    color: var(--color-accent);
+  }
   .tag-brand {
-    @apply tag bg-brand-100 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300;
+    @apply tag;
+    background-color: var(--color-primary-light);
+    color: var(--color-primary);
   }
-
   .tag-gray {
-    @apply tag bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400;
+    @apply tag;
+    background-color: var(--color-surface-2);
+    color: var(--color-text-secondary);
   }
 
+  /* 玻璃态：用于工具栏/侧栏 */
+  .glass {
+    background-color: color-mix(in srgb, var(--color-surface) 85%, transparent);
+    backdrop-filter: blur(12px) saturate(150%);
+    -webkit-backdrop-filter: blur(12px) saturate(150%);
+  }
+
+  /* 分隔线 */
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--color-border), transparent);
+  }
+
+  /* Prose 排版 */
   .prose-custom {
-    @apply prose prose-sm max-w-none
-      prose-headings:text-[var(--color-text)]
-      prose-p:text-[var(--color-text)]
-      prose-a:text-brand-600 dark:prose-a:text-brand-400
-      prose-code:text-brand-700 dark:prose-code:text-brand-300
-      prose-pre:bg-surface-card dark:prose-pre:bg-surface-card
-      prose-pre:border prose-pre:border-[var(--color-border)]
-      prose-img:rounded-lg;
+    @apply prose prose-sm max-w-none;
+    @apply prose-headings:text-[var(--color-text)] prose-headings:font-semibold;
+    @apply prose-p:text-[var(--color-text)] prose-p:leading-relaxed;
+    @apply prose-a:text-[var(--color-primary)] prose-a:no-underline hover:prose-a:underline;
+    @apply prose-strong:text-[var(--color-text)];
+    @apply prose-code:text-[var(--color-primary)] prose-code:bg-[var(--color-surface-2)] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:before:content-[''] prose-code:after:content-[''];
+    @apply prose-pre:bg-[var(--color-surface-2)] prose-pre:border prose-pre:border-[var(--color-border)];
+    @apply prose-blockquote:border-l-[var(--color-primary)] prose-blockquote:bg-[var(--color-primary-light)] prose-blockquote:py-0.5 prose-blockquote:rounded-r-lg;
+    @apply prose-img:rounded-lg;
   }
 }
 
-/* Card flip 3D */
+/* ─── Utilities ──────────────────────────────────────────────── */
+@layer utilities {
+  /* 渐入动画 */
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* 文字渐变 */
+  .text-gradient {
+    background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+}
+
+/* ─── 3D 卡片翻转（复习卡片） ─────────────────────────────────── */
 .perspective-1000 {
   perspective: 1000px;
 }
-
 .backface-hidden {
   backface-visibility: hidden;
 }
-
 .rotate-y-180 {
   transform: rotateY(180deg);
 }

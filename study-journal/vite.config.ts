@@ -41,4 +41,16 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'markdown-vendor': ['react-markdown', 'remark-gfm', 'rehype-highlight'],
+          'data-vendor': ['dexie', 'zustand', 'fuse.js'],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 600,
+  },
 });

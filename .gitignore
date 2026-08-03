@@ -5,3 +5,8 @@ dist/
 .env.*
 .DS_Store
 *.log
+
+
+# Vite temp files
+vite-build-test.ts
+*.timestamp-*.mjs

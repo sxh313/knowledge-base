@@ -10,6 +10,7 @@ interface SettingsStore {
   update: (partial: Partial<AppSettings>) => Promise<void>;
   updateAI: (providers: Partial<AISettings>) => Promise<void>;
   getActiveProvider: () => { name: string; baseUrl: string; apiKey: string } | null;
+  hasAnyProviderConfigured: () => boolean;
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
@@ -47,5 +48,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       }
     }
     return null;
+  },
+
+  hasAnyProviderConfigured: () => {
+    const { settings } = get();
+    if (!settings) return false;
+    const providers = settings.aiProviders;
+    return (Object.keys(providers) as (keyof AISettings)[]).some(
+      (key) => providers[key].enabled && providers[key].apiKey,
+    );
   },
 }));
