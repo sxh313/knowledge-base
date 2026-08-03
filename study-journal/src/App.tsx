@@ -10,6 +10,7 @@ import JournalList from './pages/JournalList';
 import JournalEditor from './pages/JournalEditor';
 import AIChat from './pages/AIChat';
 import ReviewPage from './pages/ReviewPage';
+import Cards from './pages/Cards';
 import Stats from './pages/Stats';
 import KnowledgeMap from './pages/KnowledgeMap';
 import SettingsPage from './pages/SettingsPage';
@@ -42,6 +43,7 @@ export default function App() {
           <Route path="/edit/:id" element={<JournalEditor />} />
           <Route path="/ai" element={<AIChat />} />
           <Route path="/review" element={<ReviewPage />} />
+          <Route path="/cards" element={<Cards />} />
           <Route path="/knowledge" element={<KnowledgeMap />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="/settings" element={<SettingsPage />} />

@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import {
-  FileText, MessageSquare, Brain, BarChart3, Settings, BookOpen,
+  FileText, MessageSquare, Brain, BarChart3, Settings, BookOpen, Layers,
   ChevronLeft, Sun, Moon, Monitor,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -10,6 +10,7 @@ const navItems = [
   { to: '/', icon: FileText, label: '日记' },
   { to: '/ai', icon: MessageSquare, label: 'AI 助手' },
   { to: '/review', icon: BookOpen, label: '复习' },
+  { to: '/cards', icon: Layers, label: '卡片库' },
   { to: '/knowledge', icon: Brain, label: '知识图谱' },
   { to: '/stats', icon: BarChart3, label: '统计' },
   { to: '/settings', icon: Settings, label: '设置' },

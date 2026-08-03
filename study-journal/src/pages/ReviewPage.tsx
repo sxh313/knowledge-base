@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, CheckCircle, PackageOpen } from 'lucide-react';
+import { ArrowLeft, RefreshCw, CheckCircle, PackageOpen, Layers } from 'lucide-react';
 import { useReviewStore } from '../stores/reviewStore';
 import { db } from '../lib/db/schema';
 
@@ -37,10 +37,15 @@ export default function ReviewPage() {
           返回
         </button>
         <h1 className="text-lg font-bold">📅 复习</h1>
-        <button onClick={load} className="btn-ghost">
-          <RefreshCw className="h-4 w-4" />
-          刷新
-        </button>
+        <div className="flex items-center gap-1">
+          <button onClick={() => navigate('/cards')} className="btn-ghost" title="卡片库">
+            <Layers className="h-4 w-4" />
+            卡片库
+          </button>
+          <button onClick={load} className="btn-ghost" title="刷新">
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {/* Progress */}
@@ -63,9 +68,14 @@ export default function ReviewPage() {
             <p className="text-sm max-w-xs text-center">
               在日记编辑器中使用 AI 生成知识卡片，然后来这里间隔复习
             </p>
-            <button onClick={() => navigate('/')} className="btn-primary mt-4">
-              ✏️ 去写日记
-            </button>
+            <div className="flex flex-wrap justify-center gap-3 mt-2">
+              <button onClick={() => navigate('/cards')} className="btn-primary">
+                🗂 去卡片库创建
+              </button>
+              <button onClick={() => navigate('/')} className="btn-secondary">
+                ✏️ 去写日记
+              </button>
+            </div>
           </div>
         ) : isComplete ? (
           /* 今天确实复习完了 */

@@ -1,1 +1,0 @@
-// DUPLICATE — already covered by JournalEditor.tsx\nexport default function JournalEdit() {\n  return null;\n}

@@ -125,6 +125,31 @@ export async function getAllCards() {
   return db.cards.toArray();
 }
 
+export async function deleteCard(id: string) {
+  await db.cards.delete(id);
+}
+
+/** 物理删除多张卡片（批量） */
+export async function deleteCards(ids: string[]) {
+  await db.cards.bulkDelete(ids);
+}
+
+/** 重置某张卡片的复习进度（编辑内容后重新学习用） */
+export async function resetCardProgress(id: string) {
+  const existing = await db.cards.get(id);
+  if (!existing) throw new Error('Card not found');
+  await db.cards.put({
+    ...existing,
+    stability: 1.0,
+    difficulty: 5.0,
+    repetitions: 0,
+    state: 'new',
+    lastReviewAt: undefined,
+    nextReviewAt: Date.now(),
+  });
+  return existing;
+}
+
 // ──── Conversations ────
 
 export async function saveConversation(data: Omit<AIConversation, 'id' | 'createdAt'>) {
