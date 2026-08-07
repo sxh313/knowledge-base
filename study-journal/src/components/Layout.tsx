@@ -1,10 +1,14 @@
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import {
   FileText, MessageSquare, Brain, BarChart3, Settings, BookOpen, Layers,
-  ChevronLeft, Sun, Moon, Monitor,
+  ChevronLeft, Sun, Moon, Monitor, Search, HelpCircle,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useThemeStore, type ThemeMode } from '../stores/themeStore';
+
+interface LayoutProps {
+  onOpenPalette?: () => void;
+}
 
 const navItems = [
   { to: '/', icon: FileText, label: '文档' },
@@ -23,7 +27,7 @@ const themeConfig: Record<ThemeMode, { icon: typeof Sun; label: string; hint: st
   auto: { icon: Monitor, label: '跟随系统', hint: '随' },
 };
 
-export default function Layout() {
+export default function Layout({ onOpenPalette }: LayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
   const { mode, setMode } = useThemeStore();
@@ -40,18 +44,15 @@ export default function Layout() {
         }`}
       >
         {/* Logo 区 */}
-        <div className="flex h-14 items-center justify-between border-b border-[var(--color-border)] px-4">
-          {!collapsed && (
+        <div className="flex h-14 items-center justify-between border-b border-[var(--color-border)] px-4 relative">
+          {!collapsed ? (
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-sm">
                 <BookOpen className="h-4 w-4" />
               </div>
-              <span className="text-sm font-bold tracking-tight text-gradient">
-                知识库
-              </span>
+              <span className="text-sm font-bold tracking-tight text-gradient">知识库</span>
             </div>
-          )}
-          {collapsed && (
+          ) : (
             <div className="mx-auto flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-sm">
               <BookOpen className="h-4 w-4" />
             </div>
@@ -62,14 +63,25 @@ export default function Layout() {
             title={collapsed ? '展开侧栏' : '收起侧栏'}
             type="button"
           >
-            <ChevronLeft
-              className={`h-4 w-4 transition-transform ${collapsed ? 'rotate-180' : ''}`}
-            />
+            <ChevronLeft className={`h-4 w-4 transition-transform ${collapsed ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+
+        {/* 搜索触发区 */}
+        <div className="p-2 border-b border-[var(--color-border)]">
+          <button
+            onClick={onOpenPalette}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-[var(--color-text-tertiary)] bg-[var(--color-surface-2)] hover:bg-[var(--color-border)] transition-colors"
+            title="搜索文档和快捷操作"
+          >
+            <Search className="h-3.5 w-3.5" />
+            {collapsed ? <span className="text-xs">⌘K</span> : <span>搜索...</span>}
+            {!collapsed && <kbd className="ml-auto text-[10px]">⌘K</kbd>}
           </button>
         </div>
 
         {/* 导航 */}
-        <nav className="flex-1 space-y-1 p-2">
+        <nav className="flex-1 space-y-1 p-2 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = item.to === '/'
               ? location.pathname === '/'
@@ -96,11 +108,22 @@ export default function Layout() {
           })}
         </nav>
 
-        {/* 底部：主题切换 + 版本 */}
+        {/* 底部：使用手册 + 主题切换 + 版本 */}
         <div className="border-t border-[var(--color-border)] p-2">
+          <NavLink
+            to="/manual"
+            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--color-text-secondary)] transition-all hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)] ${
+              location.pathname === '/manual' ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)]' : ''
+            }`}
+            title="使用手册"
+          >
+            <HelpCircle className="h-4 w-4 flex-shrink-0" />
+            {!collapsed && <span className="text-xs">使用手册</span>}
+          </NavLink>
+
           <button
             onClick={() => setMode(nextTheme)}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-[var(--color-text-secondary)] transition-all hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--color-text-secondary)] transition-all hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
             title={`当前: ${themeConfig[mode].label} — 点击切换为${themeConfig[nextTheme].label}`}
             type="button"
           >
@@ -108,16 +131,12 @@ export default function Layout() {
             {!collapsed && (
               <>
                 <span>{themeConfig[mode].label}</span>
-                <span className="ml-auto text-[10px] text-[var(--color-text-tertiary)]">
-                  → {themeConfig[nextTheme].hint}
-                </span>
+                <span className="ml-auto text-[10px] text-[var(--color-text-tertiary)]">→ {themeConfig[nextTheme].hint}</span>
               </>
             )}
           </button>
           {!collapsed && (
-            <div className="px-3 pt-1 pb-1 text-[10px] text-[var(--color-text-tertiary)]">
-              知识库 v1.0
-            </div>
+            <div className="px-3 pt-1 pb-1 text-[10px] text-[var(--color-text-tertiary)]">知识库 v1.0</div>
           )}
         </div>
       </aside>
