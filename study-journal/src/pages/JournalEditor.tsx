@@ -7,6 +7,7 @@ import { useHistory } from '../lib/hooks/useHistory';
 import MarkdownEditor from '../components/MarkdownEditor';
 import TagInput from '../components/TagInput';
 import AIChatPanel from '../components/AIChatPanel';
+import DocOutline from '../components/DocOutline';
 
 export default function JournalEditor() {
   const { id } = useParams();
