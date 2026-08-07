@@ -19,10 +19,10 @@ const turndown = new TurndownService({
 // 配置 turndown 规则
 turndown.addRule('taskList', {
   filter: (node) => {
-    return node.nodeName === 'INPUT' && node.hasAttribute('type') && node.getAttribute('type') === 'checkbox';
+    return node.nodeName === 'INPUT' && (node as HTMLInputElement).hasAttribute('type') && (node as HTMLInputElement).getAttribute('type') === 'checkbox';
   },
-  replacement: (content, node: HTMLInputElement) => {
-    return node.checked ? '[x] ' : '[ ] ';
+  replacement: (content, node) => {
+    return (node as HTMLInputElement).checked ? '[x] ' : '[ ] ';
   },
 });
 
