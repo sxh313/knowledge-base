@@ -10,9 +10,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/*.png', 'favicon.ico'],
       manifest: {
-        name: '学习日记',
-        short_name: '学习日记',
-        description: 'AI 增强型学习日记 App — 记录、整理、复习',
+        name: '知识库',
+        short_name: '知识库',
+        description: 'AI 增强型知识管理工具 — 记录、整理、复习、知识图谱',
         theme_color: '#1a1a2e',
         background_color: '#f8f9fa',
         display: 'standalone',
