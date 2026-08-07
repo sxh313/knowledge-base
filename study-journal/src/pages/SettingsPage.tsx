@@ -37,7 +37,7 @@ export default function SettingsPage() {
   }, [localProviders]);
 
   if (!settings || !localProviders) {
-    return <div className="flex items-center justify-center h-64"><p className="text-gray-500">Loading...</p></div>;
+    return <div className="flex items-center justify-center h-64"><p className="text-gray-500">加载中...</p></div>;
   }
 
   const updateField = (key: ProviderName, field: 'baseUrl' | 'apiKey' | 'enabled', value: string | boolean) => {
@@ -47,7 +47,7 @@ export default function SettingsPage() {
   const handleRefreshModels = async (key: ProviderName) => {
     const prov = localProviders[key];
     if (!prov?.apiKey) {
-      setRefreshMsg(prev => ({ ...prev, [key]: 'Please enter API Key first' }));
+      setRefreshMsg(prev => ({ ...prev, [key]: '请先填写 API Key' }));
       return;
     }
     setRefreshing(prev => ({ ...prev, [key]: true }));
@@ -55,7 +55,7 @@ export default function SettingsPage() {
     try {
       const baseUrl = prov.baseUrl || DEFAULT_BASE_URLS[key];
       const models = await fetchAvailableModels(key, baseUrl, prov.apiKey);
-      setRefreshMsg(prev => ({ ...prev, [key]: `Found ${models.length} models` }));
+      setRefreshMsg(prev => ({ ...prev, [key]: `发现 ${models.length} 个模型` }));
       await load();
     } catch (err) {
       setRefreshMsg(prev => ({ ...prev, [key]: `${(err as Error).message}` }));
@@ -64,7 +64,6 @@ export default function SettingsPage() {
     }
   };
 
-  // Toggle a model in selectedModels
   const toggleModel = (model: string) => {
     const current = settings.selectedModels ?? [];
     const next = current.includes(model)
@@ -73,18 +72,6 @@ export default function SettingsPage() {
     update({ selectedModels: next });
   };
 
-  // All available models from all refreshed providers
-  const allRefreshedModels: string[] = (() => {
-    const models = new Set<string>();
-    for (const key of Object.keys(settings.availableModels ?? {})) {
-      if (localProviders[key as ProviderName]?.enabled) {
-        settings.availableModels[key].forEach(m => models.add(m));
-      }
-    }
-    return Array.from(models).sort();
-  })();
-
-  // Models for preference dropdown = selectedModels + default
   const dropdownModels: string[] = (() => {
     const models = new Set<string>(['deepseek-v4-flash']);
     (settings.selectedModels ?? []).forEach(m => models.add(m));
@@ -94,14 +81,14 @@ export default function SettingsPage() {
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-8">
       <header>
-        <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-sm text-gray-500 mt-1">API Key encrypted in browser IndexedDB, never sent to server</p>
+        <h1 className="text-2xl font-bold">设置</h1>
+        <p className="text-sm text-gray-500 mt-1">API Key 加密存储在浏览器 IndexedDB，不经过服务器</p>
       </header>
 
-      {/* AI Providers */}
+      {/* AI 服务配置 */}
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold">AI Service Config</h2>
-        <p className="text-xs text-gray-400">Configure API Key, then click refresh to load available models</p>
+        <h2 className="text-lg font-semibold">🤖 AI 服务配置</h2>
+        <p className="text-xs text-gray-400">填写 API Key 后点击「刷新模型」获取可用模型列表，勾选你想使用的模型</p>
 
         {PROVIDER_INFO.map(({ key, label, desc, icon }) => {
           const prov = localProviders[key];
@@ -130,7 +117,7 @@ export default function SettingsPage() {
               {prov.enabled && (
                 <div className="space-y-2 pl-10">
                   <div>
-                    <label className="text-xs text-gray-400">API URL</label>
+                    <label className="text-xs text-gray-400">API 地址</label>
                     <input className="input-field mt-1 text-xs font-mono"
                       value={prov.baseUrl || DEFAULT_BASE_URLS[key]}
                       onChange={(e) => updateField(key, 'baseUrl', e.target.value)}
@@ -144,39 +131,35 @@ export default function SettingsPage() {
                       placeholder="sk-..." />
                   </div>
 
-                  {/* Refresh button */}
+                  {/* 刷新模型按钮 */}
                   <div className="flex items-center gap-2 mt-2">
                     <button className="btn-secondary text-xs"
                       onClick={() => handleRefreshModels(key)}
                       disabled={isRefreshing || !prov.apiKey}>
                       {isRefreshing
-                        ? <><RefreshCw className="w-3 h-3 animate-spin" /> Refreshing...</>
-                        : <><RefreshCw className="w-3 h-3" /> Refresh Models</>}
+                        ? <><RefreshCw className="w-3 h-3 animate-spin" /> 刷新中...</>
+                        : <><RefreshCw className="w-3 h-3" /> 🔄 刷新模型</>}
                     </button>
                     {models.length > 0 && (
-                      <span className="text-xs text-gray-400">{models.length} models found</span>
+                      <span className="text-xs text-gray-400">共 {models.length} 个模型</span>
                     )}
                   </div>
                   {msg && (
-                    <p className={`text-xs ${msg.startsWith('Found') ? 'text-green-500' : 'text-red-500'}`}>{msg}</p>
+                    <p className={`text-xs ${msg.startsWith('发现') ? 'text-green-500' : 'text-red-500'}`}>{msg}</p>
                   )}
 
-                  {/* Model list with checkboxes */}
+                  {/* 模型勾选列表 */}
                   {models.length > 0 && (
                     <div className="mt-2 rounded-lg border border-[var(--color-border)] overflow-hidden">
                       <div className="bg-gray-50 dark:bg-gray-800/50 px-3 py-2 text-xs font-medium text-gray-500">
-                        Select models to use:
+                        勾选要使用的模型：
                       </div>
                       <div className="max-h-48 overflow-y-auto divide-y divide-[var(--color-border)]">
                         {models.map(m => {
                           const checked = settings.selectedModels?.includes(m) ?? false;
                           return (
                             <label key={m} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800/30 cursor-pointer">
-                              <button
-                                type="button"
-                                onClick={() => toggleModel(m)}
-                                className="flex-shrink-0"
-                              >
+                              <button type="button" onClick={() => toggleModel(m)} className="flex-shrink-0">
                                 {checked
                                   ? <CheckCircle2 className="w-4 h-4 text-brand-500" />
                                   : <Square className="w-4 h-4 text-gray-300" />}
@@ -195,18 +178,18 @@ export default function SettingsPage() {
         })}
       </section>
 
-      {/* Model Preferences */}
+      {/* 模型偏好 */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Model Preferences</h2>
+        <h2 className="text-lg font-semibold">🎯 模型偏好</h2>
         <p className="text-xs text-gray-400">
-          Select from your checked models above. Default: deepseek-v4-flash
-          {(settings.selectedModels ?? []).length === 0 && ' (No models selected yet, using defaults)'}
+          从上方勾选的模型中选择，默认：deepseek-v4-flash
+          {(settings.selectedModels ?? []).length === 0 && '（尚未勾选模型，使用默认）'}
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {([
-            { key: 'highQuality' as const, label: 'High Quality (Summary/QA)' },
-            { key: 'codeTask' as const, label: 'Code Tasks' },
-            { key: 'fastTask' as const, label: 'Fast Tasks (Tags)' },
+            { key: 'highQuality' as const, label: '高质量任务（总结/问答）' },
+            { key: 'codeTask' as const, label: '代码任务' },
+            { key: 'fastTask' as const, label: '快速任务（标签/情绪）' },
           ]).map(({ key, label }) => (
             <div key={key} className="card">
               <label className="text-xs text-gray-400">{label}</label>
@@ -217,7 +200,7 @@ export default function SettingsPage() {
                   onChange={(e) => update({ preferredModels: { ...settings.preferredModels, [key]: e.target.value } })}
                 >
                   {!dropdownModels.includes(settings.preferredModels[key]) && (
-                    <option value={settings.preferredModels[key]}>{settings.preferredModels[key]} (current)</option>
+                    <option value={settings.preferredModels[key]}>{settings.preferredModels[key]}（当前）</option>
                   )}
                   {dropdownModels.map(m => (
                     <option key={m} value={m}>{m}</option>
@@ -230,22 +213,22 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* Connection Test */}
+      {/* 连接测试 */}
       <section className="card">
-        <h2 className="text-lg font-semibold mb-3">Connection Test</h2>
-        <p className="text-xs text-gray-400 mb-3">Test API connectivity</p>
+        <h2 className="text-lg font-semibold mb-3">🔌 连接测试</h2>
+        <p className="text-xs text-gray-400 mb-3">测试各 API 服务是否可用</p>
         <ConnectionTest />
       </section>
 
-      {/* Data Management */}
+      {/* 数据管理 */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Data Management</h2>
+        <h2 className="text-lg font-semibold">💾 数据管理</h2>
         <div className="flex gap-3">
           <button className="btn-secondary" onClick={() => import('../lib/services/export').then(m => m.exportAllData())}>
-            Export
+            📤 导出数据
           </button>
           <button className="btn-secondary" onClick={() => document.getElementById('import-file')?.click()}>
-            Import
+            📥 导入数据
           </button>
           <input id="import-file" type="file" accept=".json" className="hidden"
             onChange={(e) => {
@@ -256,7 +239,7 @@ export default function SettingsPage() {
       </section>
 
       <div className="text-xs text-gray-400 text-center pb-8">
-        API Key and data encrypted in your browser (IndexedDB), never uploaded to any server
+        API Key 和笔记数据加密存储在你的浏览器中（IndexedDB），不会上传到任何服务器
       </div>
     </div>
   );
@@ -271,13 +254,13 @@ function ConnectionTest() {
     const newResults = [...results];
     for (let i = 0; i < PROVIDER_INFO.length; i++) {
       const { key } = PROVIDER_INFO[i];
-      newResults[i] = { ...newResults[i], status: 'testing', msg: 'Testing...' };
+      newResults[i] = { ...newResults[i], status: 'testing', msg: '测试中...' };
       setResults([...newResults]);
 
       const settings = useSettingsStore.getState().settings;
       const prov = settings?.aiProviders[key];
       if (!prov?.enabled || !prov.apiKey) {
-        newResults[i] = { ...newResults[i], status: 'waiting', msg: 'Not configured' };
+        newResults[i] = { ...newResults[i], status: 'waiting', msg: '未配置' };
         setResults([...newResults]);
         continue;
       }
@@ -293,12 +276,12 @@ function ConnectionTest() {
         if (res.ok) {
           const data = await res.json();
           const count = data.data?.length ?? 0;
-          newResults[i] = { ...newResults[i], status: 'ok', msg: `OK (${count} models)` };
+          newResults[i] = { ...newResults[i], status: 'ok', msg: `✅ 可用（${count} 个模型）` };
         } else {
-          newResults[i] = { ...newResults[i], status: 'fail', msg: `${res.status} ${res.statusText}` };
+          newResults[i] = { ...newResults[i], status: 'fail', msg: `❌ ${res.status} ${res.statusText}` };
         }
       } catch (e) {
-        newResults[i] = { ...newResults[i], status: 'fail', msg: (e as Error).message };
+        newResults[i] = { ...newResults[i], status: 'fail', msg: `❌ ${(e as Error).message}` };
       }
       setResults([...newResults]);
     }
@@ -306,11 +289,11 @@ function ConnectionTest() {
 
   return (
     <div className="space-y-2">
-      <button className="btn-primary text-sm" onClick={testAll}>Test All</button>
+      <button className="btn-primary text-sm" onClick={testAll}>🔄 全部测试</button>
       {results.map((r, i) => (
         <div key={i} className={`flex items-center gap-2 text-sm ${r.status === 'testing' ? 'text-yellow-500' : r.status === 'ok' ? 'text-green-600' : r.status === 'fail' ? 'text-red-500' : 'text-gray-400'}`}>
           <span className="w-20">{PROVIDER_INFO[i].label}</span>
-          <span>{r.status === 'testing' ? '...' : r.status === 'ok' ? <Check className="w-4 h-4 inline" /> : r.status === 'fail' ? 'x' : '-'}</span>
+          <span>{r.status === 'testing' ? '⟳' : r.status === 'ok' ? <Check className="w-4 h-4 inline" /> : r.status === 'fail' ? '✗' : '—'}</span>
           <span className="text-xs">{r.msg}</span>
         </div>
       ))}
