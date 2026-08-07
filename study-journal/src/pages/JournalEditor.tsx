@@ -70,7 +70,7 @@ export default function JournalEditor() {
     setSaving(false);
   }, [title, content, subject, tagsInput, timeSpent, difficulty, isNew, id]);
 
-  // 自动保存防抖（新日记 + 已有日记均自动保存）
+  // 自动保存防抖（新文档 + 已有文档均自动保存）
   useEffect(() => {
     if (!title.trim() && !content.trim()) return;
     const timer = setTimeout(handleSave, 3000);

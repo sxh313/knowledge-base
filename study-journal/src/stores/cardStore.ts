@@ -52,7 +52,7 @@ export const useCardStore = create<CardStore>((set, get) => ({
   load: async () => {
     set({ isLoading: true });
     const cards = await getAllCards();
-    // 最新创建的排前面，与日记列表一致的心智
+    // 最新创建的排前面，与文档列表一致的心智
     cards.sort((a, b) => b.createdAt - a.createdAt);
     set({ cards, isLoading: false });
   },
