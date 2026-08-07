@@ -55,6 +55,19 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
     },
   });
 
+  // 外部内容变化时同步到编辑器（如加载已有文档）
+  const lastEmittedRef = useRef(value);
+  useEffect(() => {
+    if (!editor) return;
+    if (value !== lastEmittedRef.current) {
+      const newHtml = markdownToHtml(value);
+      if (editor.getHTML() !== newHtml) {
+        editor.commands.setContent(newHtml, false);
+      }
+      lastEmittedRef.current = value;
+    }
+  }, [value, editor]);
+
   const allCommands = getSlashCommands();
   const filteredCommands = slashQuery
     ? allCommands.filter(c =>
