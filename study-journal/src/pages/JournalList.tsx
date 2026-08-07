@@ -33,13 +33,13 @@ export default function JournalList() {
       {/* Header */}
       <div className="flex items-center justify-between px-1 py-3">
         <div>
-          <h1 className="text-2xl font-bold text-gradient">学习日记</h1>
+          <h1 className="text-2xl font-bold text-gradient">知识库</h1>
           <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
-            {filtered.length > 0 ? `共 ${filtered.length} 篇` : '记录每一天的成长'}
+            {filtered.length > 0 ? `共 ${filtered.length} 篇文档` : '构建你的知识体系'}
           </p>
         </div>
         <button className="btn-primary text-sm" onClick={() => { setCurrent(null); navigate('/edit/new'); }}>
-          ✏️ 新日记
+          ✏️ 新文档
         </button>
       </div>
 
