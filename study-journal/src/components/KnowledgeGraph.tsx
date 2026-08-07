@@ -45,7 +45,7 @@ export default function KnowledgeGraph({
       <div className="flex flex-col items-center gap-3 py-16 text-[var(--color-text-secondary)]">
         <Loader2 className="h-12 w-12 opacity-30" />
         <p className="text-lg font-medium">知识图谱为空</p>
-        <p className="text-sm">创建日记时使用 AI 自动提取概念即可构建知识图谱</p>
+        <p className="text-sm">创建文档时使用 AI 自动提取概念即可构建知识图谱</p>
       </div>
     );
   }

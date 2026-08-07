@@ -82,7 +82,7 @@ export default function Stats() {
         <div className="card text-center">
           <BookOpen className="mx-auto h-6 w-6 text-brand-500 mb-2" />
           <p className="text-2xl font-bold text-[var(--color-text)]">{totalJournals}</p>
-          <p className="text-xs text-[var(--color-text-secondary)]">日记</p>
+          <p className="text-xs text-[var(--color-text-secondary)]">文档</p>
         </div>
         <div className="card text-center">
           <Brain className="mx-auto h-6 w-6 text-accent-500 mb-2" />

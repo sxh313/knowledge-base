@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { useThemeStore, type ThemeMode } from '../stores/themeStore';
 
 const navItems = [
-  { to: '/', icon: FileText, label: '日记' },
+  { to: '/', icon: FileText, label: '文档' },
   { to: '/ai', icon: MessageSquare, label: 'AI 助手' },
   { to: '/review', icon: BookOpen, label: '复习' },
   { to: '/cards', icon: Layers, label: '卡片库' },
@@ -116,7 +116,7 @@ export default function Layout() {
           </button>
           {!collapsed && (
             <div className="px-3 pt-1 pb-1 text-[10px] text-[var(--color-text-tertiary)]">
-              学习日记 v1.0
+              知识库 v1.0
             </div>
           )}
         </div>

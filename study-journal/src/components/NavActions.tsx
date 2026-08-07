@@ -13,7 +13,7 @@ export default function NavActions({ collapsed }: NavActionsProps) {
   const actions = [
     {
       icon: Plus,
-      label: '新建日记',
+      label: '新建文档',
       onClick: () => { setCurrent(null); navigate('/edit/new'); },
     },
     {
