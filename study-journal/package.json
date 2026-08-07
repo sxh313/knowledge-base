@@ -13,16 +13,23 @@
     "push": "bash deploy.sh"
   },
   "dependencies": {
+    "@tiptap/extension-image": "^3.29.2",
+    "@tiptap/extension-link": "^3.29.2",
+    "@tiptap/extension-placeholder": "^3.29.2",
+    "@tiptap/react": "^3.29.2",
+    "@tiptap/starter-kit": "^3.29.2",
     "dexie": "^4.0.8",
     "fuse.js": "^7.0.0",
     "graphlib": "^2.1.8",
     "lucide-react": "^0.383.0",
+    "marked": "^18.0.9",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
     "react-router-dom": "^6.26.0",
     "rehype-highlight": "^7.0.0",
     "remark-gfm": "^4.0.0",
+    "turndown": "^7.2.0",
     "zustand": "^4.5.5"
   },
   "devDependencies": {

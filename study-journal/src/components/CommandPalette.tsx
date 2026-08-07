@@ -165,7 +165,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
                     <FileText className="w-4 h-4 text-brand-400 flex-shrink-0" />
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[var(--color-text)] truncate">{cmd.label || cmd.title}</p>
+                    <p className="text-sm font-medium text-[var(--color-text)] truncate">{cmd.type === 'action' ? cmd.label : cmd.title}</p>
                     {cmd.type === 'action' ? (
                       <p className="text-xs text-gray-400 truncate">{cmd.desc}</p>
                     ) : (
