@@ -13,7 +13,7 @@ import {
   Quote, Heading1, Heading2, Heading3, Pilcrow, CodeXml, Minus, Image as ImageIcon,
 } from 'lucide-react';
 import { markdownToHtml, htmlToMarkdown } from '../lib/mardownUtils';
-import { SlashCommand, getSlashCommands, type SlashCommandItem } from './tiptap/slashCommand';
+import { getSlashCommands, type SlashCommandItem } from './tiptap/slashCommand';
 
 interface RichTextEditorProps {
   value: string;          // Markdown
@@ -41,7 +41,6 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       TaskList,
       TaskItem.configure({ nested: true }),
       Underline,
-      SlashCommand,
     ],
     content: markdownToHtml(value),
     autofocus: autoFocus ? 'end' : false,
@@ -56,7 +55,26 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
     },
   });
 
-  // 监听斜杠输入
+  const allCommands = getSlashCommands();
+  const filteredCommands = slashQuery
+    ? allCommands.filter(c =>
+        (c.title + ' ' + (c.keywords ?? '')).toLowerCase().includes(slashQuery.toLowerCase()))
+    : allCommands;
+
+  const executeCommand = useCallback((cmd: SlashCommandItem) => {
+    if (!editor) return;
+    // 删除已输入的斜杠字符和查询文本
+    const { from } = editor.state.selection;
+    const textBefore = editor.state.doc.textBetween(0, from, ' ') || '';
+    const slashIdx = textBefore.lastIndexOf('/');
+    if (slashIdx >= 0) {
+      editor.chain().focus().deleteRange({ from: slashIdx, to: from }).run();
+    }
+    cmd.action(editor);
+    setSlashOpen(false);
+  }, [editor]);
+
+  // 监听斜杠输入和键盘导航
   useEffect(() => {
     if (!editor) return;
 
@@ -66,7 +84,6 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
         const { state } = editor;
         const { from } = state.selection;
         const textBefore = state.doc.textBetween(0, from, ' ') || '';
-        // 仅在行首或段落开头触发
         const lineStart = textBefore.lastIndexOf('\n');
         const lineText = textBefore.slice(lineStart + 1);
         if (lineText.trim() === '') {
@@ -87,9 +104,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
         } else if (e.key === 'Enter') {
           e.preventDefault();
           const cmd = filteredCommands[slashIndex];
-          if (cmd) {
-            executeCommand(cmd);
-          }
+          if (cmd) executeCommand(cmd);
         } else if (e.key === 'Escape') {
           setSlashOpen(false);
         }
@@ -97,7 +112,6 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
     };
 
     const handleUpdate = () => {
-      // 监听内容变化，更新斜杠查询
       if (slashOpen) {
         const { state } = editor;
         const { from } = state.selection;
@@ -118,42 +132,27 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       editor.off('update', handleUpdate);
       editor.off('selectionUpdate', handleUpdate);
     };
-  }, [editor, slashOpen]);
+  }, [editor, slashOpen, filteredCommands, slashIndex, executeCommand]);
 
-  const allCommands = getSlashCommands();
-  const filteredCommands = slashQuery
-    ? allCommands.filter(c =>
-        (c.title + c.keywords).toLowerCase().includes(slashQuery.toLowerCase()))
-    : allCommands;
-
-  const executeCommand = useCallback((cmd: SlashCommandItem) => {
-    if (!editor) return;
-    // 删除已输入的斜杠字符和查询文本
-    const { from } = editor.state.selection;
-    const textBefore = editor.state.doc.textBetween(0, from, ' ') || '';
-    const slashIdx = textBefore.lastIndexOf('/');
-    if (slashIdx >= 0) {
-      editor.chain().focus().deleteRange({ from: slashIdx, to: from }).run();
-    }
-    cmd.action(editor);
-    setSlashOpen(false);
-  }, [editor]);
-
-  // 关闭菜单：点击编辑器其他区域
+  // 点击编辑器外部关闭菜单
   useEffect(() => {
     if (!editor) return;
-    const handler = () => setSlashOpen(false);
-    document.addEventListener('click', handler);
-    return () => document.removeEventListener('click', handler);
+    const handler = (e: MouseEvent) => {
+      if (slashItemsRef.current && !slashItemsRef.current.contains(e.target as Node)) {
+        setSlashOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, [editor]);
 
   if (!editor) return null;
 
-  const isActive = (fn: () => boolean) => editor.isActive(fn);
+  const isActive = (name: string, attrs?: Record<string, unknown>) => editor.isActive(name, attrs);
 
   return (
     <div className="relative">
-      {/* 浮动格式化工具栏（选中文字时） */}
+      {/* 浮动工具栏（选中文字时） */}
       <BubbleMenu editor={editor} tippyOptions={{ duration: 100 }}>
         <div className="flex items-center gap-0.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg px-1 py-1">
           <ToolbarBtn onClick={() => editor.chain().focus().toggleBold().run()} active={isActive('bold')} title="加粗"><Bold className="w-3.5 h-3.5" /></ToolbarBtn>
@@ -178,9 +177,9 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
 
       {/* 固定工具栏 */}
       <div className="flex items-center flex-wrap gap-0.5 px-1 py-1.5 border-b border-[var(--color-border)] mb-2">
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={isActive('heading', { level: 1 }) as any} title="标题 1"><Heading1 className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} active={isActive('heading', { level: 2 }) as any} title="标题 2"><Heading2 className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} active={isActive('heading', { level: 3 }) as any} title="标题 3"><Heading3 className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={isActive('heading', { level: 1 })} title="标题 1"><Heading1 className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} active={isActive('heading', { level: 2 })} title="标题 2"><Heading2 className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} active={isActive('heading', { level: 3 })} title="标题 3"><Heading3 className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().setParagraph().run()} active={isActive('paragraph')} title="正文"><Pilcrow className="w-4 h-4" /></ToolbarBtn>
         <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
         <ToolbarBtn onClick={() => editor.chain().focus().toggleBold().run()} active={isActive('bold')} title="加粗"><Bold className="w-4 h-4" /></ToolbarBtn>
@@ -231,7 +230,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
                 onClick={() => executeCommand(cmd)}
               >
                 <span className="flex h-7 w-7 items-center justify-center rounded-md bg-[var(--color-surface-2)] text-xs font-semibold text-[var(--color-text-secondary)]">
-                  {cmd.icon.startsWith('http') ? 'img' : cmd.icon}
+                  {cmd.icon}
                 </span>
                 <div>
                   <p className="text-sm font-medium text-[var(--color-text)]">{cmd.title}</p>
