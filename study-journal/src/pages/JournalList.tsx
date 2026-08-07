@@ -49,7 +49,7 @@ export default function JournalList() {
           <div className="flex items-start gap-3">
             <span className="text-2xl">👋</span>
             <div className="flex-1">
-              <h3 className="font-medium text-sm text-[var(--color-primary)]">欢迎使用学习日记！</h3>
+              <h3 className="font-medium text-sm text-[var(--color-primary)]">欢迎来到知识库！</h3>
               <p className="text-xs text-[var(--color-text-secondary)] mt-1">
                 配置你的 AI API 入口后，即可使用智能总结、自动生成知识卡片、代码分析等功能。
               </p>
@@ -70,7 +70,7 @@ export default function JournalList() {
       <div className="px-1 py-3 space-y-2">
         <input
           className="input-field"
-          placeholder="🔍 搜索日记标题、内容、标签..."
+          placeholder="搜索文档标题、内容、标签..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
@@ -100,7 +100,7 @@ export default function JournalList() {
             </div>
             {searchQuery || selectedSubject ? (
               <>
-                <p className="text-[var(--color-text-secondary)] text-sm">没有找到匹配的日记</p>
+                <p className="text-[var(--color-text-secondary)] text-sm">没有找到匹配的文档</p>
                 <button className="btn-ghost text-xs mt-3"
                   onClick={() => { setSearchQuery(''); setSelectedSubject(null); }}>
                   清除筛选
@@ -108,11 +108,11 @@ export default function JournalList() {
               </>
             ) : (
               <>
-                <p className="text-[var(--color-text)] font-medium text-sm">你还没有任何学习日记</p>
+                <p className="text-[var(--color-text)] font-medium text-sm">你还没有任何文档</p>
                 <p className="text-xs text-[var(--color-text-secondary)] mt-1">记录今天学到的第一个知识点吧</p>
                 <button className="btn-primary mt-4 px-6 py-2.5"
                   onClick={() => { setCurrent(null); navigate('/edit/new'); }}>
-                  ✏️ 写第一篇日记
+                  ✏️ 写第一篇文档
                 </button>
               </>
             )}
