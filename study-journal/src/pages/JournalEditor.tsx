@@ -148,14 +148,10 @@ export default function JournalEditor() {
       {/* 主体区域 */}
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-y-auto p-4">
-          <MarkdownEditor
+          <RichTextEditor
             value={content}
             onChange={setContent}
-            minHeight={600}
-            onUndo={contentHistory.undo}
-            onRedo={contentHistory.redo}
-            canUndo={contentHistory.canUndo}
-            canRedo={contentHistory.canRedo}
+            autoFocus={isNew}
           />
         </div>
 

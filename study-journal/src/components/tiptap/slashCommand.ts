@@ -1,10 +1,7 @@
-import { Markdown } from '@tiptap/core';
-import { Extension } from '@tiptap/core';
-import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
-import { Editor } from '@tiptap/react';
+import type { Editor } from '@tiptap/react';
 
-// ─── 斜杠命令插件 ───
-// 输入 / 弹出命令菜单，选择后插入对应块
+// ─── 斜杠命令 ───
+// 在 RichTextEditor 中通过 DOM 事件监听 / 输入，弹出命令菜单
 
 export interface SlashCommandItem {
   title: string;
@@ -13,25 +10,6 @@ export interface SlashCommandItem {
   keywords?: string;
   action: (editor: Editor) => void;
 }
-
-export const SlashCommand = Extension.create({
-  name: 'slashCommand',
-
-  addOptions() {
-    return { suggestion: { char: '/' } };
-  },
-
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: new PluginKey('slashCommand'),
-        props: {
-          // 可选的键盘处理
-        },
-      }),
-    ];
-  },
-});
 
 // 命令列表
 export function getSlashCommands(): SlashCommandItem[] {
