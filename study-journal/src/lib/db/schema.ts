@@ -91,8 +91,10 @@ export interface AppSettings {
     codeTask: string;      // default: deepseek-v4-flash
     fastTask: string;      // default: deepseek-v4-flash
   };
-  /** 各 provider 可用模型列表（从 API /models 刷新获取） */
+  /** 各 provider 从 API /models 刷新获取的全部模型 */
   availableModels: Record<string, string[]>;
+  /** 用户从可用模型中勾选的模型（全局，用于模型偏好下拉） */
+  selectedModels: string[];
   theme: 'light' | 'dark' | 'auto';
   reviewDailyGoal: number;   // cards per day
 }

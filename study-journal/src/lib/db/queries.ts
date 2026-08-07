@@ -20,6 +20,7 @@ export async function getSettings(): Promise<AppSettings> {
         fastTask: 'deepseek-v4-flash',
       },
       availableModels: {},
+      selectedModels: ['deepseek-v4-flash'],
       theme: 'auto',
       reviewDailyGoal: 20,
     };
