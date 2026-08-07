@@ -49,7 +49,7 @@ interface AIStore {
   clearConversation: () => void;
 
   // ─── 高层 AI 操作（按架构分析文档设计） ───
-  /** 智能总结（传入日记内容，返回总结文字） */
+  /** 智能总结（传入文档内容，返回总结文字） */
   summarize: (content: string, title?: string) => Promise<string>;
   /** 生成知识卡片（传入笔记内容，返回结构化卡片数组） */
   generateCards: (content: string, title?: string) => Promise<KnowledgeCard[]>;

@@ -66,14 +66,14 @@ export default function ReviewPage() {
             <PackageOpen className="h-16 w-16 text-gray-300" />
             <p className="text-lg font-medium">还没有复习卡片</p>
             <p className="text-sm max-w-xs text-center">
-              在日记编辑器中使用 AI 生成知识卡片，然后来这里间隔复习
+              在文档编辑器中使用 AI 生成知识卡片，然后来这里间隔复习
             </p>
             <div className="flex flex-wrap justify-center gap-3 mt-2">
               <button onClick={() => navigate('/cards')} className="btn-primary">
                 🗂 去卡片库创建
               </button>
               <button onClick={() => navigate('/')} className="btn-secondary">
-                ✏️ 去写日记
+                ✏️ 去写文档
               </button>
             </div>
           </div>

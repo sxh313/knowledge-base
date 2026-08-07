@@ -152,7 +152,7 @@ export default function Cards() {
             </div>
             <p className="text-[var(--color-text)] font-medium text-sm">还没有任何知识卡片</p>
             <p className="text-xs text-[var(--color-text-secondary)] mt-1">
-              手动创建，或在写日记时让 AI 自动生成
+              手动创建，或在写文档时让 AI 自动生成
             </p>
             <button className="btn-primary mt-4 px-6 py-2.5" onClick={openNew}>
               <Plus className="h-4 w-4" /> 创建第一张卡片

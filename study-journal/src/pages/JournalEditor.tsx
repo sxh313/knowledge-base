@@ -133,7 +133,7 @@ export default function JournalEditor() {
       {/* 元数据行 */}
       <div className="flex items-center gap-4 px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex-wrap">
         <input className="w-1/3 min-w-[120px] text-xl font-bold bg-transparent border-none outline-none placeholder:text-[var(--color-text-tertiary)]"
-          placeholder="日记标题..." value={title} onChange={e => setTitle(e.target.value)} />
+          placeholder="文档标题..." value={title} onChange={e => setTitle(e.target.value)} />
         <input className="input-field w-36 text-xs" placeholder="学科" value={subject} onChange={e => setSubject(e.target.value)} />
         <TagInput value={tagsInput} onChange={setTagsInput} placeholder="标签" />
         <input type="number" className="input-field w-20 text-xs" placeholder="分钟" value={timeSpent || ''} onChange={e => setTimeSpent(Number(e.target.value))} />
