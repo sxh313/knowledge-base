@@ -95,7 +95,7 @@ export default function SettingsPage() {
     <div className="max-w-2xl mx-auto p-6 space-y-8">
       <header>
         <h1 className="text-2xl font-bold">设置</h1>
-        <p className="text-sm text-gray-500 mt-1">配置你的 AI API 入口 — 所有 Key 仅存储在本地设备</p>
+        <p className="text-sm text-gray-500 mt-1">配置你的 AI API 入口 — Key 加密存储在浏览器 IndexedDB，不经过服务器</p>
       </header>
 
       {/* AI Providers */}
@@ -252,7 +252,7 @@ export default function SettingsPage() {
       </section>
 
       <div className="text-xs text-gray-400 text-center pb-8">
-        所有 API Key 和笔记数据仅存储在你的本地设备上
+        API Key 和笔记数据加密存储在你的浏览器中（IndexedDB），不会上传到任何服务器
       </div>
     </div>
   );
