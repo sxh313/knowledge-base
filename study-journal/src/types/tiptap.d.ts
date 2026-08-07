@@ -16,6 +16,7 @@ declare module '@tiptap/react' {
   }
   export class Editor {
     chain(): any;
+    commands: any;
     getHTML(): string;
     getText(): string;
     isActive(name?: string, attrs?: any): boolean;
