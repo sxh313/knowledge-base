@@ -4,7 +4,7 @@ import type { ProviderName } from '../lib/ai/providers';
 import { DEFAULT_BASE_URLS } from '../lib/ai/providers';
 import type { AISettings } from '../lib/db/schema';
 import { fetchAvailableModels } from '../lib/db/queries';
-import { RefreshCw, Check, ChevronDown, CheckCircle2, Square } from 'lucide-react';
+import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X } from 'lucide-react';
 
 const PROVIDER_INFO: { key: ProviderName; label: string; desc: string; icon: string }[] = [
   { key: 'shengsuanyun', label: '胜算云', desc: '推荐主力 — beta-router 统一入口', icon: '☁️' },
@@ -20,6 +20,7 @@ export default function SettingsPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
   const [refreshMsg, setRefreshMsg] = useState<Record<string, string>>({});
+  const [manualModel, setManualModel] = useState<Record<string, string>>({});
 
   useEffect(() => { load(); }, []);
 
@@ -70,6 +71,21 @@ export default function SettingsPage() {
       ? current.filter(m => m !== model)
       : [...current, model];
     update({ selectedModels: next });
+  };
+
+  // 手动添加模型（无需刷新，直接输入）
+  const addManualModel = (key: ProviderName) => {
+    const name = manualModel[key]?.trim();
+    if (!name) return;
+    const current = settings.selectedModels ?? [];
+    if (!current.includes(name)) {
+      update({ selectedModels: [...current, name] });
+    }
+    setManualModel(prev => ({ ...prev, [key]: '' }));
+  };
+  const removeModel = (model: string) => {
+    const current = settings.selectedModels ?? [];
+    update({ selectedModels: current.filter(m => m !== model) });
   };
 
   const dropdownModels: string[] = (() => {
