@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "deploy": "bash deploy.sh",
+    "auto-deploy": "bash auto-deploy.sh",
+    "push": "bash deploy.sh"
   },
   "dependencies": {
     "dexie": "^4.0.8",

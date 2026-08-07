@@ -8,20 +8,27 @@ export async function getSettings(): Promise<AppSettings> {
     settings = {
       id: 'global',
       aiProviders: {
+        shengsuanyun: { baseUrl: 'https://beta-router.shengsuanyun.com/api/v1', apiKey: '', enabled: false },
         relay: { baseUrl: '', apiKey: '', enabled: false },
         siliconflow: { baseUrl: 'https://api.siliconflow.cn/v1', apiKey: '', enabled: false },
         zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', apiKey: '', enabled: false },
         deepseek: { baseUrl: 'https://api.deepseek.com/v1', apiKey: '', enabled: false },
       },
       preferredModels: {
-        highQuality: 'claude-sonnet',
-        codeTask: 'deepseek-chat',
-        fastTask: 'gpt-4o-mini',
+        highQuality: 'deepseek-v4-flash',
+        codeTask: 'deepseek-v4-flash',
+        fastTask: 'deepseek-v4-flash',
       },
+      availableModels: {},
       theme: 'auto',
       reviewDailyGoal: 20,
     };
     await db.settings.put(settings);
+  }
+  // 兼容旧数据：补全新增字段
+  if (!settings.availableModels) settings.availableModels = {};
+  if (!settings.aiProviders.shengsuanyun) {
+    settings.aiProviders.shengsuanyun = { baseUrl: 'https://beta-router.shengsuanyun.com/api/v1', apiKey: '', enabled: false };
   }
   return settings;
 }
@@ -161,6 +168,47 @@ export async function saveConversation(data: Omit<AIConversation, 'id' | 'create
 export async function getConversations(journalId?: string) {
   if (journalId) return db.aiConversations.where('journalId').equals(journalId).reverse().sortBy('createdAt');
   return db.aiConversations.reverse().toArray();
+}
+
+// ──── Fetch Available Models from Provider API ────
+
+export async function fetchAvailableModels(
+  providerKey: string,
+  baseUrl: string,
+  apiKey: string,
+): Promise<string[]> {
+  const cleanUrl = baseUrl.replace(/\/+$/, '');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const res = await fetch(`${cleanUrl}/models`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const data = await res.json();
+    const models: string[] = (data.data ?? [])
+      .map((m: { id?: string; model?: string }) => m.id ?? m.model ?? '')
+      .filter(Boolean)
+      .sort();
+
+    // 保存到设置
+    const settings = await getSettings();
+    const updated = {
+      ...settings,
+      availableModels: { ...settings.availableModels, [providerKey]: models },
+    };
+    await db.settings.put(updated);
+
+    return models;
+  } catch (err) {
+    clearTimeout(timeout);
+    throw err;
+  }
 }
 
 // ──── Data Export / Import ────

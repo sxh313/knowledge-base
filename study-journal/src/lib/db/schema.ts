@@ -76,6 +76,7 @@ export interface AIConversation {
 }
 
 export interface AISettings {
+  shengsuanyun: { baseUrl: string; apiKey: string; enabled: boolean };
   relay: { baseUrl: string; apiKey: string; enabled: boolean };
   siliconflow: { baseUrl: string; apiKey: string; enabled: boolean };
   zhipu: { baseUrl: string; apiKey: string; enabled: boolean };
@@ -86,10 +87,12 @@ export interface AppSettings {
   id: 'global';
   aiProviders: AISettings;
   preferredModels: {
-    highQuality: string;   // default: claude-sonnet
-    codeTask: string;      // default: deepseek-chat
-    fastTask: string;      // default: gpt-4o-mini
+    highQuality: string;   // default: deepseek-v4-flash
+    codeTask: string;      // default: deepseek-v4-flash
+    fastTask: string;      // default: deepseek-v4-flash
   };
+  /** 各 provider 可用模型列表（从 API /models 刷新获取） */
+  availableModels: Record<string, string[]>;
   theme: 'light' | 'dark' | 'auto';
   reviewDailyGoal: number;   // cards per day
 }
@@ -108,6 +111,16 @@ export class StudyJournalDB extends Dexie {
   constructor() {
     super('StudyJournalDB');
     this.version(1).stores({
+      journals: 'id, createdAt, updatedAt, subject, *tags, deletedAt',
+      notes: 'id, journalId, parentId, position',
+      cards: 'id, journalId, nextReviewAt, state, *tags',
+      graphNodes: 'id, label, *entryIds',
+      graphEdges: 'id, sourceId, targetId, relationType',
+      aiConversations: 'id, journalId, createdAt',
+      settings: 'id',
+    });
+    // v2: 添加 availableModels + shengsuanyun provider（无索引变更）
+    this.version(2).stores({
       journals: 'id, createdAt, updatedAt, subject, *tags, deletedAt',
       notes: 'id, journalId, parentId, position',
       cards: 'id, journalId, nextReviewAt, state, *tags',

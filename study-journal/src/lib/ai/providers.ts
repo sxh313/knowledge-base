@@ -1,5 +1,5 @@
 // ──── AI Provider Configurations ────
-// All four providers are OpenAI-compatible, so we use a unified interface.
+// All providers are OpenAI-compatible, so we use a unified interface.
 
 export interface AIProviderConfig {
   name: string;
@@ -8,9 +8,10 @@ export interface AIProviderConfig {
   enabled: boolean;
 }
 
-export type ProviderName = 'relay' | 'siliconflow' | 'zhipu' | 'deepseek';
+export type ProviderName = 'shengsuanyun' | 'relay' | 'siliconflow' | 'zhipu' | 'deepseek';
 
 export const DEFAULT_BASE_URLS: Record<ProviderName, string> = {
+  shengsuanyun: 'https://beta-router.shengsuanyun.com/api/v1',
   relay: '',                    // user-configured
   siliconflow: 'https://api.siliconflow.cn/v1',
   zhipu: 'https://open.bigmodel.cn/api/paas/v4',
@@ -24,16 +25,26 @@ export interface ModelEntry {
 }
 
 export const MODEL_MAP: Record<string, ModelEntry> = {
-  'claude-sonnet':    { provider: 'relay', model: 'claude-3.5-sonnet' },
-  'claude-haiku':     { provider: 'relay', model: 'claude-3.5-haiku' },
-  'gpt-4o':           { provider: 'relay', model: 'gpt-4o' },
-  'deepseek-chat':    { provider: 'relay', model: 'deepseek-chat' },
-  'qwen-max':         { provider: 'siliconflow', model: 'Qwen/Qwen2.5-72B-Instruct' },
-  'yi-large':         { provider: 'siliconflow', model: '01-ai/Yi-1.5-34B-Chat' },
-  'deepseek-v2':      { provider: 'siliconflow', model: 'deepseek-ai/DeepSeek-V2.5' },
-  'glm-4':            { provider: 'zhipu', model: 'glm-4' },
-  'glm-4v':           { provider: 'zhipu', model: 'glm-4v' },
-  'deepseek-official':{ provider: 'deepseek', model: 'deepseek-chat' },
+  // 胜算云 — 默认主力
+  'deepseek-v4-flash':  { provider: 'shengsuanyun', model: 'deepseek-v4-flash' },
+  'deepseek-v4':        { provider: 'shengsuanyun', model: 'deepseek-v4' },
+  'deepseek-r1':        { provider: 'shengsuanyun', model: 'deepseek-r1' },
+  'claude-sonnet':      { provider: 'shengsuanyun', model: 'claude-sonnet' },
+  'gpt-4o':             { provider: 'shengsuanyun', model: 'gpt-4o' },
+  'gpt-4o-mini':        { provider: 'shengsuanyun', model: 'gpt-4o-mini' },
+  'qwen-max':           { provider: 'shengsuanyun', model: 'qwen-max' },
+  // 中转站（自定义 URL）
+  'relay-claude':       { provider: 'relay', model: 'claude-3.5-sonnet' },
+  'relay-deepseek':     { provider: 'relay', model: 'deepseek-chat' },
+  // 硅基流动
+  'siliconflow-qwen':   { provider: 'siliconflow', model: 'Qwen/Qwen2.5-72B-Instruct' },
+  'siliconflow-yi':     { provider: 'siliconflow', model: '01-ai/Yi-1.5-34B-Chat' },
+  'siliconflow-ds':     { provider: 'siliconflow', model: 'deepseek-ai/DeepSeek-V2.5' },
+  // 智谱
+  'glm-4':              { provider: 'zhipu', model: 'glm-4' },
+  'glm-4v':             { provider: 'zhipu', model: 'glm-4v' },
+  // DeepSeek 官方
+  'deepseek-official':  { provider: 'deepseek', model: 'deepseek-chat' },
 };
 
 // Task type → ordered list of model IDs (first = primary, rest = fallback)
@@ -48,15 +59,16 @@ export type TaskType =
   | 'sentiment'
   | 'imageAnalysis';
 
+// 全部默认 deepseek-v4-flash，备选 deepseek-v4
 export const TASK_MODEL_MAP: Record<TaskType, string[]> = {
-  summarize:     ['claude-sonnet', 'qwen-max'],
-  explain:       ['claude-sonnet', 'glm-4'],
-  generateCards: ['claude-sonnet', 'deepseek-chat'],
-  codeReview:    ['deepseek-official', 'deepseek-v2'],
-  codeExplain:   ['deepseek-official', 'deepseek-v2'],
-  tagSuggest:    ['deepseek-chat', 'yi-large'],
-  qa:            ['claude-sonnet', 'qwen-max'],
-  sentiment:     ['deepseek-chat'],
+  summarize:     ['deepseek-v4-flash', 'deepseek-v4'],
+  explain:       ['deepseek-v4-flash', 'deepseek-v4'],
+  generateCards: ['deepseek-v4-flash', 'deepseek-v4'],
+  codeReview:    ['deepseek-v4-flash', 'deepseek-v4'],
+  codeExplain:   ['deepseek-v4-flash', 'deepseek-v4'],
+  tagSuggest:    ['deepseek-v4-flash'],
+  qa:            ['deepseek-v4-flash', 'deepseek-v4'],
+  sentiment:     ['deepseek-v4-flash'],
   imageAnalysis: ['glm-4v'],
 };
 
