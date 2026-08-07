@@ -15,7 +15,7 @@ export async function exportAllData() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'study-journal-' + new Date().toISOString().split('T')[0] + '.json';
+  a.download = 'knowledge-base-' + new Date().toISOString().split('T')[0] + '.json';
   a.click();
   URL.revokeObjectURL(url);
 }
