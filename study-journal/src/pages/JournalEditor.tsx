@@ -161,6 +161,11 @@ export default function JournalEditor() {
           />
         </div>
 
+        {/* 文档大纲（仅非 AI 面板模式时显示） */}
+        {!showAIPanel && content.trim() && (
+          <DocOutline content={content} />
+        )}
+
         {/* AI 面板 */}
         {showAIPanel && (
           <AIChatPanel
