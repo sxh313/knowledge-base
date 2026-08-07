@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, FileText, Plus, Brain, BookOpen, BarChart3, Settings, MessageSquare, Esc } from 'lucide-react';
+import { Search, FileText, Plus, Brain, BookOpen, BarChart3, Settings, MessageSquare } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { searchJournals } from '../lib/search/fuse';
 
