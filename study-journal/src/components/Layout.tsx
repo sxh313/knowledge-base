@@ -47,7 +47,7 @@ export default function Layout() {
                 <BookOpen className="h-4 w-4" />
               </div>
               <span className="text-sm font-bold tracking-tight text-gradient">
-                学习日记
+                知识库
               </span>
             </div>
           )}
