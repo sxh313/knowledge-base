@@ -4,9 +4,10 @@ import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
 import { buildMessages } from '../lib/ai/prompts';
 import RichTextEditor from '../components/RichTextEditor';
-import TagInput from '../components/TagInput';
 import AIChatPanel from '../components/AIChatPanel';
 import DocOutline from '../components/DocOutline';
+
+type EditMode = 'rich' | 'markdown';
 
 export default function JournalEditor() {
   const { id } = useParams();
@@ -16,10 +17,7 @@ export default function JournalEditor() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [subject, setSubject] = useState('');
-  const [tagsInput, setTagsInput] = useState('');
-  const [timeSpent, setTimeSpent] = useState<number>(0);
-  const [difficulty, setDifficulty] = useState<number>(0);
+  const [mode, setMode] = useState<EditMode>('rich');
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -30,17 +28,13 @@ export default function JournalEditor() {
       loadOne(id);
     } else {
       setCurrent(null);
-      setTitle(''); setContent(''); setSubject(''); setTagsInput(''); setTimeSpent(0); setDifficulty(0);
+      setTitle(''); setContent(''); setMode('rich');
     }
   }, [id]);
   useEffect(() => {
     if (currentEntry && currentEntry.id === id) {
       setTitle(currentEntry.title);
       setContent(currentEntry.content);
-      setSubject(currentEntry.subject || '');
-      setTagsInput(currentEntry.tags.join(', '));
-      setTimeSpent(currentEntry.timeSpentMinutes || 0);
-      setDifficulty(currentEntry.difficulty || 0);
     }
   }, [currentEntry, id]);
 
@@ -52,10 +46,8 @@ export default function JournalEditor() {
       title: title.trim(),
       content,
       contentPlain: content.replace(/[#*`[\]()>|~_ -]/g, '').replace(/\s+/g, ' ').trim(),
-      tags: tagsInput.split(/[,，]/).map(t => t.trim()).filter(Boolean),
-      subject: subject.trim(),
-      timeSpentMinutes: timeSpent || undefined,
-      difficulty: difficulty || undefined,
+      tags: currentEntry?.tags ?? [],
+      subject: currentEntry?.subject ?? '',
       sourceType: 'manual' as const,
     };
 
@@ -67,16 +59,16 @@ export default function JournalEditor() {
       await update(id, entryData);
     }
     setSaving(false);
-  }, [title, content, subject, tagsInput, timeSpent, difficulty, isNew, id]);
+  }, [title, content, isNew, id, currentEntry]);
 
   // 自动保存防抖（新文档 + 已有文档均自动保存）
   useEffect(() => {
     if (!title.trim() && !content.trim()) return;
     const timer = setTimeout(handleSave, 3000);
     return () => clearTimeout(timer);
-  }, [title, content, subject, tagsInput, timeSpent, difficulty]);
+  }, [title, content]);
 
-  // 全局快捷键
+  // 全局快捷键（Ctrl+S 保存）
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -87,12 +79,12 @@ export default function JournalEditor() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [title, content, subject, tagsInput, timeSpent, difficulty]);
+  }, [title, content]);
 
   const handleAIAction = async (action: 'summarize' | 'generateCards' | 'codeReview' | 'codeExplain') => {
     if (!content.trim()) return;
     setShowAIPanel(true);
-    const messages = buildMessages(action, { content, title, tags: tagsInput.split(/[,，]/).map(t => t.trim()), subject });
+    const messages = buildMessages(action, { content, title });
     try {
       await callAI(action, messages, (token) => {
         useAIStore.setState({ streamingContent: useAIStore.getState().streamingContent + token });
@@ -108,10 +100,28 @@ export default function JournalEditor() {
       <div className="glass flex items-center gap-2 px-4 py-2.5 border-b border-[var(--color-border)] flex-wrap">
         <button className="btn-ghost text-sm" onClick={() => navigate('/')}>← 返回</button>
 
+        {/* 编辑模式切换 */}
+        <div className="flex items-center gap-0.5 ml-2 rounded-lg border border-[var(--color-border)] p-0.5">
+          <button
+            className={`px-2.5 py-1 text-xs rounded-md transition-colors ${mode === 'rich' ? 'bg-[var(--color-primary)] text-white' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'}`}
+            onClick={() => setMode('rich')}
+            title="所见即所得编辑"
+          >
+            ✨ 富文本
+          </button>
+          <button
+            className={`px-2.5 py-1 text-xs rounded-md transition-colors ${mode === 'markdown' ? 'bg-[var(--color-primary)] text-white' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'}`}
+            onClick={() => setMode('markdown')}
+            title="Markdown 源码编辑"
+          >
+            # Markdown
+          </button>
+        </div>
+
         {/* AI 快捷按钮 */}
         <div className="flex items-center gap-1 ml-2 pl-2 border-l border-[var(--color-border)]">
           <button className="btn-ghost text-xs" onClick={() => handleAIAction('summarize')} disabled={!content.trim() || isProcessing} title="AI 总结">📝 总结</button>
-          <button className="btn-ghost text-xs" onClick={() => handleAIAction('generateCards')} disabled={!content.trim() || isProcessing} title="生成知识卡片">🃏 卡片</button>
+          <button className="btn-ghost text-xs" onClick={() => handleAIAction('generateCards')} disabled={!content.trim() || isProcessing} title="AI 生成知识卡片">🃏 卡片</button>
           <button className="btn-ghost text-xs" onClick={() => setShowAIPanel(!showAIPanel)} title="展开/收起 AI 面板">
             {showAIPanel ? '▶' : '🧠 AI'}
           </button>
@@ -129,34 +139,39 @@ export default function JournalEditor() {
         </button>
       </div>
 
-      {/* 元数据行 */}
-      <div className="flex items-center gap-4 px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex-wrap">
-        <input className="w-1/3 min-w-[120px] text-xl font-bold bg-transparent border-none outline-none placeholder:text-[var(--color-text-tertiary)]"
-          placeholder="无标题文档" value={title} onChange={e => setTitle(e.target.value)} autoFocus={isNew} />
-        <input className="input-field w-36 text-xs" placeholder="学科" value={subject} onChange={e => setSubject(e.target.value)} />
-        <TagInput value={tagsInput} onChange={setTagsInput} placeholder="标签" />
-        <input type="number" className="input-field w-20 text-xs" placeholder="分钟" value={timeSpent || ''} onChange={e => setTimeSpent(Number(e.target.value))} />
-        <div className="flex items-center gap-1 text-sm">
-          <span className="text-[var(--color-text-tertiary)]">难度：</span>
-          {[1,2,3,4,5].map(n => (
-            <span key={n} className={`cursor-pointer transition-transform hover:scale-125 ${n <= difficulty ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]'}`}
-              onClick={() => setDifficulty(n)}>★</span>
-          ))}
-        </div>
+      {/* 标题行（飞书式） */}
+      <div className="px-6 pt-4 pb-2">
+        <input
+          className="w-full text-2xl font-bold bg-transparent border-none outline-none placeholder:text-[var(--color-text-tertiary)]"
+          placeholder="无标题"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          autoFocus={isNew}
+        />
       </div>
 
       {/* 主体区域 */}
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-4">
-          <RichTextEditor
-            value={content}
-            onChange={setContent}
-            autoFocus={isNew}
-          />
+        <div className="flex-1 overflow-y-auto px-6 py-2">
+          {mode === 'rich' ? (
+            <RichTextEditor
+              value={content}
+              onChange={setContent}
+              autoFocus={isNew}
+            />
+          ) : (
+            <textarea
+              className="w-full h-full min-h-[400px] bg-transparent border-none outline-none resize-none font-mono text-sm leading-relaxed"
+              placeholder="# 在此输入 Markdown..."
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              spellCheck={false}
+            />
+          )}
         </div>
 
-        {/* 文档大纲（仅非 AI 面板模式时显示） */}
-        {!showAIPanel && content.trim() && (
+        {/* 文档大纲（仅富文本模式且非 AI 面板时显示） */}
+        {mode === 'rich' && !showAIPanel && content.trim() && (
           <DocOutline content={content} />
         )}
 

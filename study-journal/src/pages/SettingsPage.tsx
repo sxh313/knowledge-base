@@ -164,6 +164,36 @@ export default function SettingsPage() {
                     <p className={`text-xs ${msg.startsWith('发现') ? 'text-green-500' : 'text-red-500'}`}>{msg}</p>
                   )}
 
+                  {/* 手动添加模型 */}
+                  <div className="flex items-center gap-2 mt-2">
+                    <input
+                      className="input-field text-xs font-mono flex-1"
+                      placeholder="手动输入模型名，如 deepseek-v4-flash"
+                      value={manualModel[key] ?? ''}
+                      onChange={(e) => setManualModel(prev => ({ ...prev, [key]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addManualModel(key); } }}
+                    />
+                    <button className="btn-secondary text-xs" onClick={() => addManualModel(key)}>
+                      <Plus className="w-3 h-3" /> 添加
+                    </button>
+                  </div>
+
+                  {/* 该 provider 已勾选的模型 */}
+                  {(() => {
+                    const selected = (settings.selectedModels ?? []);
+                    const providerModels = models.filter(m => selected.includes(m));
+                    return providerModels.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {providerModels.map(m => (
+                          <span key={m} className="tag-brand text-xs flex items-center gap-1">
+                            {m}
+                            <button onClick={() => removeModel(m)} className="hover:text-red-500"><X className="w-3 h-3" /></button>
+                          </span>
+                        ))}
+                      </div>
+                    ) : null;
+                  })()}
+
                   {/* 模型勾选列表 */}
                   {models.length > 0 && (
                     <div className="mt-2 rounded-lg border border-[var(--color-border)] overflow-hidden">
@@ -172,16 +202,15 @@ export default function SettingsPage() {
                       </div>
                       <div className="max-h-48 overflow-y-auto divide-y divide-[var(--color-border)]">
                         {models.map(m => {
-                          const checked = settings.selectedModels?.includes(m) ?? false;
+                          const checked = (settings.selectedModels ?? []).includes(m);
                           return (
-                            <label key={m} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800/30 cursor-pointer">
-                              <button type="button" onClick={() => toggleModel(m)} className="flex-shrink-0">
-                                {checked
-                                  ? <CheckCircle2 className="w-4 h-4 text-brand-500" />
-                                  : <Square className="w-4 h-4 text-gray-300" />}
-                              </button>
+                            <div key={m} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800/30 cursor-pointer"
+                              onClick={() => toggleModel(m)}>
+                              {checked
+                                ? <CheckCircle2 className="w-4 h-4 text-brand-500 flex-shrink-0" />
+                                : <Square className="w-4 h-4 text-gray-300 flex-shrink-0" />}
                               <span className="text-xs font-mono">{m}</span>
-                            </label>
+                            </div>
                           );
                         })}
                       </div>
@@ -201,6 +230,29 @@ export default function SettingsPage() {
           从上方勾选的模型中选择，默认：deepseek-v4-flash
           {(settings.selectedModels ?? []).length === 0 && '（尚未勾选模型，使用默认）'}
         </p>
+
+        {/* 已选模型概览 */}
+        {(settings.selectedModels ?? []).length > 0 && (
+          <div className="card">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium text-gray-500">
+                已选模型（{(settings.selectedModels ?? []).length} 个）
+              </span>
+              <button className="text-[10px] text-gray-400 hover:text-red-500" onClick={() => update({ selectedModels: [] })}>
+                清空全部
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {(settings.selectedModels ?? []).map(m => (
+                <span key={m} className="tag-brand text-xs flex items-center gap-1">
+                  <span className="font-mono">{m}</span>
+                  <button onClick={() => removeModel(m)} className="hover:text-red-500"><X className="w-3 h-3" /></button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {([
             { key: 'highQuality' as const, label: '高质量任务（总结/问答）' },
