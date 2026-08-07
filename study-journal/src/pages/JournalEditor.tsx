@@ -3,8 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
 import { buildMessages } from '../lib/ai/prompts';
-import { useHistory } from '../lib/hooks/useHistory';
-import MarkdownEditor from '../components/MarkdownEditor';
+import RichTextEditor from '../components/RichTextEditor';
 import TagInput from '../components/TagInput';
 import AIChatPanel from '../components/AIChatPanel';
 import DocOutline from '../components/DocOutline';
@@ -17,7 +16,6 @@ export default function JournalEditor() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const contentHistory = useHistory(content, setContent);
   const [subject, setSubject] = useState('');
   const [tagsInput, setTagsInput] = useState('');
   const [timeSpent, setTimeSpent] = useState<number>(0);
