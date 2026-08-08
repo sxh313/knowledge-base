@@ -173,7 +173,7 @@ export default function JournalEditor() {
       </div>
 
       {/* 文档主体 */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden gap-4">
         {showDocList && (
           <aside className="w-56 shrink-0 border-r border-[var(--color-border-strong)] bg-[var(--color-surface)] overflow-y-auto p-2 animate-slide-down shadow-md">
             <DocTree />
