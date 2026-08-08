@@ -132,13 +132,23 @@ export default function SettingsPage() {
     try {
       const bundle = await importKeys(importText.trim(), importPwd);
       const merged = { ...settings.aiProviders };
+      let count = 0;
+      const names: string[] = [];
       for (const [k, v] of Object.entries(bundle.providers)) {
         const name = k as ProviderName;
-        if (merged[name]) merged[name] = { ...merged[name], ...v };
+        if (merged[name] && v.apiKey) {
+          merged[name] = { ...merged[name], ...v };
+          count++;
+          names.push(name);
+        }
       }
-      updateAI(merged);
+      if (count === 0) {
+        setVaultMsg('⚠️ 密文解密成功，但里面没有有效的 API Key（导出时应用里可能没填 Key）');
+        return;
+      }
+      await updateAI(merged);
       setLocalProviders(JSON.parse(JSON.stringify(merged)));
-      setVaultMsg('✅ 导入成功，Key 已写入本地');
+      setVaultMsg(`✅ 导入成功：${count} 个 Key 已写入（${names.join(' / ')}），可在上方「AI 服务配置」展开查看`);
       setImportText(''); setImportPwd('');
     } catch {
       setVaultMsg('❌ 解密失败：主密码错误或密文损坏');
@@ -447,9 +457,15 @@ export default function SettingsPage() {
               value={exportPwd} onChange={e => setExportPwd(e.target.value)} />
             <button className="btn-primary text-sm" onClick={handleExportKeys}>生成加密密文</button>
             {exportOut && (
-              <textarea className="input-field text-xs font-mono mt-1" rows={4} readOnly value={exportOut}
-                title="点击全选后复制"
-                onClick={e => (e.target as HTMLTextAreaElement).select()} />
+              <>
+                <textarea className="input-field text-xs font-mono mt-1" rows={4} readOnly value={exportOut}
+                  title="点击全选后复制"
+                  onClick={e => (e.target as HTMLTextAreaElement).select()} />
+                <button type="button" className="btn-ghost text-xs self-start"
+                  onClick={() => { setImportText(exportOut); setVaultMsg('已填入下方导入框，输入主密码后点「解密并导入」即可测试'); }}>
+                  ⬇ 填入下方导入框（测试用）
+                </button>
+              </>
             )}
           </div>
           <div className="divider" />
