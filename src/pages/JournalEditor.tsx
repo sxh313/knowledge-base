@@ -66,11 +66,7 @@ export default function JournalEditor() {
       await update(id, entryData);
     }
     setSaving(false);
-    // 保存成功后若启用云同步，则自动推送（保存即同步）
-    const sync = useSettingsStore.getState().settings?.sync;
-    if (sync?.enabled && sync.token && sync.owner && sync.repo) {
-      doSync();
-    }
+    // 本地保存完成（编辑停顿约 3 秒自动存）。云同步独立：顶部☁️手动 / 编辑停顿 10s 自动
   }, [title, content, isNew, id, currentEntry]);
 
   // 编辑停顿 10s 后自动同步（仅当启用且开启 autoSync）
