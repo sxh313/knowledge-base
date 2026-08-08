@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Star } from 'lucide-react';
+import { Star, PanelLeft } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
 import { useViewModeStore } from '../stores/viewModeStore';
@@ -10,6 +10,7 @@ import { buildMessages } from '../lib/ai/prompts';
 import RichTextEditor from '../components/RichTextEditor';
 import AIChatPanel from '../components/AIChatPanel';
 import DocOutline from '../components/DocOutline';
+import DocTree from '../components/DocTree';
 
 type EditMode = 'rich' | 'markdown';
 
@@ -26,6 +27,7 @@ export default function JournalEditor() {
   const [content, setContent] = useState('');
   const [mode, setMode] = useState<EditMode>('rich');
   const [showAIPanel, setShowAIPanel] = useState(false);
+  const [showDocList, setShowDocList] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const isNew = !id || id === 'new';
@@ -116,6 +118,9 @@ export default function JournalEditor() {
       {/* 工具栏 */}
       <div className="glass flex items-center gap-2 px-4 py-2.5 border-b border-[var(--color-border)] flex-wrap">
         <button className="btn-ghost text-sm" onClick={() => navigate('/')} title="返回">← 返回</button>
+        <button className={`btn-ghost p-1.5 ${showDocList ? 'text-[var(--color-primary)] bg-[var(--color-primary-light)]' : ''}`} onClick={() => setShowDocList(s => !s)} title="显示/隐藏文档列表">
+          <PanelLeft className="h-4 w-4" />
+        </button>
 
         {/* 编辑模式切换 */}
         <div className="flex items-center gap-0.5 ml-2 rounded-lg border border-[var(--color-border)] p-0.5">
@@ -167,8 +172,13 @@ export default function JournalEditor() {
         </button>
       </div>
 
-      {/* 文档主体：居中窄栏（飞书式阅读宽度，大屏两侧大量留白） */}
+      {/* 文档主体 */}
       <div className="flex flex-1 overflow-hidden">
+        {showDocList && (
+          <aside className="w-56 shrink-0 border-r border-[var(--color-border)] overflow-y-auto p-2 animate-slide-down">
+            <DocTree />
+          </aside>
+        )}
         <div className="flex-1 overflow-y-auto">
           <div className="py-5">
             {/* 标题 */}
