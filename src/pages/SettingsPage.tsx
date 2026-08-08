@@ -27,10 +27,9 @@ export default function SettingsPage() {
   const { doSync, status: syncStatus } = useSyncStore();
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
-  const [exportPwd, setExportPwd] = useState('');
   const [exportOut, setExportOut] = useState('');
   const [importText, setImportText] = useState('');
-  const [importPwd, setImportPwd] = useState('');
+  const [vaultPwd, setVaultPwd] = useState('');
   const [vaultMsg, setVaultMsg] = useState<string | null>(null);
 
   useEffect(() => { load(); }, []);
@@ -115,12 +114,12 @@ export default function SettingsPage() {
   // 密钥迁移：用主密码加密 API Key（可安全放云端），另一设备用主密码解密恢复
   const handleExportKeys = async () => {
     setVaultMsg(null);
-    if (!exportPwd) { setVaultMsg('请输入主密码'); return; }
-    if (exportPwd.length < 6) { setVaultMsg('主密码至少 6 位'); return; }
+    if (!vaultPwd) { setVaultMsg('请输入主密码'); return; }
+    if (vaultPwd.length < 6) { setVaultMsg('主密码至少 6 位'); return; }
     try {
       const bundle: Record<string, unknown> = {};
       for (const { key } of PROVIDER_INFO) bundle[key] = settings.aiProviders[key];
-      const cipher = await exportKeys({ providers: bundle as KeyBundle['providers'] }, exportPwd);
+      const cipher = await exportKeys({ providers: bundle as KeyBundle['providers'] }, vaultPwd);
       setExportOut(cipher);
       setVaultMsg('✅ 已加密生成，可安全复制到任意位置（含 GitHub 公开仓库）');
     } catch (e) { setVaultMsg('加密失败：' + (e as Error).message); }
@@ -128,9 +127,9 @@ export default function SettingsPage() {
 
   const handleImportKeys = async () => {
     setVaultMsg(null);
-    if (!importText.trim() || !importPwd) { setVaultMsg('请粘贴密文并输入主密码'); return; }
+    if (!importText.trim() || !vaultPwd) { setVaultMsg('请粘贴密文并输入主密码'); return; }
     try {
-      const bundle = await importKeys(importText.trim(), importPwd);
+      const bundle = await importKeys(importText.trim(), vaultPwd);
       const merged = { ...settings.aiProviders };
       let count = 0;
       const names: string[] = [];
@@ -149,7 +148,7 @@ export default function SettingsPage() {
       await updateAI(merged);
       setLocalProviders(JSON.parse(JSON.stringify(merged)));
       setVaultMsg(`✅ 导入成功：${count} 个 Key 已写入（${names.join(' / ')}），可在上方「AI 服务配置」展开查看`);
-      setImportText(''); setImportPwd('');
+      setImportText('');
     } catch {
       setVaultMsg('❌ 解密失败：主密码错误或密文损坏');
     }
@@ -453,8 +452,8 @@ export default function SettingsPage() {
           {/* 导出 */}
           <div className="space-y-2">
             <label className="text-xs font-medium text-gray-500">导出（加密生成密文）</label>
-            <input type="password" className="input-field text-sm" placeholder="设置主密码（至少 6 位）"
-              value={exportPwd} onChange={e => setExportPwd(e.target.value)} />
+            <input type="password" className="input-field text-sm" placeholder="主密码（导出/导入共用，至少 6 位）"
+              value={vaultPwd} onChange={e => setVaultPwd(e.target.value)} />
             <button className="btn-primary text-sm" onClick={handleExportKeys}>生成加密密文</button>
             {exportOut && (
               <>
@@ -475,9 +474,7 @@ export default function SettingsPage() {
             <textarea className="input-field text-xs font-mono" rows={3}
               placeholder="粘贴 KBVAULT1:... 开头的密文"
               value={importText} onChange={e => setImportText(e.target.value)} />
-            <input type="password" className="input-field text-sm" placeholder="主密码"
-              value={importPwd} onChange={e => setImportPwd(e.target.value)} />
-            <button className="btn-secondary text-sm" onClick={handleImportKeys}>解密并导入</button>
+            <button className="btn-secondary text-sm" onClick={handleImportKeys}>解密并导入（使用上方主密码）</button>
           </div>
           {vaultMsg && <p className="text-xs text-gray-500">{vaultMsg}</p>}
         </div>

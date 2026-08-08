@@ -46,6 +46,44 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       attributes: {
         class: 'prose-custom max-w-none focus:outline-none min-h-[400px] px-1 py-2',
       },
+      // 飞书式：粘贴（Ctrl+V 截图）/ 拖拽图片自动插入（压缩后内嵌）
+      handlePaste: (view, event) => {
+        const items = event.clipboardData?.items;
+        if (!items) return false;
+        let hasImage = false;
+        for (const item of Array.from(items)) {
+          if (item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) {
+              hasImage = true;
+              fileToImageDataURL(file).then(({ src, alt }) => {
+                if (!src) return;
+                const node = view.state.schema.nodes.image.create({ src, alt });
+                view.dispatch(view.state.tr.replaceSelectionWith(node));
+              });
+            }
+          }
+        }
+        if (hasImage) event.preventDefault();
+        return hasImage;
+      },
+      handleDrop: (view, event) => {
+        const files = event.dataTransfer?.files;
+        if (!files || files.length === 0) return false;
+        let hasImage = false;
+        for (const file of Array.from(files)) {
+          if (file.type.startsWith('image/')) {
+            hasImage = true;
+            fileToImageDataURL(file).then(({ src, alt }) => {
+              if (!src) return;
+              const node = view.state.schema.nodes.image.create({ src, alt });
+              view.dispatch(view.state.tr.replaceSelectionWith(node));
+            });
+          }
+        }
+        if (hasImage) event.preventDefault();
+        return hasImage;
+      },
     },
     onUpdate: ({ editor }) => {
       const html = editor.getHTML();
@@ -268,6 +306,33 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       )}
     </div>
   );
+}
+
+// 图片压缩为 dataURL：限制最大宽度，避免截图撑爆本地存储 / 云同步
+function fileToImageDataURL(file: File, maxW = 1280): Promise<{ src: string; alt: string }> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = document.createElement('img');
+      img.onload = () => {
+        const scale = Math.min(1, maxW / img.width);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { resolve({ src: reader.result as string, alt: file.name }); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        const isPng = file.type === 'image/png';
+        resolve({ src: canvas.toDataURL(isPng ? 'image/png' : 'image/jpeg', 0.85), alt: file.name });
+      };
+      img.onerror = () => resolve({ src: reader.result as string, alt: file.name });
+      img.src = reader.result as string;
+    };
+    reader.onerror = () => resolve({ src: '', alt: file.name });
+    reader.readAsDataURL(file);
+  });
 }
 
 function ToolbarBtn({ children, onClick, active, disabled, title }: { children: React.ReactNode; onClick: () => void; active?: boolean; disabled?: boolean; title: string }) {
