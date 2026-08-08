@@ -63,47 +63,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       attributes: {
         class: 'prose-custom max-w-none focus:outline-none min-h-[400px] px-1 py-2',
       },
-      // 飞书式：粘贴（Ctrl+V 截图）/ 拖拽图片自动插入（压缩后内嵌）
-      handlePaste: (view, event) => {
-        const items = event.clipboardData?.items;
-        console.debug('[paste] 触发，剪贴板类型：', items ? Array.from(items).map(i => i.type) : '空');
-        if (!items) return false;
-        let hasImage = false;
-        for (const item of Array.from(items)) {
-          if (item.type.startsWith('image/')) {
-            const file = item.getAsFile();
-            console.debug('[paste] 图片项：', file?.name, file?.size, '字节');
-            if (file) {
-              hasImage = true;
-              fileToImageDataURL(file).then(({ src, alt }) => {
-                if (!src) { console.warn('[paste] 图片转换失败'); return; }
-                const node = view.state.schema.nodes.image.create({ src, alt });
-                view.dispatch(view.state.tr.replaceSelectionWith(node));
-                console.debug('[paste] 图片已插入');
-              }).catch(e => console.error('[paste] 异常', e));
-            }
-          }
-        }
-        if (hasImage) event.preventDefault();
-        return hasImage;
-      },
-      handleDrop: (view, event) => {
-        const files = event.dataTransfer?.files;
-        if (!files || files.length === 0) return false;
-        let hasImage = false;
-        for (const file of Array.from(files)) {
-          if (file.type.startsWith('image/')) {
-            hasImage = true;
-            fileToImageDataURL(file).then(({ src, alt }) => {
-              if (!src) return;
-              const node = view.state.schema.nodes.image.create({ src, alt });
-              view.dispatch(view.state.tr.replaceSelectionWith(node));
-            });
-          }
-        }
-        if (hasImage) event.preventDefault();
-        return hasImage;
-      },
+
     },
     onUpdate: ({ editor }) => {
       const html = editor.getHTML();
@@ -123,6 +83,46 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       lastEmittedRef.current = value;
     }
   }, [value, editor]);
+
+  // 飞书式：粘贴（Ctrl+V 截图）/ 拖拽图片自动插入（DOM 级监听，HMR 友好）
+  useEffect(() => {
+    if (!editor) return;
+    const dom = editor.view.dom;
+    const insertImageFile = (file: File) =>
+      fileToImageDataURL(file).then(({ src, alt }) => {
+        if (!src) return;
+        editor.chain().focus().setImage({ src, alt }).run();
+        console.debug('[paste] 图片已插入');
+      });
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      console.debug('[paste] 触发，剪贴板类型：', items ? Array.from(items).map(i => i.type) : '空');
+      if (!items) return;
+      let hasImage = false;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) { hasImage = true; insertImageFile(file); }
+        }
+      }
+      if (hasImage) e.preventDefault();
+    };
+    const onDrop = (e: DragEvent) => {
+      const files = e.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+      let hasImage = false;
+      for (const file of Array.from(files)) {
+        if (file.type.startsWith('image/')) { hasImage = true; insertImageFile(file); }
+      }
+      if (hasImage) e.preventDefault();
+    };
+    dom.addEventListener('paste', onPaste);
+    dom.addEventListener('drop', onDrop);
+    return () => {
+      dom.removeEventListener('paste', onPaste);
+      dom.removeEventListener('drop', onDrop);
+    };
+  }, [editor]);
 
   // 编辑器事务变化时刷新撤销/重做的可用状态
   useEffect(() => {
