@@ -68,18 +68,21 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       // 飞书式：粘贴（Ctrl+V 截图）/ 拖拽图片自动插入（压缩后内嵌）
       handlePaste: (view, event) => {
         const items = event.clipboardData?.items;
+        console.debug('[paste] 触发，剪贴板类型：', items ? Array.from(items).map(i => i.type) : '空');
         if (!items) return false;
         let hasImage = false;
         for (const item of Array.from(items)) {
           if (item.type.startsWith('image/')) {
             const file = item.getAsFile();
+            console.debug('[paste] 图片项：', file?.name, file?.size, '字节');
             if (file) {
               hasImage = true;
               fileToImageDataURL(file).then(({ src, alt }) => {
-                if (!src) return;
+                if (!src) { console.warn('[paste] 图片转换失败'); return; }
                 const node = view.state.schema.nodes.image.create({ src, alt });
                 view.dispatch(view.state.tr.replaceSelectionWith(node));
-              });
+                console.debug('[paste] 图片已插入');
+              }).catch(e => console.error('[paste] 异常', e));
             }
           }
         }
