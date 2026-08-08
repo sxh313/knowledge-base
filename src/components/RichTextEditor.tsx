@@ -7,6 +7,8 @@ import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
+import { createLowlight, common } from 'lowlight';
 import {
   Bold, Italic, Strikethrough,
   Code, Link as LinkIcon, List, ListOrdered,
@@ -15,6 +17,9 @@ import {
 } from 'lucide-react';
 import { markdownToHtml, htmlToMarkdown } from '../lib/markdownUtils';
 import { getSlashCommands, type SlashCommandItem } from './tiptap/slashCommand';
+
+// 代码语法高亮：注册常用语言集合
+const lowlight = createLowlight(common);
 
 interface RichTextEditorProps {
   value: string;          // Markdown
@@ -35,6 +40,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
+        codeBlock: false,
       }),
       Placeholder.configure({
         placeholder: placeholder || '输入 / 插入内容，或直接输入文字...',
@@ -43,6 +49,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       Image,
       TaskList,
       TaskItem.configure({ nested: true }),
+      CodeBlockLowlight.configure({ lowlight }),
     ],
     content: markdownToHtml(value),
     autofocus: autoFocus ? 'end' : false,

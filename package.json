@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@tiptap/core": "^3.29.2",
+    "@tiptap/extension-code-block-lowlight": "^3.29.2",
     "@tiptap/extension-image": "^3.29.2",
     "@tiptap/extension-link": "^3.29.2",
     "@tiptap/extension-placeholder": "^3.29.2",
@@ -27,6 +28,7 @@
     "dexie": "^4.0.8",
     "fuse.js": "^7.0.0",
     "graphlib": "^2.1.8",
+    "lowlight": "^3.3.0",
     "lucide-react": "^0.383.0",
     "marked": "^18.0.9",
     "react": "^18.3.1",

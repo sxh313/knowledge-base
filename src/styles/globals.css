@@ -304,6 +304,20 @@
     color: var(--color-text-tertiary);
     text-decoration: line-through;
   }
+
+  /* 代码块语法高亮（github-dark 风格，固定暗背景） */
+  .prose-custom pre {
+    background: #0d1117;
+    color: #c9d1d9;
+  }
+  .prose-custom pre code { background: transparent; padding: 0; font-size: 0.85rem; }
+  .prose-custom .hljs-comment, .prose-custom .hljs-quote { color: #8b949e; font-style: italic; }
+  .prose-custom .hljs-keyword, .prose-custom .hljs-selector-tag, .prose-custom .hljs-type, .prose-custom .hljs-built_in { color: #ff7b72; }
+  .prose-custom .hljs-string, .prose-custom .hljs-attr, .prose-custom .hljs-meta-string { color: #a5d6ff; }
+  .prose-custom .hljs-number, .prose-custom .hljs-literal, .prose-custom .hljs-variable, .prose-custom .hljs-attribute { color: #79c0ff; }
+  .prose-custom .hljs-title, .prose-custom .hljs-section, .prose-custom .hljs-function .hljs-title { color: #d2a8ff; }
+  .prose-custom .hljs-tag, .prose-custom .hljs-name { color: #7ee787; }
+  .prose-custom .hljs-meta { color: #8b949e; }
 }
 
 /* ─── Utilities ──────────────────────────────────────────────── */
