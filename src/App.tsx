@@ -49,7 +49,12 @@ export default function App() {
     return () => media.removeEventListener('change', handler);
   }, [applySystemChange]);
 
-  useEffect(() => { if (entries.length > 0) buildSearchIndex(entries); }, [entries]);
+  // 构建搜索索引时做防抖，避免编辑过程中 entries 频繁变更导致反复重建（O(n)）
+  useEffect(() => {
+    if (entries.length === 0) return;
+    const t = setTimeout(() => { buildSearchIndex(entries); }, 400);
+    return () => clearTimeout(t);
+  }, [entries]);
 
   return (
     <BrowserRouter>

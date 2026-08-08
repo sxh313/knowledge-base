@@ -123,7 +123,7 @@ export default function JournalList() {
         </div>
 
         {/* List */}
-        <div className="flex-1 overflow-y-auto space-y-2">
+        <div className="flex-1 overflow-y-auto space-y-2 stagger">
           {isLoading ? (
             <div className="flex items-center justify-center h-32">
               <p className="text-[var(--color-text-secondary)]">加载中...</p>

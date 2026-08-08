@@ -24,8 +24,11 @@ export interface ModelEntry {
   model: string;
 }
 
+// ⚠️ 别名说明：deepseek-v4-flash / deepseek-v4 / deepseek-r1 等是「胜算云 beta-router」
+// 的中转别名，仅在 shengsuanyun provider 下有效。若改用官方 DeepSeek 入口，请使用
+// 'deepseek-official'（其真实模型名为 deepseek-chat），否则会收到 404。
 export const MODEL_MAP: Record<string, ModelEntry> = {
-  // 胜算云 — 默认主力
+  // 胜算云 — 默认主力（模型名为 beta-router 中转别名）
   'deepseek-v4-flash':  { provider: 'shengsuanyun', model: 'deepseek-v4-flash' },
   'deepseek-v4':        { provider: 'shengsuanyun', model: 'deepseek-v4' },
   'deepseek-r1':        { provider: 'shengsuanyun', model: 'deepseek-r1' },

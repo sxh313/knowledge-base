@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, FileText, Plus, Brain, BookOpen, BarChart3, Settings, MessageSquare } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
@@ -13,6 +13,8 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const navigate = useNavigate();
   const { entries, setCurrent } = useJournalStore();
   const [query, setQuery] = useState('');
+  // 让搜索计算延后，避免快速输入时阻塞 UI（大数据量下尤其明显）
+  const deferredQuery = useDeferredValue(query);
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -49,33 +51,37 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
     // Search documents if query is not empty
     let docResults: { type: 'doc'; id: string; title: string; subject: string; tags: string[]; createdAt: number }[] = [];
-    if (query.trim()) {
-      const q = query.toLowerCase();
-      docResults = entries
-        .filter(e =>
-          e.title.toLowerCase().includes(q) ||
-          e.contentPlain?.toLowerCase().includes(q) ||
-          e.tags.some(t => t.toLowerCase().includes(q)) ||
-          e.subject?.toLowerCase().includes(q)
-        )
-        .slice(0, 8)
-        .map(e => ({
-          type: 'doc' as const,
-          id: e.id,
-          title: e.title || '无标题',
-          subject: e.subject,
-          tags: e.tags,
-          createdAt: e.createdAt,
-        }));
+    if (deferredQuery.trim()) {
+      // 优先用 Fuse 模糊搜索（加权 + 拼写容错，索引由 App 启动时构建）；
+      // 若索引尚未就绪（冷启动），降级为简单字段 includes 匹配，保证总有结果
+      const fuseResults = searchJournals(deferredQuery, 8);
+      const ql = deferredQuery.toLowerCase();
+      const matched = fuseResults.length > 0
+        ? fuseResults
+        : entries.filter(e =>
+            e.title.toLowerCase().includes(ql) ||
+            e.contentPlain?.toLowerCase().includes(ql) ||
+            e.tags.some(t => t.toLowerCase().includes(ql)) ||
+            e.subject?.toLowerCase().includes(ql),
+          ).slice(0, 8);
+      docResults = matched.map(e => ({
+        type: 'doc' as const,
+        id: e.id,
+        title: e.title || '无标题',
+        subject: e.subject,
+        tags: e.tags,
+        createdAt: e.createdAt,
+      }));
     }
 
     // Filter actions by query
-    const filteredActions = query.trim()
-      ? actions.filter(a => a.label.toLowerCase().includes(query.toLowerCase()) || a.desc.toLowerCase().includes(query.toLowerCase()))
+    const qAct = deferredQuery.toLowerCase();
+    const filteredActions = deferredQuery.trim()
+      ? actions.filter(a => a.label.toLowerCase().includes(qAct) || a.desc.toLowerCase().includes(qAct))
       : actions;
 
     return [...filteredActions, ...docResults];
-  }, [query, entries, navigate, setCurrent]);
+  }, [deferredQuery, entries, navigate, setCurrent]);
 
   // Reset active index when query changes
   useEffect(() => { setActiveIndex(0); }, [query]);

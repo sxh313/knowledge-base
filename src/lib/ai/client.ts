@@ -37,31 +37,36 @@ async function handleStream(
   let fullText = '';
   let buffer = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith('data: ')) continue;
-      const payload = trimmed.slice(6);
-      if (payload === '[DONE]') return fullText;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data: ')) continue;
+        const payload = trimmed.slice(6);
+        if (payload === '[DONE]') return fullText;
 
-      try {
-        const json = JSON.parse(payload);
-        const delta = json.choices?.[0]?.delta?.content;
-        if (delta) {
-          fullText += delta;
-          onToken?.(delta);
+        try {
+          const json = JSON.parse(payload);
+          const delta = json.choices?.[0]?.delta?.content;
+          if (delta) {
+            fullText += delta;
+            onToken?.(delta);
+          }
+        } catch {
+          // skip incomplete JSON chunks
         }
-      } catch {
-        // skip incomplete JSON chunks
       }
     }
+  } finally {
+    // 确保 reader 被释放，避免连接资源泄漏（[DONE]、异常或提前 return 均会触发）
+    reader.cancel().catch(() => {});
   }
   return fullText;
 }

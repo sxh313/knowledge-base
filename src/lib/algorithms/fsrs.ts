@@ -41,6 +41,8 @@ export function scheduleFSRS(card: CardState, rating: Rating): Partial<CardState
     const ps = stability, pd = difficulty;
     difficulty = nextDifficulty(pd, rating);
     stability = nextStability(ps, pd, rating, elapsed);
+    // 根据评分迁移状态：答错（rating<3）进入重学，答对（rating>=3）进入/保持复习
+    state = rating < 3 ? 'relearning' : 'review';
   }
 
   // FSRS power forgetting curve: R(t) = (1 + t/(9*S))^(-1)

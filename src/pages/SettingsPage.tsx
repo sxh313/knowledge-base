@@ -4,7 +4,9 @@ import type { ProviderName } from '../lib/ai/providers';
 import { DEFAULT_BASE_URLS } from '../lib/ai/providers';
 import type { AISettings } from '../lib/db/schema';
 import { fetchAvailableModels } from '../lib/db/queries';
-import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X } from 'lucide-react';
+import type { SyncConfig } from '../lib/db/schema';
+import { useSyncStore } from '../stores/syncStore';
+import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search } from 'lucide-react';
 
 const PROVIDER_INFO: { key: ProviderName; label: string; desc: string; icon: string }[] = [
   { key: 'shengsuanyun', label: '胜算云', desc: '推荐主力 — beta-router 统一入口', icon: '☁️' },
@@ -21,6 +23,9 @@ export default function SettingsPage() {
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
   const [refreshMsg, setRefreshMsg] = useState<Record<string, string>>({});
   const [manualModel, setManualModel] = useState<Record<string, string>>({});
+  const { doSync, status: syncStatus } = useSyncStore();
+  const [syncTesting, setSyncTesting] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
   useEffect(() => { load(); }, []);
 
@@ -88,6 +93,19 @@ export default function SettingsPage() {
     update({ selectedModels: current.filter(m => m !== model) });
   };
 
+  const updateSync = (patch: Partial<SyncConfig>) => {
+    const cur = settings?.sync ?? { enabled: false, owner: '', repo: '', branch: 'main', path: 'data.json', token: '', autoSync: true };
+    update({ sync: { ...cur, ...patch } });
+  };
+
+  const handleTestConn = async () => {
+    if (!settings?.sync) return;
+    setSyncTesting(true);
+    const m = await useSyncStore.getState().testConn(settings.sync);
+    setSyncMsg(m);
+    setSyncTesting(false);
+  };
+
   const dropdownModels: string[] = (() => {
     const models = new Set<string>(['deepseek-v4-flash']);
     (settings.selectedModels ?? []).forEach(m => models.add(m));
@@ -111,6 +129,11 @@ export default function SettingsPage() {
           const models = settings.availableModels?.[key] ?? [];
           const isRefreshing = refreshing[key];
           const msg = refreshMsg[key];
+          // 按手动输入框内容对模型勾选列表进行实时筛选
+          const filterText = (manualModel[key] ?? '').trim().toLowerCase();
+          const filteredModels = filterText
+            ? models.filter(m => m.toLowerCase().includes(filterText))
+            : models;
 
           return (
             <div key={key} className="card space-y-3">
@@ -164,20 +187,6 @@ export default function SettingsPage() {
                     <p className={`text-xs ${msg.startsWith('发现') ? 'text-green-500' : 'text-red-500'}`}>{msg}</p>
                   )}
 
-                  {/* 手动添加模型 */}
-                  <div className="flex items-center gap-2 mt-2">
-                    <input
-                      className="input-field text-xs font-mono flex-1"
-                      placeholder="手动输入模型名，如 deepseek-v4-flash"
-                      value={manualModel[key] ?? ''}
-                      onChange={(e) => setManualModel(prev => ({ ...prev, [key]: e.target.value }))}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addManualModel(key); } }}
-                    />
-                    <button className="btn-secondary text-xs" onClick={() => addManualModel(key)}>
-                      <Plus className="w-3 h-3" /> 添加
-                    </button>
-                  </div>
-
                   {/* 该 provider 已勾选的模型 */}
                   {(() => {
                     const selected = (settings.selectedModels ?? []);
@@ -194,28 +203,56 @@ export default function SettingsPage() {
                     ) : null;
                   })()}
 
-                  {/* 模型勾选列表 */}
-                  {models.length > 0 && (
-                    <div className="mt-2 rounded-lg border border-[var(--color-border)] overflow-hidden">
-                      <div className="bg-gray-50 dark:bg-gray-800/50 px-3 py-2 text-xs font-medium text-gray-500">
-                        勾选要使用的模型：
-                      </div>
-                      <div className="max-h-48 overflow-y-auto divide-y divide-[var(--color-border)]">
-                        {models.map(m => {
+                  {/* 模型列表：搜索筛选 + 手动添加合一（输入框置于列表顶部，输入即筛下方列表） */}
+                  <div className="mt-3 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+                    {/* 搜索栏 —— 加大尺寸，更易点击与阅读 */}
+                    <div className="flex items-center gap-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface-2)]/60 px-4 py-3">
+                      <Search className="h-4 w-4 flex-shrink-0 text-[var(--color-text-tertiary)]" />
+                      <input
+                        className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--color-text-tertiary)]"
+                        placeholder={models.length > 0 ? '搜索模型，或输入新名称后回车添加' : '输入模型名后回车添加（尚未刷新列表）'}
+                        value={manualModel[key] ?? ''}
+                        onChange={(e) => setManualModel(prev => ({ ...prev, [key]: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addManualModel(key); } }}
+                      />
+                      {filterText && models.length > 0 && (
+                        <span className="shrink-0 rounded-md bg-[var(--color-surface)] px-2 py-0.5 text-xs font-medium tabular-nums text-[var(--color-text-tertiary)]">
+                          {filteredModels.length}/{models.length}
+                        </span>
+                      )}
+                      <button className="btn-secondary shrink-0 px-3 py-1.5 text-xs" onClick={() => addManualModel(key)} title="将输入内容添加为已选模型">
+                        <Plus className="h-3.5 w-3.5" /> 添加
+                      </button>
+                    </div>
+
+                    {models.length > 0 ? (
+                      <div className="max-h-64 divide-y divide-[var(--color-border)] overflow-y-auto">
+                        {filteredModels.map(m => {
                           const checked = (settings.selectedModels ?? []).includes(m);
                           return (
-                            <div key={m} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800/30 cursor-pointer"
+                            <div key={m} className="flex cursor-pointer items-center gap-3 px-4 py-2.5 transition-colors hover:bg-[var(--color-surface-2)]/50"
                               onClick={() => toggleModel(m)}>
                               {checked
-                                ? <CheckCircle2 className="w-4 h-4 text-brand-500 flex-shrink-0" />
-                                : <Square className="w-4 h-4 text-gray-300 flex-shrink-0" />}
-                              <span className="text-xs font-mono">{m}</span>
+                                ? <CheckCircle2 className="h-[18px] w-[18px] flex-shrink-0 text-brand-500" />
+                                : <Square className="h-[18px] w-[18px] flex-shrink-0 text-[var(--color-border-strong)]" />}
+                              <span className="font-mono text-sm">{m}</span>
                             </div>
                           );
                         })}
+                        {filterText && filteredModels.length === 0 && (
+                          <div className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)]/50"
+                            onClick={() => addManualModel(key)}>
+                            <Plus className="h-[18px] w-[18px] flex-shrink-0 text-brand-500" />
+                            <span>未找到「<span className="font-mono text-[var(--color-primary)]">{filterText}</span>」，点击添加</span>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
+                    ) : (
+                      <div className="px-4 py-4 text-sm text-[var(--color-text-tertiary)]">
+                        尚未刷新模型列表，可直接在上方输入模型名后回车添加。
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -278,6 +315,81 @@ export default function SettingsPage() {
               </div>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* 云同步 */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold">☁️ 云同步（GitHub）</h2>
+        <p className="text-xs text-gray-400">数据推送到你的 GitHub 私有仓库，跨设备同步、免费、带版本历史</p>
+        <div className="card space-y-3">
+          <label className="flex items-center justify-between cursor-pointer">
+            <span className="text-sm font-medium">启用云同步</span>
+            <input type="checkbox" checked={settings.sync?.enabled ?? false}
+              onChange={e => updateSync({ enabled: e.target.checked })}
+              className="h-4 w-4 rounded border-[var(--color-border)]" />
+          </label>
+          {settings.sync?.enabled && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-400">GitHub 用户名</label>
+                  <input className="input-field mt-1 text-sm font-mono" value={settings.sync.owner}
+                    onChange={e => updateSync({ owner: e.target.value })} placeholder="sxh313" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400">仓库名</label>
+                  <input className="input-field mt-1 text-sm font-mono" value={settings.sync.repo}
+                    onChange={e => updateSync({ repo: e.target.value })} placeholder="study-journal-data" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400">分支</label>
+                  <input className="input-field mt-1 text-sm font-mono" value={settings.sync.branch}
+                    onChange={e => updateSync({ branch: e.target.value })} placeholder="main" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400">文件路径</label>
+                  <input className="input-field mt-1 text-sm font-mono" value={settings.sync.path}
+                    onChange={e => updateSync({ path: e.target.value })} placeholder="data.json" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400">Personal Access Token（需 repo 权限）</label>
+                <input type="password" className="input-field mt-1 text-sm font-mono" value={settings.sync.token}
+                  onChange={e => updateSync({ token: e.target.value })} placeholder="ghp_..." />
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={settings.sync.autoSync}
+                  onChange={e => updateSync({ autoSync: e.target.checked })}
+                  className="h-4 w-4 rounded border-[var(--color-border)]" />
+                <span className="text-sm">编辑停顿 10 秒后自动同步</span>
+              </label>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button className="btn-secondary text-sm" onClick={handleTestConn} disabled={syncTesting}>
+                  {syncTesting ? '测试中...' : '测试连接'}
+                </button>
+                <button className="btn-primary text-sm" onClick={() => doSync()} disabled={syncStatus === 'syncing'}>
+                  {syncStatus === 'syncing' ? '同步中...' : '立即同步'}
+                </button>
+                {settings.sync.lastSyncAt && (
+                  <span className="text-xs text-gray-400">
+                    上次同步：{new Date(settings.sync.lastSyncAt).toLocaleString('zh-CN')}
+                  </span>
+                )}
+              </div>
+              {syncMsg && <p className="text-xs text-gray-500">{syncMsg}</p>}
+              {syncStatus === 'error' && <p className="text-xs text-red-500">同步失败，请检查配置与网络</p>}
+              <details className="text-xs text-gray-400">
+                <summary className="cursor-pointer">如何获取 Token 与配置？</summary>
+                <div className="mt-1 leading-relaxed space-y-1">
+                  <p>1. 先在 GitHub 创建一个<b>私有仓库</b>（如 <code className="font-mono">study-journal-data</code>）</p>
+                  <p>2. GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)</p>
+                  <p>3. 勾选 <code className="font-mono">repo</code> 权限，生成 Token 并粘贴到上方</p>
+                  <p className="text-[var(--color-text-tertiary)]">Token 仅存储于本地浏览器，不经过任何服务器。</p>
+                </div>
+              </details>
+            </>
+          )}
         </div>
       </section>
 

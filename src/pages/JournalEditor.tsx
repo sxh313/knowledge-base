@@ -4,6 +4,8 @@ import { Star } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
 import { useViewModeStore } from '../stores/viewModeStore';
+import { useSettingsStore } from '../stores/settingsStore';
+import { useSyncStore } from '../stores/syncStore';
 import { buildMessages } from '../lib/ai/prompts';
 import RichTextEditor from '../components/RichTextEditor';
 import AIChatPanel from '../components/AIChatPanel';
@@ -17,6 +19,8 @@ export default function JournalEditor() {
   const { currentEntry, create, update, loadOne, setCurrent, saveStatus, togglePin } = useJournalStore();
   const { callAI, isProcessing, streamingContent } = useAIStore();
   const { isMobile } = useViewModeStore();
+  const { settings } = useSettingsStore();
+  const { doSync } = useSyncStore();
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -62,7 +66,21 @@ export default function JournalEditor() {
       await update(id, entryData);
     }
     setSaving(false);
+    // 保存成功后若启用云同步，则自动推送（保存即同步）
+    const sync = useSettingsStore.getState().settings?.sync;
+    if (sync?.enabled && sync.token && sync.owner && sync.repo) {
+      doSync();
+    }
   }, [title, content, isNew, id, currentEntry]);
+
+  // 编辑停顿 10s 后自动同步（仅当启用且开启 autoSync）
+  useEffect(() => {
+    const sync = settings?.sync;
+    if (!sync?.enabled || !sync.autoSync || !sync.token) return;
+    if (!title.trim() && !content.trim()) return;
+    const timer = setTimeout(() => { doSync(); }, 10000);
+    return () => clearTimeout(timer);
+  }, [title, content, settings?.sync, doSync]);
 
   // 自动保存防抖（新文档 + 已有文档均自动保存）
   useEffect(() => {
@@ -153,35 +171,46 @@ export default function JournalEditor() {
         </button>
       </div>
 
-      {/* 标题行（飞书式） */}
-      <div className="px-6 pt-4 pb-2">
-        <input
-          className="w-full text-2xl font-bold bg-transparent border-none outline-none placeholder:text-[var(--color-text-tertiary)]"
-          placeholder="无标题"
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          autoFocus={isNew}
-        />
-      </div>
-
-      {/* 主体区域 */}
+      {/* 文档主体：居中窄栏（飞书式阅读宽度，大屏两侧大量留白） */}
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-y-auto px-6 py-2">
-          {mode === 'rich' ? (
-            <RichTextEditor
-              value={content}
-              onChange={setContent}
+        <div className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-3xl px-6 sm:px-10 py-8">
+            {/* 标题 */}
+            <input
+              className="w-full text-3xl sm:text-4xl font-bold bg-transparent border-none outline-none placeholder:text-[var(--color-text-tertiary)] tracking-tight leading-tight"
+              placeholder="无标题"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
               autoFocus={isNew}
             />
-          ) : (
-            <textarea
-              className="w-full h-full min-h-[400px] bg-transparent border-none outline-none resize-none font-mono text-sm leading-relaxed"
-              placeholder="# 在此输入 Markdown..."
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              spellCheck={false}
-            />
-          )}
+
+            {/* 元信息行（飞书式轻量信息条） */}
+            <div className="mt-3 flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] flex-wrap">
+              {currentEntry?.createdAt && (
+                <span>
+                  {new Date(currentEntry.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+              {currentEntry?.subject && <span className="tag-accent">{currentEntry.subject}</span>}
+              {content.trim() && <span>· {content.replace(/\s+/g, '').length} 字</span>}
+              {currentEntry?.summary && <span className="text-[var(--color-primary)]">· ✨ 已生成总结</span>}
+            </div>
+
+            <div className="divider my-5" />
+
+            {/* 编辑器 */}
+            {mode === 'rich' ? (
+              <RichTextEditor value={content} onChange={setContent} autoFocus={isNew} />
+            ) : (
+              <textarea
+                className="w-full min-h-[60vh] bg-transparent border-none outline-none resize-none font-mono text-sm leading-relaxed"
+                placeholder="# 在此输入 Markdown..."
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                spellCheck={false}
+              />
+            )}
+          </div>
         </div>
 
         {/* 文档大纲（仅富文本模式、非移动端且非 AI 面板时显示） */}

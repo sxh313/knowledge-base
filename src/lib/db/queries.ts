@@ -36,6 +36,7 @@ export async function getSettings(): Promise<AppSettings> {
         },
       },
       preferredModels: {
+        // 默认走胜算云中转别名 deepseek-v4-flash；详见 providers.ts 中 MODEL_MAP 的别名说明
         highQuality: 'deepseek-v4-flash',
         codeTask: 'deepseek-v4-flash',
         fastTask: 'deepseek-v4-flash',
@@ -44,6 +45,15 @@ export async function getSettings(): Promise<AppSettings> {
       selectedModels: ['deepseek-v4-flash'],
       theme: 'auto',
       reviewDailyGoal: 20,
+      sync: {
+        enabled: false,
+        owner: 'sxh313',
+        repo: 'knowledge-base',
+        branch: 'main',
+        path: 'data.json',
+        token: '',
+        autoSync: true,
+      },
     };
     await db.settings.put(settings);
   }
@@ -53,6 +63,32 @@ export async function getSettings(): Promise<AppSettings> {
   if (!settings.aiProviders.shengsuanyun) {
     settings.aiProviders.shengsuanyun = { baseUrl: 'https://beta-router.shengsuanyun.com/api/v1', apiKey: '', enabled: false };
   }
+  // 兼容旧数据：补全云同步配置
+  if (!settings.sync) {
+    settings.sync = { enabled: false, owner: 'sxh313', repo: 'knowledge-base', branch: 'main', path: 'data.json', token: '', autoSync: true };
+  }
+  // 若某 provider 的 apiKey 仍为空，且本地环境变量提供了值，则补填（不会覆盖已手动填写的内容）
+  const env = import.meta.env;
+  const envBackfill: Record<keyof AISettings, string | undefined> = {
+    shengsuanyun: env.VITE_SHENGSUANYUN_API_KEY,
+    relay: env.VITE_RELAY_API_KEY,
+    siliconflow: env.VITE_SILICONFLOW_API_KEY,
+    zhipu: env.VITE_ZHIPU_API_KEY,
+    deepseek: env.VITE_DEEPSEEK_API_KEY,
+  };
+  let backfilled = false;
+  for (const key of Object.keys(envBackfill) as (keyof AISettings)[]) {
+    const envKey = envBackfill[key];
+    if (envKey && !settings.aiProviders[key].apiKey) {
+      settings.aiProviders[key] = { ...settings.aiProviders[key], apiKey: envKey, enabled: true };
+      backfilled = true;
+    }
+  }
+  if (env.VITE_RELAY_BASE_URL && !settings.aiProviders.relay.baseUrl) {
+    settings.aiProviders.relay.baseUrl = env.VITE_RELAY_BASE_URL;
+    backfilled = true;
+  }
+  if (backfilled) await db.settings.put(settings);
   return settings;
 }
 
@@ -98,12 +134,13 @@ export async function getJournal(id: string) {
 
 export async function getAllJournals(includeDeleted = false) {
   if (includeDeleted) return db.journals.toArray();
+  // Dexie 不会为 undefined 值建立索引，「未删除」无法走 deletedAt 索引，只能全表过滤
   return db.journals.filter(j => !j.deletedAt).toArray();
 }
 
-/** 回收站：仅已删除的文档 */
+/** 回收站：仅已删除的文档（走 deletedAt 索引，避免全表扫描） */
 export async function getTrashedJournals() {
-  return db.journals.filter(j => j.deletedAt !== undefined).toArray();
+  return db.journals.where('deletedAt').above(0).toArray();
 }
 
 /** 从回收站恢复文档 */
@@ -121,11 +158,21 @@ export async function purgeJournal(id: string) {
 }
 
 export async function searchJournalsByTags(tags: string[]) {
-  return db.journals.filter(j => !j.deletedAt && tags.some(t => j.tags.includes(t))).toArray();
+  // 利用 *tags 多值索引：anyOf 命中任一标签即返回，再去掉已删除项
+  return db.journals
+    .where('tags')
+    .anyOf(tags)
+    .filter(j => !j.deletedAt)
+    .toArray();
 }
 
 export async function getJournalsBySubject(subject: string) {
-  return db.journals.filter(j => !j.deletedAt && j.subject === subject).toArray();
+  // 走 subject 索引，再去掉已删除项
+  return db.journals
+    .where('subject')
+    .equals(subject)
+    .filter(j => !j.deletedAt)
+    .toArray();
 }
 
 // ──── Notes ────

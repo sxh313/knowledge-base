@@ -202,6 +202,7 @@
     transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
   }
   .card-hoverable:hover {
+    transform: translateY(-3px);
     box-shadow: var(--shadow-card-hover);
     border-color: var(--color-primary-light);
   }
@@ -277,13 +278,72 @@
 
 /* ─── Utilities ──────────────────────────────────────────────── */
 @layer utilities {
-  /* 渐入动画 */
+  /* 进入动画 */
   .animate-fade-in {
-    animation: fadeIn 0.3s ease-out;
+    animation: fadeIn 0.3s ease-out both;
+  }
+  .animate-slide-up {
+    animation: slideUp 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-scale-in {
+    animation: scaleIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-slide-down {
+    animation: slideDown 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
   @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(4px); }
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes slideDown {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* 列表依次进入：给容器加 .stagger，子元素按序淡入上移（更“大方”的入场感） */
+  .stagger > * {
+    animation: slideUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .stagger > *:nth-child(1)    { animation-delay: 0.02s; }
+  .stagger > *:nth-child(2)    { animation-delay: 0.06s; }
+  .stagger > *:nth-child(3)    { animation-delay: 0.10s; }
+  .stagger > *:nth-child(4)    { animation-delay: 0.14s; }
+  .stagger > *:nth-child(5)    { animation-delay: 0.18s; }
+  .stagger > *:nth-child(6)    { animation-delay: 0.22s; }
+  .stagger > *:nth-child(7)    { animation-delay: 0.26s; }
+  .stagger > *:nth-child(8)    { animation-delay: 0.30s; }
+  .stagger > *:nth-child(9)    { animation-delay: 0.34s; }
+  .stagger > *:nth-child(10)   { animation-delay: 0.38s; }
+  .stagger > *:nth-child(n+11) { animation-delay: 0.42s; }
+
+  /* 微交互：悬停轻微上浮（统一缓动） */
+  .lift {
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.28s ease, border-color 0.28s ease;
+  }
+  .lift:hover {
+    transform: translateY(-3px);
+  }
+
+  /* 骨架/加载微光 */
+  .shimmer {
+    background: linear-gradient(90deg,
+      var(--color-surface-2) 0%,
+      var(--color-surface-hover) 50%,
+      var(--color-surface-2) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
   }
 
   /* 文字渐变 */
@@ -292,6 +352,21 @@
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
+  }
+
+  /* 无障碍：尊重系统的「减少动效」偏好 */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-fade-in,
+    .animate-slide-up,
+    .animate-scale-in,
+    .animate-slide-down,
+    .stagger > *,
+    .shimmer,
+    .lift {
+      animation: none !important;
+      transition: none !important;
+      transform: none !important;
+    }
   }
 }
 

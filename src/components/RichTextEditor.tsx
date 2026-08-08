@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useReducer } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
@@ -9,8 +9,9 @@ import {
   Bold, Italic, Strikethrough,
   Code, Link as LinkIcon, List, ListOrdered,
   Quote, Heading1, Heading2, Heading3, Pilcrow, CodeXml, Minus, Image as ImageIcon,
+  Undo2, Redo2,
 } from 'lucide-react';
-import { markdownToHtml, htmlToMarkdown } from '../lib/mardownUtils';
+import { markdownToHtml, htmlToMarkdown } from '../lib/markdownUtils';
 import { getSlashCommands, type SlashCommandItem } from './tiptap/slashCommand';
 
 interface RichTextEditorProps {
@@ -24,6 +25,8 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
+  // 撤销/重做可用性需要随编辑器事务更新而重渲染
+  const [, force] = useReducer((x: number) => x + 1, 0);
   const slashItemsRef = useRef<HTMLDivElement>(null);
 
   const editor = useEditor({
@@ -62,6 +65,18 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       lastEmittedRef.current = value;
     }
   }, [value, editor]);
+
+  // 编辑器事务变化时刷新撤销/重做的可用状态
+  useEffect(() => {
+    if (!editor) return;
+    const handler = () => force();
+    editor.on('update', handler);
+    editor.on('transaction', handler);
+    return () => {
+      editor.off('update', handler);
+      editor.off('transaction', handler);
+    };
+  }, [editor]);
 
   const allCommands = getSlashCommands();
   const filteredCommands = slashQuery
@@ -186,6 +201,9 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
 
       {/* 固定工具栏 */}
       <div className="flex items-center flex-wrap gap-0.5 px-1 py-1.5 border-b border-[var(--color-border)] mb-2">
+        <ToolbarBtn onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title="撤销 (Ctrl+Z)"><Undo2 className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title="重做 (Ctrl+Y)"><Redo2 className="w-4 h-4" /></ToolbarBtn>
+        <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
         <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={isActive('heading', { level: 1 })} title="标题 1"><Heading1 className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} active={isActive('heading', { level: 2 })} title="标题 2"><Heading2 className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} active={isActive('heading', { level: 3 })} title="标题 3"><Heading3 className="w-4 h-4" /></ToolbarBtn>
@@ -252,16 +270,19 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
   );
 }
 
-function ToolbarBtn({ children, onClick, active, title }: { children: React.ReactNode; onClick: () => void; active?: boolean; title: string }) {
+function ToolbarBtn({ children, onClick, active, disabled, title }: { children: React.ReactNode; onClick: () => void; active?: boolean; disabled?: boolean; title: string }) {
   return (
     <button
       onClick={onClick}
       title={title}
       type="button"
+      disabled={disabled}
       className={`p-1.5 rounded-md transition-colors ${
-        active
-          ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)]'
-          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'
+        disabled
+          ? 'opacity-30 cursor-not-allowed text-[var(--color-text-tertiary)]'
+          : active
+            ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)]'
+            : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'
       }`}
     >
       {children}

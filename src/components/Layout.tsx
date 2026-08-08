@@ -2,10 +2,13 @@ import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   FileText, MessageSquare, Brain, BarChart3, Settings, BookOpen, Layers,
   ChevronLeft, Sun, Moon, Monitor, Search, HelpCircle, Smartphone, MoreHorizontal, X, Trash2,
+  Cloud, Loader2,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useThemeStore, type ThemeMode } from '../stores/themeStore';
 import { useViewModeStore, type ViewMode } from '../stores/viewModeStore';
+import { useSyncStore } from '../stores/syncStore';
+import { useSettingsStore } from '../stores/settingsStore';
 
 interface LayoutProps {
   onOpenPalette?: () => void;
@@ -49,6 +52,8 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
   const navigate = useNavigate();
   const { mode, setMode } = useThemeStore();
   const { mode: viewMode, isMobile, cycleMode } = useViewModeStore();
+  const { status: syncStatus, lastSyncAt, doSync } = useSyncStore();
+  const syncEnabled = !!useSettingsStore(s => s.settings?.sync?.enabled);
 
   const ThemeIcon = themeConfig[mode].icon;
   const nextTheme = themeCycle[(themeCycle.indexOf(mode) + 1) % themeCycle.length];
@@ -83,7 +88,9 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
 
         {/* 内容区 */}
         <main className="flex-1 overflow-y-auto px-3 py-4">
-          <Outlet />
+          <div key={location.pathname} className="animate-slide-up">
+            <Outlet />
+          </div>
         </main>
 
         {/* 底部 Tab 栏 */}
@@ -266,6 +273,18 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
             <ViewModeIcon className="h-4 w-4" />
             <span className="hidden md:inline">{viewModeConfig[viewMode].label}</span>
           </button>
+          {syncEnabled && (
+            <button
+              onClick={() => doSync()}
+              className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)]"
+              title={lastSyncAt ? `上次同步：${new Date(lastSyncAt).toLocaleString('zh-CN')}（点击立即同步）` : '点击立即同步'}
+            >
+              {syncStatus === 'syncing'
+                ? <Loader2 className="h-4 w-4 animate-spin text-[var(--color-primary)]" />
+                : <Cloud className={`h-4 w-4 ${syncStatus === 'error' ? 'text-[var(--color-danger)]' : syncStatus === 'success' ? 'text-[var(--color-success)]' : ''}`} />}
+              <span className="hidden md:inline">{syncStatus === 'syncing' ? '同步中' : '同步'}</span>
+            </button>
+          )}
           <NavLink
             to="/manual"
             className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)] ${
@@ -278,7 +297,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </NavLink>
         </div>
 
-        <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
+        <div key={location.pathname} className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8 animate-slide-up">
           <Outlet />
         </div>
       </main>

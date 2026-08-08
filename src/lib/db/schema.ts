@@ -53,7 +53,6 @@ export interface KnowledgeNode {
   label: string;
   description?: string;
   entryIds: string[];
-  embedding?: number[];      // vector for semantic search
   createdAt: number;
 }
 
@@ -84,6 +83,18 @@ export interface AISettings {
   deepseek: { baseUrl: string; apiKey: string; enabled: boolean };
 }
 
+export interface SyncConfig {
+  enabled: boolean;
+  owner: string;        // GitHub 用户名，如 sxh313
+  repo: string;         // 仓库名
+  branch: string;       // 分支，默认 main
+  path: string;         // 数据文件路径，默认 data.json
+  token: string;        // Personal Access Token（加密存储于本地）
+  autoSync: boolean;    // 编辑停顿后自动同步
+  lastSyncAt?: number;
+  lastSyncSha?: string;
+}
+
 export interface AppSettings {
   id: 'global';
   aiProviders: AISettings;
@@ -98,6 +109,8 @@ export interface AppSettings {
   selectedModels: string[];
   theme: 'light' | 'dark' | 'auto';
   reviewDailyGoal: number;   // cards per day
+  /** 云同步配置（GitHub） */
+  sync?: SyncConfig;
 }
 
 // ──── Database Class ────
@@ -122,16 +135,8 @@ export class StudyJournalDB extends Dexie {
       aiConversations: 'id, journalId, createdAt',
       settings: 'id',
     });
-    // v2: 添加 availableModels + shengsuanyun provider（无索引变更）
-    this.version(2).stores({
-      journals: 'id, createdAt, updatedAt, subject, *tags, deletedAt',
-      notes: 'id, journalId, parentId, position',
-      cards: 'id, journalId, nextReviewAt, state, *tags',
-      graphNodes: 'id, label, *entryIds',
-      graphEdges: 'id, sourceId, targetId, relationType',
-      aiConversations: 'id, journalId, createdAt',
-      settings: 'id',
-    });
+    // 说明：曾在此追加 version(2) 以支持 availableModels / shengsuanyun 字段，
+    // 但二者均为非索引字段，Dexie 会自动兼容，无需升级 schema 版本，故移除冗余定义。
   }
 }
 
