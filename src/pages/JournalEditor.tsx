@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Star, PanelLeft } from 'lucide-react';
+import { Star, PanelLeft, Maximize } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
 import { useViewModeStore } from '../stores/viewModeStore';
@@ -121,6 +121,9 @@ export default function JournalEditor() {
         <button className={`btn-ghost p-1.5 ${showDocList ? 'text-[var(--color-primary)] bg-[var(--color-primary-light)]' : ''}`} onClick={() => setShowDocList(s => !s)} title="显示/隐藏文档列表">
           <PanelLeft className="h-4 w-4" />
         </button>
+        <button className="btn-ghost p-1.5" onClick={() => { if (!document.fullscreenElement) document.documentElement.requestFullscreen?.(); else document.exitFullscreen?.(); }} title="聚焦模式（全屏）">
+          <Maximize className="h-4 w-4" />
+        </button>
 
         {/* 编辑模式切换 */}
         <div className="flex items-center gap-0.5 ml-2 rounded-lg border border-[var(--color-border)] p-0.5">
@@ -161,6 +164,9 @@ export default function JournalEditor() {
             {currentEntry.pinned ? '已置顶' : '置顶'}
           </button>
         )}
+        <button className="btn-ghost p-1.5" onClick={() => { if (!document.fullscreenElement) document.documentElement.requestFullscreen?.(); else document.exitFullscreen?.(); }} title="聚焦模式（全屏）">
+          <Maximize className="h-4 w-4" />
+        </button>
         {/* 保存状态指示器 */}
         <span className="text-xs text-[var(--color-text-secondary)] flex items-center gap-1">
           {saveStatus === 'saving' && <span key="saving" className="animate-fade-in text-[var(--color-accent)]">💾 保存中...</span>}

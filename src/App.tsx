@@ -7,6 +7,7 @@ import { buildSearchIndex } from './lib/search/fuse';
 
 import Layout from './components/Layout';
 import CommandPalette from './components/CommandPalette';
+import ShortcutsModal from './components/ShortcutsModal';
 import JournalList from './pages/JournalList';
 import JournalEditor from './pages/JournalEditor';
 import AIChat from './pages/AIChat';
@@ -23,6 +24,7 @@ export default function App() {
   const { entries, loadAll } = useJournalStore();
   const { applySystemChange } = useThemeStore();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -39,6 +41,10 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
         e.preventDefault();
         window.location.href = '/edit/new';
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+        e.preventDefault();
+        setShortcutsOpen(prev => !prev);
       }
     };
     window.addEventListener('keydown', handler);
