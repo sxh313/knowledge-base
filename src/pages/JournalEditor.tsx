@@ -196,7 +196,7 @@ export default function JournalEditor() {
               {currentEntry?.summary && <span className="text-[var(--color-primary)]">· ✨ 已生成总结</span>}
             </div>
 
-            <div className="divider my-5" />
+            <div className="divider my-3" />
 
             {/* 编辑器 */}
             {mode === 'rich' ? (
