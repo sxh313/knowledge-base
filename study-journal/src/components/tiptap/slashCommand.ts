@@ -57,13 +57,6 @@ export function getSlashCommands(): SlashCommandItem[] {
       action: (editor) => editor.chain().focus().toggleBulletList().run(),
     },
     {
-      title: '任务列表',
-      description: '待办事项',
-      icon: '☑',
-      keywords: '任务 待办 勾选 checklist',
-      action: (editor) => editor.chain().focus().toggleTaskList().run(),
-    },
-    {
       title: '引用',
       description: '引用一段文字',
       icon: '❝',
