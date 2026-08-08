@@ -49,7 +49,7 @@ export async function getSettings(): Promise<AppSettings> {
         enabled: false,
         owner: 'sxh313',
         repo: 'knowledge-base',
-        branch: 'main',
+        branch: 'knowledge-base',
         path: 'data.json',
         token: '',
         autoSync: true,
@@ -65,7 +65,7 @@ export async function getSettings(): Promise<AppSettings> {
   }
   // 兼容旧数据：补全云同步配置
   if (!settings.sync) {
-    settings.sync = { enabled: false, owner: 'sxh313', repo: 'knowledge-base', branch: 'main', path: 'data.json', token: '', autoSync: true };
+    settings.sync = { enabled: false, owner: 'sxh313', repo: 'knowledge-base', branch: 'knowledge-base', path: 'data.json', token: '', autoSync: true };
   }
   // 若某 provider 的 apiKey 仍为空，且本地环境变量提供了值，则补填（不会覆盖已手动填写的内容）
   const env = import.meta.env;
@@ -86,6 +86,12 @@ export async function getSettings(): Promise<AppSettings> {
   }
   if (env.VITE_RELAY_BASE_URL && !settings.aiProviders.relay.baseUrl) {
     settings.aiProviders.relay.baseUrl = env.VITE_RELAY_BASE_URL;
+    backfilled = true;
+  }
+  // 修正：sxh313/knowledge-base 仓库的默认分支为 knowledge-base（早期默认 main 会导致同步 404）
+  if (settings.sync && settings.sync.owner === 'sxh313' && settings.sync.repo === 'knowledge-base'
+      && (settings.sync.branch === 'main' || settings.sync.branch === '')) {
+    settings.sync.branch = 'knowledge-base';
     backfilled = true;
   }
   if (backfilled) await db.settings.put(settings);
