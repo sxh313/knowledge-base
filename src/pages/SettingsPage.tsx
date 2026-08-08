@@ -155,7 +155,7 @@ export default function SettingsPage() {
     <div className="max-w-2xl mx-auto p-6 space-y-8">
       <header>
         <h1 className="text-2xl font-bold">设置</h1>
-        <p className="text-sm text-gray-500 mt-1">API Key 加密存储在浏览器 IndexedDB，不经过服务器</p>
+        <p className="text-sm text-gray-500 mt-1">API Key 加密存于本地浏览器，本项目无服务器中转；调用 AI 时直连你选择的服务商</p>
       </header>
 
       {/* AI 服务配置 */}
