@@ -47,13 +47,13 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
         <div className="flex h-14 items-center justify-between border-b border-[var(--color-border)] px-4 relative">
           {!collapsed ? (
             <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-sm">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-primary)] text-white shadow-sm">
                 <BookOpen className="h-4 w-4" />
               </div>
-              <span className="text-sm font-bold tracking-tight text-gradient">知识库</span>
+              <span className="text-sm font-bold tracking-tight text-[var(--color-text)]">知识库</span>
             </div>
           ) : (
-            <div className="mx-auto flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-sm">
+            <div className="mx-auto flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-primary)] text-white shadow-sm">
               <BookOpen className="h-4 w-4" />
             </div>
           )}
@@ -93,12 +93,12 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
                 end={item.to === '/'}
                 className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
                   isActive
-                    ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)] shadow-sm'
+                    ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)]'
                     : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
                 }`}
                 title={item.label}
               >
-                <item.icon className={`h-5 w-5 flex-shrink-0 transition-transform group-hover:scale-110 ${isActive ? 'scale-110' : ''}`} />
+                <item.icon className={`h-5 w-5 flex-shrink-0 ${isActive ? '' : 'transition-transform group-hover:scale-110'}`} />
                 {!collapsed && <span>{item.label}</span>}
                 {isActive && !collapsed && (
                   <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[var(--color-primary)]" />
@@ -108,19 +108,8 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           })}
         </nav>
 
-        {/* 底部：使用手册 + 主题切换 + 版本 */}
+        {/* 底部：主题切换 + 版本 */}
         <div className="border-t border-[var(--color-border)] p-2">
-          <NavLink
-            to="/manual"
-            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--color-text-secondary)] transition-all hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)] ${
-              location.pathname === '/manual' ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)]' : ''
-            }`}
-            title="使用手册"
-          >
-            <HelpCircle className="h-4 w-4 flex-shrink-0" />
-            {!collapsed && <span className="text-xs">使用手册</span>}
-          </NavLink>
-
           <button
             onClick={() => setMode(nextTheme)}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--color-text-secondary)] transition-all hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
@@ -143,6 +132,30 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
 
       {/* 主内容区 */}
       <main className="flex-1 overflow-y-auto">
+        {/* 顶部栏 */}
+        <div className="glass sticky top-0 z-10 flex items-center gap-3 border-b border-[var(--color-border)] px-5 h-12">
+          <button
+            onClick={onOpenPalette}
+            className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)] transition-colors"
+            title="搜索 (⌘K)"
+          >
+            <Search className="h-4 w-4" />
+            <span className="hidden sm:inline">全局搜索</span>
+            <kbd className="ml-1 text-[10px] text-[var(--color-text-tertiary)]">⌘K</kbd>
+          </button>
+          <div className="flex-1" />
+          <NavLink
+            to="/manual"
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)] ${
+              location.pathname === '/manual' ? 'text-[var(--color-primary)]' : ''
+            }`}
+            title="使用手册"
+          >
+            <HelpCircle className="h-4 w-4" />
+            <span className="hidden md:inline">帮助</span>
+          </NavLink>
+        </div>
+
         <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
           <Outlet />
         </div>

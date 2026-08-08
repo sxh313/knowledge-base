@@ -16,6 +16,7 @@ import Stats from './pages/Stats';
 import KnowledgeMap from './pages/KnowledgeMap';
 import SettingsPage from './pages/SettingsPage';
 import Manual from './pages/Manual';
+import Trash from './pages/Trash';
 
 export default function App() {
   const { load: loadSettings } = useSettingsStore();
@@ -64,6 +65,7 @@ export default function App() {
           <Route path="/stats" element={<Stats />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/manual" element={<Manual />} />
+          <Route path="/trash" element={<Trash />} />
         </Route>
       </Routes>
     </BrowserRouter>

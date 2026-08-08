@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Star } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import DocTree from '../components/DocTree';
 
 export default function JournalList() {
   const navigate = useNavigate();
-  const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedSubject, setSelectedSubject } = useJournalStore();
+  const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedSubject, setSelectedSubject, togglePin } = useJournalStore();
   const { hasAnyProviderConfigured } = useSettingsStore();
   const [showOnboarding, setShowOnboarding] = useState(false);
 
@@ -40,13 +41,13 @@ export default function JournalList() {
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h1 className="text-2xl font-bold text-gradient">知识库</h1>
+            <h1 className="text-2xl font-bold text-[var(--color-text)]">知识库</h1>
             <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
               {filtered.length > 0 ? `共 ${filtered.length} 篇文档` : '构建你的知识体系'}
             </p>
           </div>
           <button className="btn-primary text-sm" onClick={() => { setCurrent(null); navigate('/edit/new'); }}>
-            ✏️ 新文档
+            新建文档
           </button>
         </div>
 
@@ -119,7 +120,7 @@ export default function JournalList() {
                   <p className="text-xs text-[var(--color-text-secondary)] mt-1">记录今天学到的第一个知识点吧</p>
                   <button className="btn-primary mt-4 px-6 py-2.5"
                     onClick={() => { setCurrent(null); navigate('/edit/new'); }}>
-                    ✏️ 写第一篇文档
+                    写第一篇文档
                   </button>
                 </>
               )}
@@ -131,7 +132,10 @@ export default function JournalList() {
                 onClick={() => { setCurrent(entry); navigate(`/edit/${entry.id}`); }}>
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-[var(--color-text)] truncate">{entry.title || '无标题'}</h3>
+                    <h3 className="font-semibold text-[var(--color-text)] truncate flex items-center gap-1.5">
+                      {entry.pinned && <Star className="h-3.5 w-3.5 flex-shrink-0 text-[var(--color-accent)] fill-[var(--color-accent)]" />}
+                      {entry.title || '无标题'}
+                    </h3>
                     <p className="text-sm text-[var(--color-text-secondary)] line-clamp-2 mt-1">
                       {entry.contentPlain?.slice(0, 200) || entry.content?.slice(0, 200)}
                     </p>

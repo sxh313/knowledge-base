@@ -14,6 +14,7 @@ export interface JournalEntry {
   timeSpentMinutes?: number;
   sourceType: 'manual' | 'voice' | 'import' | 'webclip';
   sourceRef?: { url?: string; book?: string; course?: string };
+  pinned?: boolean;          // 置顶/收藏
   createdAt: number;         // timestamp ms
   updatedAt: number;
   deletedAt?: number;

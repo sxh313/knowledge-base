@@ -107,7 +107,7 @@ export default function Stats() {
 
       {/* Subject breakdown */}
       <div className="card">
-        <h2 className="mb-4 text-sm font-semibold text-[var(--color-text)]">学科分布</h2>
+        <h2 className="mb-4 text-sm font-semibold text-[var(--color-text)]">分类分布</h2>
         <div className="space-y-3">
           {subjectStats.map(({ subject, count }) => {
             const pct = (count / totalJournals) * 100;

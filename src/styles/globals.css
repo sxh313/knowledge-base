@@ -10,93 +10,93 @@
 /* ─── Tokens ─────────────────────────────────────────────────── */
 @layer base {
   :root {
-    /* 背景：温暖的米白，比纯白更柔和 */
-    --color-bg: #fafaf9;
-    --color-bg-grad: linear-gradient(180deg, #fafaf9 0%, #f3f4f6 100%);
+    /* 背景：飞书式干净浅灰白 */
+    --color-bg: #f5f6f7;
+    --color-bg-grad: linear-gradient(180deg, #f5f6f7 0%, #f0f1f3 100%);
     /* 表面：纯白卡片 */
     --color-surface: #ffffff;
-    --color-surface-hover: #f9fafb;
+    --color-surface-hover: #f7f8f9;
     /* 次级表面：稍暗用于嵌套区域 */
-    --color-surface-2: #f3f4f6;
+    --color-surface-2: #f1f2f4;
     /* 边框 */
-    --color-border: #e5e7eb;
-    --color-border-strong: #d1d5db;
+    --color-border: #e4e6eb;
+    --color-border-strong: #d0d3da;
     /* 文字 */
-    --color-text: #111827;
-    --color-text-secondary: #6b7280;
-    --color-text-tertiary: #9ca3af;
-    /* 主色：深靛蓝 */
-    --color-primary: #4f46e5;
-    --color-primary-hover: #4338ca;
-    --color-primary-light: #eef2ff;
-    /* 强调色：温暖琥珀 */
-    --color-accent: #f59e0b;
-    --color-accent-hover: #d97706;
-    --color-accent-light: #fffbeb;
+    --color-text: #1f2329;
+    --color-text-secondary: #646a73;
+    --color-text-tertiary: #8f959e;
+    /* 主色：飞书蓝 */
+    --color-primary: #3370ff;
+    --color-primary-hover: #2468f6;
+    --color-primary-light: #eaf1ff;
+    /* 强调色：温暖琥珀（用于置顶星标） */
+    --color-accent: #f5a623;
+    --color-accent-hover: #e09a1c;
+    --color-accent-light: #fff7e6;
     /* 语义色 */
-    --color-success: #10b981;
-    --color-success-light: #ecfdf5;
-    --color-danger: #ef4444;
-    --color-danger-light: #fef2f2;
-    --color-info: #3b82f6;
-    --color-info-light: #eff6ff;
+    --color-success: #34c059;
+    --color-success-light: #e8f7ee;
+    --color-danger: #f54a45;
+    --color-danger-light: #feefee;
+    --color-info: #3370ff;
+    --color-info-light: #eaf1ff;
 
-    /* 阴影系统：分层柔和阴影 */
-    --shadow-xs: 0 1px 2px 0 rgba(0,0,0,0.04);
-    --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.06), 0 1px 2px -1px rgba(0,0,0,0.04);
-    --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.04);
-    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04);
-    --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.04);
-    --shadow-glow: 0 0 0 3px rgba(79, 70, 229, 0.12);
-    --shadow-card-hover: 0 12px 24px -8px rgba(0,0,0,0.12), 0 4px 8px -4px rgba(0,0,0,0.04);
+    /* 阴影系统：更轻、更平整（飞书风） */
+    --shadow-xs: 0 1px 2px 0 rgba(31,35,41,0.04);
+    --shadow-sm: 0 1px 3px 0 rgba(31,35,41,0.06), 0 1px 2px -1px rgba(31,35,41,0.04);
+    --shadow-md: 0 4px 10px -2px rgba(31,35,41,0.08), 0 2px 4px -2px rgba(31,35,41,0.05);
+    --shadow-lg: 0 10px 24px -6px rgba(31,35,41,0.1), 0 4px 8px -4px rgba(31,35,41,0.06);
+    --shadow-xl: 0 20px 40px -8px rgba(31,35,41,0.14), 0 8px 12px -6px rgba(31,35,41,0.06);
+    --shadow-glow: 0 0 0 3px rgba(51, 112, 255, 0.14);
+    --shadow-card-hover: 0 8px 20px -6px rgba(31,35,41,0.12), 0 4px 8px -4px rgba(31,35,41,0.06);
 
     /* 圆角 */
     --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 14px;
-    --radius-xl: 18px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
   }
 
   .dark {
-    /* 背景：深邃午夜蓝黑，比纯黑更有质感 */
-    --color-bg: #0c0c14;
-    --color-bg-grad: linear-gradient(180deg, #0c0c14 0%, #111119 100%);
-    /* 表面：稍亮的深蓝灰 */
-    --color-surface: #181826;
-    --color-surface-hover: #1f1f30;
-    --color-surface-2: #1f1f30;
+    /* 背景：深邃午夜蓝黑 */
+    --color-bg: #17181c;
+    --color-bg-grad: linear-gradient(180deg, #17181c 0%, #1c1e23 100%);
+    /* 表面 */
+    --color-surface: #1f2126;
+    --color-surface-hover: #24262c;
+    --color-surface-2: #24262c;
     /* 边框 */
-    --color-border: #2a2a3c;
-    --color-border-strong: #3a3a4f;
+    --color-border: #32353c;
+    --color-border-strong: #41454d;
     /* 文字 */
-    --color-text: #f3f4f6;
-    --color-text-secondary: #a1a1b5;
-    --color-text-tertiary: #6b7280;
-    /* 主色：夜间柔和靛蓝 */
-    --color-primary: #818cf8;
-    --color-primary-hover: #a5b4fc;
-    --color-primary-light: #1e1b4b;
+    --color-text: #e6e8eb;
+    --color-text-secondary: #a6abb4;
+    --color-text-tertiary: #6f747d;
+    /* 主色：夜间柔和飞书蓝 */
+    --color-primary: #5b8cff;
+    --color-primary-hover: #7ba3ff;
+    --color-primary-light: #1d2f5c;
     /* 强调色 */
-    --color-accent: #fbbf24;
-    --color-accent-hover: #fcd34d;
-    --color-accent-light: #422006;
+    --color-accent: #ffc257;
+    --color-accent-hover: #ffd480;
+    --color-accent-light: #4a3a12;
 
     /* 语义色（夜间） */
-    --color-success: #34d399;
-    --color-success-light: #052e1f;
-    --color-danger: #f87171;
-    --color-danger-light: #3b0a0a;
-    --color-info: #60a5fa;
-    --color-info-light: #0a1f3b;
+    --color-success: #4cc56b;
+    --color-success-light: #12331e;
+    --color-danger: #f56a65;
+    --color-danger-light: #3d1a19;
+    --color-info: #5b8cff;
+    --color-info-light: #1d2f5c;
 
-    /* 阴影：夜间用更深、更明显的阴影 */
+    /* 阴影：夜间用更深 */
     --shadow-xs: 0 1px 2px 0 rgba(0,0,0,0.3);
     --shadow-sm: 0 1px 3px 0 rgba(0,0,0,0.4), 0 1px 2px -1px rgba(0,0,0,0.3);
-    --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.4), 0 2px 4px -2px rgba(0,0,0,0.3);
-    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.5), 0 4px 6px -4px rgba(0,0,0,0.3);
-    --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.6), 0 8px 10px -6px rgba(0,0,0,0.3);
-    --shadow-glow: 0 0 0 3px rgba(129, 140, 248, 0.2);
-    --shadow-card-hover: 0 12px 24px -8px rgba(0,0,0,0.6), 0 4px 8px -4px rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 10px -2px rgba(0,0,0,0.45), 0 2px 4px -2px rgba(0,0,0,0.3);
+    --shadow-lg: 0 10px 24px -6px rgba(0,0,0,0.55), 0 4px 8px -4px rgba(0,0,0,0.35);
+    --shadow-xl: 0 20px 40px -8px rgba(0,0,0,0.65), 0 8px 12px -6px rgba(0,0,0,0.4);
+    --shadow-glow: 0 0 0 3px rgba(91, 140, 255, 0.22);
+    --shadow-card-hover: 0 8px 20px -6px rgba(0,0,0,0.6), 0 4px 8px -4px rgba(0,0,0,0.4);
   }
 
   html {
@@ -138,10 +138,10 @@
 
   /* 文字选中颜色 */
   ::selection {
-    background-color: rgba(79, 70, 229, 0.2);
+    background-color: rgba(51, 112, 255, 0.2);
   }
   .dark ::selection {
-    background-color: rgba(129, 140, 248, 0.25);
+    background-color: rgba(91, 140, 255, 0.25);
   }
 
   /* 焦点环统一 */
@@ -154,17 +154,16 @@
 
 /* ─── Components ─────────────────────────────────────────────── */
 @layer components {
-  /* 主按钮：带渐变和阴影 */
+  /* 主按钮：飞书式纯色蓝 */
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white transition-all active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed;
-    background-image: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+    background-color: var(--color-primary);
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-sm), 0 0 0 1px rgba(255,255,255,0.1) inset;
+    box-shadow: var(--shadow-xs);
   }
   .btn-primary:hover:not(:disabled) {
-    filter: brightness(1.08);
-    box-shadow: var(--shadow-md), 0 0 0 1px rgba(255,255,255,0.15) inset;
-    transform: translateY(-1px);
+    background-color: var(--color-primary-hover);
+    box-shadow: var(--shadow-sm);
   }
 
   /* 次级按钮 */
@@ -193,19 +192,18 @@
     color: var(--color-text);
   }
 
-  /* 卡片：浮起的白色表面 */
+  /* 卡片：飞书式平整浅边框 */
   .card {
     background-color: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     padding: 1.25rem;
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--shadow-xs);
     transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
   }
   .card-hoverable:hover {
     box-shadow: var(--shadow-card-hover);
-    border-color: var(--color-border-strong);
-    transform: translateY(-2px);
+    border-color: var(--color-primary-light);
   }
 
   /* 输入框 */
@@ -250,11 +248,11 @@
     color: var(--color-text-secondary);
   }
 
-  /* 玻璃态：用于工具栏/侧栏 */
+  /* 玻璃态：用于工具栏/侧栏 —— 飞书式轻量毛玻璃 */
   .glass {
-    background-color: color-mix(in srgb, var(--color-surface) 85%, transparent);
-    backdrop-filter: blur(12px) saturate(150%);
-    -webkit-backdrop-filter: blur(12px) saturate(150%);
+    background-color: color-mix(in srgb, var(--color-surface) 92%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
   }
 
   /* 分隔线 */

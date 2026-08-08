@@ -5,19 +5,19 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Primary palette — deep indigo/navy foundation with warm amber accents
+        // Primary palette — Feishu-style blue
         brand: {
-          50: '#eef2ff',
-          100: '#e0e7ff',
-          200: '#c7d2fe',
-          300: '#a5b4fc',
-          400: '#818cf8',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
-          800: '#312e81',
-          900: '#1e1b4b',
-          950: '#14123a',
+          50: '#eaf1ff',
+          100: '#d6e5ff',
+          200: '#adc9ff',
+          300: '#84aaff',
+          400: '#5b8cff',
+          500: '#3370ff',
+          600: '#2468f6',
+          700: '#1b52d6',
+          800: '#163f9e',
+          900: '#122f6e',
+          950: '#0b1f4a',
         },
         // Warm accent — amber gold
         accent: {

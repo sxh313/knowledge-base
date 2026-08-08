@@ -69,7 +69,7 @@ export default function AIChatPanel({ onAccept, onAction, journalId }: AIChatPan
       {/* Header */}
       <div className="flex items-center justify-between p-3 border-b border-[var(--color-border)]">
         <span className="text-sm font-medium flex items-center gap-2">
-          <span className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-brand-500 to-brand-700 text-white text-xs">🧠</span>
+          <span className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--color-primary)] text-white text-xs">🧠</span>
           AI 助手
         </span>
       </div>

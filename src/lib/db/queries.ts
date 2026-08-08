@@ -80,6 +80,25 @@ export async function getAllJournals(includeDeleted = false) {
   return db.journals.filter(j => !j.deletedAt).toArray();
 }
 
+/** 回收站：仅已删除的文档 */
+export async function getTrashedJournals() {
+  return db.journals.filter(j => j.deletedAt !== undefined).toArray();
+}
+
+/** 从回收站恢复文档 */
+export async function restoreJournal(id: string) {
+  const existing = await db.journals.get(id);
+  if (!existing) throw new Error('Journal not found');
+  const updated = { ...existing, deletedAt: undefined, updatedAt: Date.now() };
+  await db.journals.put(updated);
+  return updated;
+}
+
+/** 物理删除（彻底删除）文档 */
+export async function purgeJournal(id: string) {
+  await db.journals.delete(id);
+}
+
 export async function searchJournalsByTags(tags: string[]) {
   return db.journals.filter(j => !j.deletedAt && tags.some(t => j.tags.includes(t))).toArray();
 }

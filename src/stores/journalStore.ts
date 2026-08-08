@@ -19,6 +19,7 @@ interface JournalStore {
   create: (data: Omit<JournalEntry, 'id' | 'createdAt' | 'updatedAt'>) => Promise<JournalEntry>;
   update: (id: string, data: Partial<JournalEntry>) => Promise<void>;
   remove: (id: string) => Promise<void>;
+  togglePin: (id: string) => Promise<void>;
   setCurrent: (entry: JournalEntry | null) => void;
   setSearchQuery: (q: string) => void;
   setSelectedTag: (tag: string | null) => void;
@@ -92,6 +93,18 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
     set((state) => ({
       entries: state.entries.filter((e) => e.id !== id),
       currentEntry: state.currentEntry?.id === id ? null : state.currentEntry,
+    }));
+  },
+
+  togglePin: async (id) => {
+    const { entries } = get();
+    const entry = entries.find((e) => e.id === id);
+    if (!entry) return;
+    await updateJournal(id, { pinned: !entry.pinned });
+    const updated = await getJournal(id);
+    set((state) => ({
+      entries: state.entries.map((e) => (e.id === id ? updated! : e)),
+      currentEntry: state.currentEntry?.id === id ? updated : state.currentEntry,
     }));
   },
 
