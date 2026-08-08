@@ -5,7 +5,7 @@
 # 按 Ctrl+C 停止
 # ============================================
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")"
 echo "👁️  监听文件变化中... (Ctrl+C 停止)"
 echo "📂 目录: $(pwd)"
 echo ""
@@ -25,7 +25,7 @@ else
     if [ "$CURRENT_HASH" != "$LAST_HASH" ] && [ -n "$(git status -s)" ]; then
       LAST_HASH="$CURRENT_HASH"
       echo "$(date '+%H:%M:%S') 检测到变化，自动提交..."
-      bash study-journal/deploy.sh "auto: $(date '+%Y-%m-%d %H:%M') 自动提交"
+      bash ./deploy.sh "auto: $(date '+%Y-%m-%d %H:%M') 自动提交"
     fi
   done
 fi
@@ -34,5 +34,5 @@ while true; do
   $WATCH_CMD
   echo "$(date '+%H:%M:%S') 检测到文件变化..."
   sleep 2  # 等待编辑器写完
-  bash study-journal/deploy.sh "auto: $(date '+%Y-%m-%d %H:%M') 自动提交"
+  bash ./deploy.sh "auto: $(date '+%Y-%m-%d %H:%M') 自动提交"
 done

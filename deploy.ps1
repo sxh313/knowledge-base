@@ -3,7 +3,7 @@
 # 用法: .\deploy.ps1 "提交说明"
 # ============================================
 
-Set-Location "$PSScriptRoot\.."
+Set-Location "$PSScriptRoot"
 
 # 清理 lock 文件
 if (Test-Path ".git\index.lock") {

@@ -1,12 +1,8 @@
 node_modules/
 dist/
-.vite/
 .env
-.env.*
-.DS_Store
+.env.local
 *.log
-
-
-# Vite temp files
-vite-build-test.ts
-*.timestamp-*.mjs
+.DS_Store
+.vite/
+*.tsbuildinfo

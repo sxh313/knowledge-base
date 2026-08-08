@@ -4,7 +4,7 @@
 # Press Ctrl+C to stop
 # ============================================
 
-Set-Location "$PSScriptRoot\.."
+Set-Location "$PSScriptRoot"
 
 $interval = 10
 $lastHash = ""

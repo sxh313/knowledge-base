@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useEditor, EditorContent, BubbleMenu } from '@tiptap/react';
+import { useEditor, EditorContent } from '@tiptap/react';
+import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Link from '@tiptap/extension-link';
@@ -56,7 +57,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
     if (value !== lastEmittedRef.current) {
       const newHtml = markdownToHtml(value);
       if (editor.getHTML() !== newHtml) {
-        editor.commands.setContent(newHtml, false);
+        editor.commands.setContent(newHtml);
       }
       lastEmittedRef.current = value;
     }
@@ -160,7 +161,8 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
   return (
     <div className="relative">
       {/* 浮动工具栏（选中文字时） */}
-      <BubbleMenu editor={editor} tippyOptions={{ duration: 100 }}>
+      {editor && (
+      <BubbleMenu editor={editor}>
         <div className="flex items-center gap-0.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg px-1 py-1">
           <ToolbarBtn onClick={() => editor.chain().focus().toggleBold().run()} active={isActive('bold')} title="加粗"><Bold className="w-3.5 h-3.5" /></ToolbarBtn>
           <ToolbarBtn onClick={() => editor.chain().focus().toggleItalic().run()} active={isActive('italic')} title="斜体"><Italic className="w-3.5 h-3.5" /></ToolbarBtn>
@@ -180,6 +182,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
           </ToolbarBtn>
         </div>
       </BubbleMenu>
+      )}
 
       {/* 固定工具栏 */}
       <div className="flex items-center flex-wrap gap-0.5 px-1 py-1.5 border-b border-[var(--color-border)] mb-2">
