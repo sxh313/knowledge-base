@@ -78,6 +78,13 @@ export function getSlashCommands(): SlashCommandItem[] {
       action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
     },
     {
+      title: '表格',
+      description: '插入 3×3 表格',
+      icon: '▦',
+      keywords: '表格 table 网格',
+      action: (editor) => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+    },
+    {
       title: '分隔线',
       description: '水平分割线',
       icon: '—',

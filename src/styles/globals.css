@@ -318,6 +318,27 @@
   .prose-custom .hljs-title, .prose-custom .hljs-section, .prose-custom .hljs-function .hljs-title { color: #d2a8ff; }
   .prose-custom .hljs-tag, .prose-custom .hljs-name { color: #7ee787; }
   .prose-custom .hljs-meta { color: #8b949e; }
+
+  /* 表格样式（飞书式） */
+  .prose-custom table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0.5rem 0;
+    table-layout: fixed;
+  }
+  .prose-custom th, .prose-custom td {
+    border: 1px solid var(--color-border);
+    padding: 0.4rem 0.6rem;
+    text-align: left;
+    vertical-align: top;
+    min-width: 80px;
+  }
+  .prose-custom th {
+    background: var(--color-surface-2);
+    font-weight: 600;
+  }
+  .prose-custom td > p, .prose-custom th > p { margin: 0; }
+  .prose-custom .selectedCell { background: var(--color-primary-light); }
 }
 
 /* ─── Utilities ──────────────────────────────────────────────── */

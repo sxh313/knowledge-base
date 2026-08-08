@@ -9,6 +9,10 @@ import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import { createLowlight, common } from 'lowlight';
+import { Table } from '@tiptap/extension-table';
+import TableRow from '@tiptap/extension-table-row';
+import TableCell from '@tiptap/extension-table-cell';
+import TableHeader from '@tiptap/extension-table-header';
 import {
   Bold, Italic, Strikethrough,
   Code, Link as LinkIcon, List, ListOrdered,
@@ -50,6 +54,10 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       TaskList,
       TaskItem.configure({ nested: true }),
       CodeBlockLowlight.configure({ lowlight }),
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableCell,
+      TableHeader,
     ],
     content: markdownToHtml(value),
     autofocus: autoFocus ? 'end' : false,
