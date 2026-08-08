@@ -174,7 +174,7 @@ export default function JournalEditor() {
       {/* 文档主体：居中窄栏（飞书式阅读宽度，大屏两侧大量留白） */}
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-4xl px-4 sm:px-6 py-5">
+          <div className="mx-auto max-w-4xl px-2 sm:px-4 py-5">
             {/* 标题 */}
             <input
               className="w-full text-3xl sm:text-4xl font-bold bg-transparent border-none outline-none placeholder:text-[var(--color-text-tertiary)] tracking-tight leading-tight"
