@@ -122,6 +122,24 @@ export async function createJournal(data: Omit<JournalEntry, 'id' | 'createdAt' 
   return entry;
 }
 
+/** 复制文档（克隆，生成新 id） */
+export async function duplicateJournal(id: string) {
+  const orig = await db.journals.get(id);
+  if (!orig) throw new Error('Journal not found');
+  const now = Date.now();
+  const entry: JournalEntry = {
+    ...orig,
+    id: crypto.randomUUID(),
+    title: (orig.title || '无标题') + '（副本）',
+    pinned: false,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: undefined,
+  };
+  await db.journals.put(entry);
+  return entry;
+}
+
 export async function updateJournal(id: string, data: Partial<JournalEntry>) {
   const existing = await db.journals.get(id);
   if (!existing) throw new Error('Journal not found');

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { JournalEntry } from '../lib/db/schema';
-import { createJournal, updateJournal, deleteJournal, getJournal, getAllJournals } from '../lib/db/queries';
+import { createJournal, updateJournal, deleteJournal, getJournal, getAllJournals, duplicateJournal } from '../lib/db/queries';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -20,6 +20,7 @@ interface JournalStore {
   update: (id: string, data: Partial<JournalEntry>) => Promise<void>;
   remove: (id: string) => Promise<void>;
   togglePin: (id: string) => Promise<void>;
+  duplicate: (id: string) => Promise<void>;
   setCurrent: (entry: JournalEntry | null) => void;
   setSearchQuery: (q: string) => void;
   setSelectedTag: (tag: string | null) => void;
@@ -108,6 +109,10 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
     }));
   },
 
+  duplicate: async (id) => {
+    const entry = await duplicateJournal(id);
+    set((state) => ({ entries: [entry, ...state.entries] }));
+  },
   setCurrent: (entry) => set({ currentEntry: entry }),
   setSearchQuery: (q) => set({ searchQuery: q }),
   setSelectedTag: (tag) => set({ selectedTag: tag }),

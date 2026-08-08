@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Star, Menu, X } from 'lucide-react';
+import { Star, Menu, X, Copy } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useViewModeStore } from '../stores/viewModeStore';
@@ -8,7 +8,7 @@ import DocTree from '../components/DocTree';
 
 export default function JournalList() {
   const navigate = useNavigate();
-  const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedSubject, setSelectedSubject, togglePin } = useJournalStore();
+  const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedSubject, setSelectedSubject, togglePin, duplicate } = useJournalStore();
   const { hasAnyProviderConfigured } = useSettingsStore();
   const { isMobile } = useViewModeStore();
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -183,6 +183,13 @@ export default function JournalList() {
                       title={entry.pinned ? '取消置顶' : '置顶'}
                     >
                       <Star className={`h-4 w-4 ${entry.pinned ? 'fill-[var(--color-accent)]' : ''}`} />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); duplicate(entry.id); }}
+                      className="p-1 rounded-md transition-colors text-[var(--color-text-tertiary)] hover:text-[var(--color-primary)] hover:bg-[var(--color-surface-2)]"
+                      title="复制文档"
+                    >
+                      <Copy className="h-4 w-4" />
                     </button>
                     {entry.summary && (
                       <span className="text-xs text-[var(--color-primary)] whitespace-nowrap font-medium">
