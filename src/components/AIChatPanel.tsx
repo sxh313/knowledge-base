@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useNavigate } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import { useAIStore } from '../stores/aiStore';
 import { createCard } from '../lib/db/queries';
 
@@ -8,6 +9,8 @@ interface AIChatPanelProps {
   onAccept?: (content: string) => void;
   onAction?: (action: string) => void;
   journalId?: string;
+  /** 移动端全屏模式下的返回/关闭按钮 */
+  onClose?: () => void;
 }
 
 /** 尝试从 AI 返回内容中解析卡片数组 */
@@ -32,7 +35,7 @@ function tryParseCards(content: string): { front: string; back: string }[] | nul
   return null;
 }
 
-export default function AIChatPanel({ onAccept, onAction, journalId }: AIChatPanelProps) {
+export default function AIChatPanel({ onAccept, onAction, journalId, onClose }: AIChatPanelProps) {
   const { isProcessing, streamingContent, error } = useAIStore();
   const navigate = useNavigate();
   const [cardSaved, setCardSaved] = useState(false);
@@ -65,10 +68,15 @@ export default function AIChatPanel({ onAccept, onAction, journalId }: AIChatPan
   };
 
   return (
-    <div className="glass w-80 border-l border-[var(--color-border)] flex flex-col">
+    <div className={`glass ${onClose ? 'w-full h-full' : 'w-80'} border-l border-[var(--color-border)] flex flex-col`}>
       {/* Header */}
       <div className="flex items-center justify-between p-3 border-b border-[var(--color-border)]">
         <span className="text-sm font-medium flex items-center gap-2">
+          {onClose && (
+            <button className="btn-ghost p-1" onClick={onClose} title="返回">
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+          )}
           <span className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--color-primary)] text-white text-xs">🧠</span>
           AI 助手
         </span>

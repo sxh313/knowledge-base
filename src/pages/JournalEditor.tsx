@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Star } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
+import { useViewModeStore } from '../stores/viewModeStore';
 import { buildMessages } from '../lib/ai/prompts';
 import RichTextEditor from '../components/RichTextEditor';
 import AIChatPanel from '../components/AIChatPanel';
@@ -15,6 +16,7 @@ export default function JournalEditor() {
   const navigate = useNavigate();
   const { currentEntry, create, update, loadOne, setCurrent, saveStatus, togglePin } = useJournalStore();
   const { callAI, isProcessing, streamingContent } = useAIStore();
+  const { isMobile } = useViewModeStore();
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -182,22 +184,25 @@ export default function JournalEditor() {
           )}
         </div>
 
-        {/* 文档大纲（仅富文本模式且非 AI 面板时显示） */}
-        {mode === 'rich' && !showAIPanel && content.trim() && (
+        {/* 文档大纲（仅富文本模式、非移动端且非 AI 面板时显示） */}
+        {mode === 'rich' && !showAIPanel && !isMobile && content.trim() && (
           <DocOutline content={content} />
         )}
 
-        {/* AI 面板 */}
+        {/* AI 面板（移动端全屏覆盖，桌面端右侧固定宽度） */}
         {showAIPanel && (
-          <AIChatPanel
-            journalId={currentEntry?.id}
-            onAction={(action) => handleAIAction(action as 'summarize' | 'generateCards' | 'codeReview' | 'codeExplain')}
-            onAccept={(c) => {
-              if (currentEntry?.id) update(currentEntry.id, { summary: c });
-              useAIStore.setState({ streamingContent: '' });
-              setShowAIPanel(false);
-            }}
-          />
+          <div className={isMobile ? 'fixed inset-0 z-50 bg-[var(--color-bg)]' : undefined}>
+            <AIChatPanel
+              journalId={currentEntry?.id}
+              onAction={(action) => handleAIAction(action as 'summarize' | 'generateCards' | 'codeReview' | 'codeExplain')}
+              onClose={isMobile ? () => setShowAIPanel(false) : undefined}
+              onAccept={(c) => {
+                if (currentEntry?.id) update(currentEntry.id, { summary: c });
+                useAIStore.setState({ streamingContent: '' });
+                setShowAIPanel(false);
+              }}
+            />
+          </div>
         )}
       </div>
     </div>

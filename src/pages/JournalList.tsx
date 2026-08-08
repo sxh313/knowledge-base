@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Star } from 'lucide-react';
+import { Star, Menu, X } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useViewModeStore } from '../stores/viewModeStore';
 import DocTree from '../components/DocTree';
 
 export default function JournalList() {
   const navigate = useNavigate();
   const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedSubject, setSelectedSubject, togglePin } = useJournalStore();
   const { hasAnyProviderConfigured } = useSettingsStore();
+  const { isMobile } = useViewModeStore();
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showTreeDrawer, setShowTreeDrawer] = useState(false);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -31,20 +34,44 @@ export default function JournalList() {
 
   return (
     <div className="flex h-full animate-fade-in">
-      {/* 左侧：文档目录树 */}
-      <aside className="w-52 shrink-0 border-r border-[var(--color-border)] overflow-y-auto p-2 hidden lg:block">
-        <DocTree />
-      </aside>
+      {/* 左侧：文档目录树（桌面常驻，移动端抽屉） */}
+      {!isMobile && (
+        <aside className="w-52 shrink-0 border-r border-[var(--color-border)] overflow-y-auto p-2 hidden lg:block">
+          <DocTree />
+        </aside>
+      )}
+
+      {isMobile && showTreeDrawer && (
+        <div className="fixed inset-0 z-50 flex" onClick={() => setShowTreeDrawer(false)}>
+          <div className="w-64 h-full bg-[var(--color-surface)] border-r border-[var(--color-border)] overflow-y-auto p-2 animate-slide-up" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-1 pb-2">
+              <span className="text-xs font-medium text-[var(--color-text-secondary)]">目录</span>
+              <button className="btn-ghost p-1" onClick={() => setShowTreeDrawer(false)}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <DocTree onNavigate={() => setShowTreeDrawer(false)} />
+          </div>
+          <div className="flex-1 bg-black/30" />
+        </div>
+      )}
 
       {/* 右侧：文档列表 */}
       <div className="flex flex-col flex-1 min-w-0 px-4 py-3">
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
-          <div>
-            <h1 className="text-2xl font-bold text-[var(--color-text)]">知识库</h1>
-            <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
-              {filtered.length > 0 ? `共 ${filtered.length} 篇文档` : '构建你的知识体系'}
-            </p>
+          <div className="flex items-center gap-2">
+            {isMobile && (
+              <button className="btn-ghost p-1.5" onClick={() => setShowTreeDrawer(true)} title="目录">
+                <Menu className="h-5 w-5" />
+              </button>
+            )}
+            <div>
+              <h1 className="text-2xl font-bold text-[var(--color-text)]">知识库</h1>
+              <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+                {filtered.length > 0 ? `共 ${filtered.length} 篇文档` : '构建你的知识体系'}
+              </p>
+            </div>
           </div>
           <button className="btn-primary text-sm" onClick={() => { setCurrent(null); navigate('/edit/new'); }}>
             新建文档

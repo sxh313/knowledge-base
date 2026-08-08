@@ -30,7 +30,12 @@ function SectionHeader({
   );
 }
 
-export default function DocTree() {
+interface DocTreeProps {
+  /** 移动端抽屉中使用：导航后关闭抽屉 */
+  onNavigate?: () => void;
+}
+
+export default function DocTree({ onNavigate }: DocTreeProps = {}) {
   const navigate = useNavigate();
   const { entries, setCurrent, currentEntry } = useJournalStore();
   const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(new Set());
@@ -86,6 +91,7 @@ export default function DocTree() {
   const handleDocClick = (entry: JournalEntry) => {
     setCurrent(entry);
     navigate(`/edit/${entry.id}`);
+    onNavigate?.();
   };
 
   const isActive = (id: string) => currentEntry?.id === id;
@@ -112,7 +118,7 @@ export default function DocTree() {
       {/* 新建文档（始终可见的快捷入口） */}
       <button
         className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] transition-colors"
-        onClick={() => { setCurrent(null); navigate('/edit/new'); }}
+        onClick={() => { setCurrent(null); navigate('/edit/new'); onNavigate?.(); }}
       >
         <Plus className="h-3.5 w-3.5 flex-shrink-0 text-[var(--color-primary)]" />
         <span className="text-xs">新建文档</span>
@@ -223,7 +229,7 @@ export default function DocTree() {
       {/* 回收站入口 */}
       <button
         className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text-secondary)] transition-colors"
-        onClick={() => navigate('/trash')}
+        onClick={() => { navigate('/trash'); onNavigate?.(); }}
       >
         <Trash2 className="h-3.5 w-3.5 flex-shrink-0" />
         <span className="text-xs">回收站</span>

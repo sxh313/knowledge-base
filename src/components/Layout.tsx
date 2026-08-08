@@ -1,10 +1,11 @@
-import { Outlet, NavLink, useLocation } from 'react-router-dom';
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   FileText, MessageSquare, Brain, BarChart3, Settings, BookOpen, Layers,
-  ChevronLeft, Sun, Moon, Monitor, Search, HelpCircle,
+  ChevronLeft, Sun, Moon, Monitor, Search, HelpCircle, Smartphone, MoreHorizontal, X, Trash2,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useThemeStore, type ThemeMode } from '../stores/themeStore';
+import { useViewModeStore, type ViewMode } from '../stores/viewModeStore';
 
 interface LayoutProps {
   onOpenPalette?: () => void;
@@ -20,6 +21,13 @@ const navItems = [
   { to: '/settings', icon: Settings, label: '设置' },
 ];
 
+const mobileTabItems = navItems.slice(0, 4);
+const mobileMoreItems = [
+  ...navItems.slice(4),
+  { to: '/trash', icon: Trash2, label: '回收站' },
+  { to: '/manual', icon: HelpCircle, label: '使用手册' },
+];
+
 const themeCycle: ThemeMode[] = ['light', 'dark', 'auto'];
 const themeConfig: Record<ThemeMode, { icon: typeof Sun; label: string; hint: string }> = {
   light: { icon: Sun, label: '白天', hint: '日' },
@@ -27,13 +35,118 @@ const themeConfig: Record<ThemeMode, { icon: typeof Sun; label: string; hint: st
   auto: { icon: Monitor, label: '跟随系统', hint: '随' },
 };
 
+const viewModeCycle: ViewMode[] = ['auto', 'desktop', 'mobile'];
+const viewModeConfig: Record<ViewMode, { icon: typeof Monitor; label: string }> = {
+  auto: { icon: Monitor, label: '自动' },
+  desktop: { icon: Monitor, label: '桌面版' },
+  mobile: { icon: Smartphone, label: '手机版' },
+};
+
 export default function Layout({ onOpenPalette }: LayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [showMoreSheet, setShowMoreSheet] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const { mode, setMode } = useThemeStore();
+  const { mode: viewMode, isMobile, cycleMode } = useViewModeStore();
 
   const ThemeIcon = themeConfig[mode].icon;
   const nextTheme = themeCycle[(themeCycle.indexOf(mode) + 1) % themeCycle.length];
+  const ViewModeIcon = viewModeConfig[viewMode].icon;
+  const nextViewMode = viewModeCycle[(viewModeCycle.indexOf(viewMode) + 1) % viewModeCycle.length];
+
+  if (isMobile) {
+    return (
+      <div className="flex h-screen flex-col overflow-hidden">
+        {/* 顶部栏 */}
+        <div className="glass flex items-center gap-2 border-b border-[var(--color-border)] px-3 h-12 shrink-0">
+          <button
+            onClick={onOpenPalette}
+            className="flex flex-1 items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)] transition-colors"
+            title="搜索"
+          >
+            <Search className="h-4 w-4" />
+            <span>搜索</span>
+          </button>
+          <button
+            onClick={cycleMode}
+            className="btn-ghost p-1.5"
+            title={`当前: ${viewModeConfig[viewMode].label} — 点击切换为${viewModeConfig[nextViewMode].label}`}
+            type="button"
+          >
+            <ViewModeIcon className="h-4 w-4" />
+          </button>
+          <NavLink to="/manual" className="btn-ghost p-1.5" title="使用手册">
+            <HelpCircle className="h-4 w-4" />
+          </NavLink>
+        </div>
+
+        {/* 内容区 */}
+        <main className="flex-1 overflow-y-auto px-3 py-4">
+          <Outlet />
+        </main>
+
+        {/* 底部 Tab 栏 */}
+        <nav className="glass flex items-center border-t border-[var(--color-border)] shrink-0 pb-[env(safe-area-inset-bottom)]">
+          {mobileTabItems.map((item) => {
+            const isActive = item.to === '/'
+              ? location.pathname === '/'
+              : location.pathname.startsWith(item.to);
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === '/'}
+                className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
+                  isActive ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-tertiary)]'
+                }`}
+              >
+                <item.icon className="h-5 w-5" />
+                {item.label}
+              </NavLink>
+            );
+          })}
+          <button
+            onClick={() => setShowMoreSheet(true)}
+            className="flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium text-[var(--color-text-tertiary)]"
+          >
+            <MoreHorizontal className="h-5 w-5" />
+            更多
+          </button>
+        </nav>
+
+        {/* 更多面板 */}
+        {showMoreSheet && (
+          <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setShowMoreSheet(false)}>
+            <div className="flex-1 bg-black/30 animate-fade-in" />
+            <div
+              className="glass rounded-t-2xl border-t border-[var(--color-border)] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-medium text-[var(--color-text)]">更多</span>
+                <button className="btn-ghost p-1" onClick={() => setShowMoreSheet(false)}>
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="grid grid-cols-4 gap-3">
+                {mobileMoreItems.map((item) => (
+                  <button
+                    key={item.to}
+                    className="flex flex-col items-center gap-1.5 rounded-lg py-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]"
+                    onClick={() => { navigate(item.to); setShowMoreSheet(false); }}
+                  >
+                    <item.icon className="h-5 w-5" />
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -144,6 +257,15 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
             <kbd className="ml-1 text-[10px] text-[var(--color-text-tertiary)]">⌘K</kbd>
           </button>
           <div className="flex-1" />
+          <button
+            onClick={cycleMode}
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)]"
+            title={`当前: ${viewModeConfig[viewMode].label} — 点击切换为${viewModeConfig[nextViewMode].label}`}
+            type="button"
+          >
+            <ViewModeIcon className="h-4 w-4" />
+            <span className="hidden md:inline">{viewModeConfig[viewMode].label}</span>
+          </button>
           <NavLink
             to="/manual"
             className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)] ${

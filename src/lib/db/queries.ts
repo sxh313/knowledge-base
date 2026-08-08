@@ -5,14 +5,35 @@ import { db, type JournalEntry, type Note, type KnowledgeCard, type AIConversati
 export async function getSettings(): Promise<AppSettings> {
   let settings = await db.settings.get('global');
   if (!settings) {
+    const env = import.meta.env;
     settings = {
       id: 'global',
       aiProviders: {
-        shengsuanyun: { baseUrl: 'https://beta-router.shengsuanyun.com/api/v1', apiKey: '', enabled: false },
-        relay: { baseUrl: '', apiKey: '', enabled: false },
-        siliconflow: { baseUrl: 'https://api.siliconflow.cn/v1', apiKey: '', enabled: false },
-        zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', apiKey: '', enabled: false },
-        deepseek: { baseUrl: 'https://api.deepseek.com/v1', apiKey: '', enabled: false },
+        shengsuanyun: {
+          baseUrl: 'https://beta-router.shengsuanyun.com/api/v1',
+          apiKey: env.VITE_SHENGSUANYUN_API_KEY ?? '',
+          enabled: !!env.VITE_SHENGSUANYUN_API_KEY,
+        },
+        relay: {
+          baseUrl: env.VITE_RELAY_BASE_URL ?? '',
+          apiKey: env.VITE_RELAY_API_KEY ?? '',
+          enabled: !!env.VITE_RELAY_API_KEY,
+        },
+        siliconflow: {
+          baseUrl: 'https://api.siliconflow.cn/v1',
+          apiKey: env.VITE_SILICONFLOW_API_KEY ?? '',
+          enabled: !!env.VITE_SILICONFLOW_API_KEY,
+        },
+        zhipu: {
+          baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+          apiKey: env.VITE_ZHIPU_API_KEY ?? '',
+          enabled: !!env.VITE_ZHIPU_API_KEY,
+        },
+        deepseek: {
+          baseUrl: 'https://api.deepseek.com/v1',
+          apiKey: env.VITE_DEEPSEEK_API_KEY ?? '',
+          enabled: !!env.VITE_DEEPSEEK_API_KEY,
+        },
       },
       preferredModels: {
         highQuality: 'deepseek-v4-flash',
