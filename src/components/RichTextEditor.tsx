@@ -117,11 +117,19 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       }
       if (hasImage) e.preventDefault();
     };
+    const onDragStart = (e: DragEvent) => {
+      // 隐藏文字拖动虚影，避免拖到编辑器外的视觉干扰（编辑器内移动仍正常）
+      const ghost = document.createElement('img');
+      ghost.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+      e.dataTransfer?.setDragImage(ghost, 0, 0);
+    };
     dom.addEventListener('paste', onPaste);
     dom.addEventListener('drop', onDrop);
+    dom.addEventListener('dragstart', onDragStart);
     return () => {
       dom.removeEventListener('paste', onPaste);
       dom.removeEventListener('drop', onDrop);
+      dom.removeEventListener('dragstart', onDragStart);
     };
   }, [editor]);
 
