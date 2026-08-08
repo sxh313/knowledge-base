@@ -297,7 +297,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </NavLink>
         </div>
 
-        <div key={location.pathname} className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8 animate-slide-up">
+        <div key={location.pathname} className="px-5 py-6 animate-slide-up">
           <Outlet />
         </div>
       </main>
