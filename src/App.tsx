@@ -4,6 +4,7 @@ import { useSettingsStore } from './stores/settingsStore';
 import { useJournalStore } from './stores/journalStore';
 import { useThemeStore } from './stores/themeStore';
 import { buildSearchIndex } from './lib/search/fuse';
+import { getCardsDueToday } from './lib/db/queries';
 
 import Layout from './components/Layout';
 import CommandPalette from './components/CommandPalette';
@@ -29,6 +30,26 @@ export default function App() {
   useEffect(() => {
     loadSettings();
     loadAll();
+  }, []);
+
+  // 复习提醒：加载后检查到期卡片，浏览器通知
+  useEffect(() => {
+    if (!('Notification' in window)) return;
+    const check = async () => {
+      try {
+        const cards = await getCardsDueToday();
+        if (cards.length === 0) return;
+        if (Notification.permission === 'granted') {
+          new Notification('📅 复习提醒', { body: `有 ${cards.length} 张卡片待复习，去复习吧！` });
+        } else if (Notification.permission === 'default') {
+          const perm = await Notification.requestPermission();
+          if (perm === 'granted') {
+            new Notification('📅 复习提醒', { body: `有 ${cards.length} 张卡片待复习，去复习吧！` });
+          }
+        }
+      } catch { /* 忽略 */ }
+    };
+    check();
   }, []);
 
   // Ctrl+K 打开命令面板
