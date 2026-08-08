@@ -5,11 +5,13 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
+import TaskList from '@tiptap/extension-task-list';
+import TaskItem from '@tiptap/extension-task-item';
 import {
   Bold, Italic, Strikethrough,
   Code, Link as LinkIcon, List, ListOrdered,
   Quote, Heading1, Heading2, Heading3, Pilcrow, CodeXml, Minus, Image as ImageIcon,
-  Undo2, Redo2,
+  Undo2, Redo2, ListChecks,
 } from 'lucide-react';
 import { markdownToHtml, htmlToMarkdown } from '../lib/markdownUtils';
 import { getSlashCommands, type SlashCommandItem } from './tiptap/slashCommand';
@@ -39,6 +41,8 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       }),
       Link.configure({ openOnClick: false }),
       Image,
+      TaskList,
+      TaskItem.configure({ nested: true }),
     ],
     content: markdownToHtml(value),
     autofocus: autoFocus ? 'end' : false,
@@ -254,6 +258,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
         <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
         <ToolbarBtn onClick={() => editor.chain().focus().toggleBulletList().run()} active={isActive('bulletList')} title="无序列表"><List className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleOrderedList().run()} active={isActive('orderedList')} title="有序列表"><ListOrdered className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => editor.chain().focus().toggleTaskList().run()} active={isActive('taskList')} title="待办清单"><ListChecks className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleBlockquote().run()} active={isActive('blockquote')} title="引用"><Quote className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleCodeBlock().run()} active={isActive('codeBlock')} title="代码块"><CodeXml className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="分隔线"><Minus className="w-4 h-4" /></ToolbarBtn>

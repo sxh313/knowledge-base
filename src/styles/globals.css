@@ -274,6 +274,36 @@
     @apply prose-blockquote:border-l-[var(--color-primary)] prose-blockquote:bg-[var(--color-primary-light)] prose-blockquote:py-0.5 prose-blockquote:rounded-r-lg;
     @apply prose-img:rounded-lg;
   }
+
+  /* 待办清单（TipTap task-list）：飞书/Notion 式可勾选 */
+  .prose-custom ul[data-type="taskList"] {
+    list-style: none;
+    padding-left: 0;
+  }
+  .prose-custom ul[data-type="taskList"] li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  .prose-custom ul[data-type="taskList"] li > label {
+    flex-shrink: 0;
+    user-select: none;
+    margin-top: 0.2rem;
+  }
+  .prose-custom ul[data-type="taskList"] li > div {
+    flex: 1;
+    min-width: 0;
+  }
+  .prose-custom ul[data-type="taskList"] input[type="checkbox"] {
+    cursor: pointer;
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--color-primary);
+  }
+  .prose-custom ul[data-type="taskList"] li[data-checked="true"] > div {
+    color: var(--color-text-tertiary);
+    text-decoration: line-through;
+  }
 }
 
 /* ─── Utilities ──────────────────────────────────────────────── */
