@@ -8,7 +8,7 @@ import DocTree from '../components/DocTree';
 
 export default function JournalList() {
   const navigate = useNavigate();
-  const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedSubject, setSelectedSubject, togglePin, duplicate } = useJournalStore();
+  const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedSubject, setSelectedSubject, togglePin, duplicate, sortBy, setSortBy } = useJournalStore();
   const { hasAnyProviderConfigured } = useSettingsStore();
   const { isMobile } = useViewModeStore();
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -109,6 +109,11 @@ export default function JournalList() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
+          <select value={sortBy} onChange={e => setSortBy(e.target.value as 'created' | 'updated' | 'title')} className="input-field text-xs w-auto">
+            <option value="created">创建时间</option>
+            <option value="updated">修改时间</option>
+            <option value="title">标题</option>
+          </select>
           {allSubjects.length > 0 && (
             <div className="flex gap-2 flex-wrap text-xs">
               {allSubjects.map(s => (

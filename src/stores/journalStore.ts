@@ -13,6 +13,7 @@ interface JournalStore {
   selectedTag: string | null;
   selectedSubject: string | null;
   saveStatus: SaveStatus;
+  sortBy: 'created' | 'updated' | 'title';
 
   loadAll: () => Promise<void>;
   loadOne: (id: string) => Promise<void>;
@@ -27,6 +28,7 @@ interface JournalStore {
   setSelectedSubject: (subject: string | null) => void;
   getFilteredEntries: () => JournalEntry[];
   setSaveStatus: (status: SaveStatus) => void;
+  setSortBy: (s: 'created' | 'updated' | 'title') => void;
 }
 
 export const useJournalStore = create<JournalStore>((set, get) => ({
@@ -38,6 +40,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   selectedTag: null,
   selectedSubject: null,
   saveStatus: 'idle' as SaveStatus,
+  sortBy: 'created' as 'created' | 'updated' | 'title',
 
   loadAll: async () => {
     set({ isLoading: true, error: null });
@@ -118,9 +121,10 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   setSelectedTag: (tag) => set({ selectedTag: tag }),
   setSelectedSubject: (subject) => set({ selectedSubject: subject }),
   setSaveStatus: (status) => set({ saveStatus: status }),
+  setSortBy: (s) => set({ sortBy: s }),
 
   getFilteredEntries: () => {
-    const { entries, searchQuery, selectedTag, selectedSubject } = get();
+    const { entries, searchQuery, selectedTag, selectedSubject, sortBy } = get();
     let filtered = entries;
 
     if (searchQuery.trim()) {
@@ -142,6 +146,14 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
       filtered = filtered.filter((e) => e.subject === selectedSubject);
     }
 
+    if (sortBy === 'title') {
+      filtered = [...filtered].sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    } else if (sortBy === 'updated') {
+      filtered = [...filtered].sort((a, b) => b.updatedAt - a.updatedAt);
+    } else {
+      filtered = [...filtered].sort((a, b) => b.createdAt - a.createdAt);
+    }
+    filtered = [...filtered].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
     return filtered;
   },
 }));
