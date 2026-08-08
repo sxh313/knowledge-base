@@ -174,7 +174,7 @@ export default function JournalEditor() {
       {/* 文档主体：居中窄栏（飞书式阅读宽度，大屏两侧大量留白） */}
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-4xl px-6 sm:px-10 py-8">
+          <div className="mx-auto max-w-4xl px-6 sm:px-10 py-5">
             {/* 标题 */}
             <input
               className="w-full text-3xl sm:text-4xl font-bold bg-transparent border-none outline-none placeholder:text-[var(--color-text-tertiary)] tracking-tight leading-tight"
@@ -185,7 +185,7 @@ export default function JournalEditor() {
             />
 
             {/* 元信息行（飞书式轻量信息条） */}
-            <div className="mt-3 flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] flex-wrap">
+            <div className="mt-2 flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] flex-wrap">
               {currentEntry?.createdAt && (
                 <span>
                   {new Date(currentEntry.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
@@ -196,7 +196,7 @@ export default function JournalEditor() {
               {currentEntry?.summary && <span className="text-[var(--color-primary)]">· ✨ 已生成总结</span>}
             </div>
 
-            <div className="divider my-3" />
+            <div className="divider my-1" />
 
             {/* 编辑器 */}
             {mode === 'rich' ? (
