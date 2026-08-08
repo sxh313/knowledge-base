@@ -493,7 +493,7 @@ export default function SettingsPage() {
       </section>
 
       <div className="text-xs text-gray-400 text-center pb-8">
-        API Key 和笔记数据加密存储在你的浏览器中（IndexedDB），不会上传到任何服务器
+        API Key 加密存于本地浏览器；笔记数据默认本地，仅在启用云同步时推送到你自己的 GitHub 仓库
       </div>
     </div>
   );
