@@ -3,7 +3,6 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
-import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
@@ -49,7 +48,6 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       Placeholder.configure({
         placeholder: placeholder || '输入 / 插入内容，或直接输入文字...',
       }),
-      Link.configure({ openOnClick: false }),
       Image,
       TaskList,
       TaskItem.configure({ nested: true }),
