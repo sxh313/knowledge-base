@@ -6,6 +6,7 @@ import type { AISettings } from '../lib/db/schema';
 import { fetchAvailableModels } from '../lib/db/queries';
 import type { SyncConfig } from '../lib/db/schema';
 import { useSyncStore } from '../stores/syncStore';
+import { exportKeys, importKeys, type KeyBundle } from '../lib/utils/keyVault';
 import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search } from 'lucide-react';
 
 const PROVIDER_INFO: { key: ProviderName; label: string; desc: string; icon: string }[] = [
@@ -26,6 +27,11 @@ export default function SettingsPage() {
   const { doSync, status: syncStatus } = useSyncStore();
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  const [exportPwd, setExportPwd] = useState('');
+  const [exportOut, setExportOut] = useState('');
+  const [importText, setImportText] = useState('');
+  const [importPwd, setImportPwd] = useState('');
+  const [vaultMsg, setVaultMsg] = useState<string | null>(null);
 
   useEffect(() => { load(); }, []);
 
@@ -104,6 +110,39 @@ export default function SettingsPage() {
     const m = await useSyncStore.getState().testConn(settings.sync);
     setSyncMsg(m);
     setSyncTesting(false);
+  };
+
+  // 密钥迁移：用主密码加密 API Key（可安全放云端），另一设备用主密码解密恢复
+  const handleExportKeys = async () => {
+    setVaultMsg(null);
+    if (!exportPwd) { setVaultMsg('请输入主密码'); return; }
+    if (exportPwd.length < 6) { setVaultMsg('主密码至少 6 位'); return; }
+    try {
+      const bundle: Record<string, unknown> = {};
+      for (const { key } of PROVIDER_INFO) bundle[key] = settings.aiProviders[key];
+      const cipher = await exportKeys({ providers: bundle as KeyBundle['providers'] }, exportPwd);
+      setExportOut(cipher);
+      setVaultMsg('✅ 已加密生成，可安全复制到任意位置（含 GitHub 公开仓库）');
+    } catch (e) { setVaultMsg('加密失败：' + (e as Error).message); }
+  };
+
+  const handleImportKeys = async () => {
+    setVaultMsg(null);
+    if (!importText.trim() || !importPwd) { setVaultMsg('请粘贴密文并输入主密码'); return; }
+    try {
+      const bundle = await importKeys(importText.trim(), importPwd);
+      const merged = { ...settings.aiProviders };
+      for (const [k, v] of Object.entries(bundle.providers)) {
+        const name = k as ProviderName;
+        if (merged[name]) merged[name] = { ...merged[name], ...v };
+      }
+      updateAI(merged);
+      setLocalProviders(JSON.parse(JSON.stringify(merged)));
+      setVaultMsg('✅ 导入成功，Key 已写入本地');
+      setImportText(''); setImportPwd('');
+    } catch {
+      setVaultMsg('❌ 解密失败：主密码错误或密文损坏');
+    }
   };
 
   const dropdownModels: string[] = (() => {
@@ -390,6 +429,41 @@ export default function SettingsPage() {
               </details>
             </>
           )}
+        </div>
+      </section>
+
+      {/* 密钥迁移（跨设备，基于主密码加密） */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold">🔐 密钥迁移（跨设备）</h2>
+        <p className="text-xs text-gray-400">
+          用主密码加密 API Key 生成密文，可安全放任意位置（含 GitHub 公开仓库）；另一台设备用同一主密码解密恢复。<br/>
+          <span className="text-[var(--color-text-tertiary)]">基于 PBKDF2(310k) + AES-256，无主密码不可破解。</span>
+        </p>
+        <div className="card space-y-4">
+          {/* 导出 */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-gray-500">导出（加密生成密文）</label>
+            <input type="password" className="input-field text-sm" placeholder="设置主密码（至少 6 位）"
+              value={exportPwd} onChange={e => setExportPwd(e.target.value)} />
+            <button className="btn-primary text-sm" onClick={handleExportKeys}>生成加密密文</button>
+            {exportOut && (
+              <textarea className="input-field text-xs font-mono mt-1" rows={4} readOnly value={exportOut}
+                title="点击全选后复制"
+                onClick={e => (e.target as HTMLTextAreaElement).select()} />
+            )}
+          </div>
+          <div className="divider" />
+          {/* 导入 */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-gray-500">导入（解密恢复 Key）</label>
+            <textarea className="input-field text-xs font-mono" rows={3}
+              placeholder="粘贴 KBVAULT1:... 开头的密文"
+              value={importText} onChange={e => setImportText(e.target.value)} />
+            <input type="password" className="input-field text-sm" placeholder="主密码"
+              value={importPwd} onChange={e => setImportPwd(e.target.value)} />
+            <button className="btn-secondary text-sm" onClick={handleImportKeys}>解密并导入</button>
+          </div>
+          {vaultMsg && <p className="text-xs text-gray-500">{vaultMsg}</p>}
         </div>
       </section>
 
