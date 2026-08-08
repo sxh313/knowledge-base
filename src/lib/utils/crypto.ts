@@ -1,10 +1,19 @@
-const STORAGE_KEY = 'study-journal-key';
+const STORAGE_KEY = 'knowledge-base-key';
+const LEGACY_KEY = 'study-journal-key';
 
 function getKey(): string {
   let key = localStorage.getItem(STORAGE_KEY);
   if (!key) {
-    key = crypto.randomUUID() + '-' + crypto.randomUUID();
-    localStorage.setItem(STORAGE_KEY, key);
+    // 无损迁移：旧版本用 study-journal-key 存储，搬过来后删除旧键（值不变，已加密的 API Key 仍可解密）
+    const legacy = localStorage.getItem(LEGACY_KEY);
+    if (legacy) {
+      localStorage.setItem(STORAGE_KEY, legacy);
+      localStorage.removeItem(LEGACY_KEY);
+      key = legacy;
+    } else {
+      key = crypto.randomUUID() + '-' + crypto.randomUUID();
+      localStorage.setItem(STORAGE_KEY, key);
+    }
   }
   return key.slice(0, 32);
 }

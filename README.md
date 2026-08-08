@@ -1,4 +1,4 @@
-# 知识库 · Study Journal
+# 知识库 · Knowledge Base
 
 一个**本地优先**的 AI 增强型学习笔记 / 知识管理工具。所有数据存储在浏览器本地（IndexedDB），API Key 加密保存在本地，不上传任何服务器。
 
@@ -59,7 +59,7 @@ npm test
 
 跨设备同步数据到你的 GitHub 私有仓库（免费、带版本历史）：
 
-1. 在 GitHub 创建一个**私有仓库**（如 `study-journal-data`）
+1. 在 GitHub 创建一个**私有仓库**（如 `knowledge-base`）
 2. 生成 Personal Access Token（Classic，勾选 `repo` 权限）
 3. 应用「设置 → 云同步」填入用户名、仓库名、Token
 4. 启用后，**保存即上传**；编辑停顿 10 秒也会自动同步

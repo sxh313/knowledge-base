@@ -10,12 +10,22 @@ interface ViewModeStore {
   cycleMode: () => void;
 }
 
-const STORAGE_KEY = 'study-journal-viewmode';
+const STORAGE_KEY = 'knowledge-base-viewmode';
+const LEGACY_KEY = 'study-journal-viewmode';
 const MOBILE_QUERY = '(max-width: 768px)';
 
 function getStoredMode(): ViewMode {
   if (typeof window === 'undefined') return 'auto';
-  const stored = localStorage.getItem(STORAGE_KEY);
+  let stored = localStorage.getItem(STORAGE_KEY);
+  // 无损迁移：旧版本用 study-journal-viewmode，搬过来后删除旧键
+  if (stored === null) {
+    const legacy = localStorage.getItem(LEGACY_KEY);
+    if (legacy !== null) {
+      localStorage.setItem(STORAGE_KEY, legacy);
+      localStorage.removeItem(LEGACY_KEY);
+      stored = legacy;
+    }
+  }
   if (stored === 'auto' || stored === 'desktop' || stored === 'mobile') return stored;
   return 'auto';
 }

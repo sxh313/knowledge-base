@@ -340,7 +340,7 @@ export default function SettingsPage() {
                 <div>
                   <label className="text-xs text-gray-400">仓库名</label>
                   <input className="input-field mt-1 text-sm font-mono" value={settings.sync.repo}
-                    onChange={e => updateSync({ repo: e.target.value })} placeholder="study-journal-data" />
+                    onChange={e => updateSync({ repo: e.target.value })} placeholder="knowledge-base" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-400">分支</label>
@@ -382,7 +382,7 @@ export default function SettingsPage() {
               <details className="text-xs text-gray-400">
                 <summary className="cursor-pointer">如何获取 Token 与配置？</summary>
                 <div className="mt-1 leading-relaxed space-y-1">
-                  <p>1. 先在 GitHub 创建一个<b>私有仓库</b>（如 <code className="font-mono">study-journal-data</code>）</p>
+                  <p>1. 先在 GitHub 创建一个<b>私有仓库</b>（如 <code className="font-mono">knowledge-base</code>）</p>
                   <p>2. GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)</p>
                   <p>3. 勾选 <code className="font-mono">repo</code> 权限，生成 Token 并粘贴到上方</p>
                   <p className="text-[var(--color-text-tertiary)]">Token 仅存储于本地浏览器，不经过任何服务器。</p>
