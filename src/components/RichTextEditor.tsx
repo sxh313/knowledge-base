@@ -278,15 +278,14 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
         <ToolbarBtn onClick={() => editor.chain().focus().toggleBlockquote().run()} active={isActive('blockquote')} title="引用"><Quote className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleCodeBlock().run()} active={isActive('codeBlock')} title="代码块"><CodeXml className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="分隔线"><Minus className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => {
-            const url = window.prompt('输入图片 URL');
-            if (url) editor.chain().focus().setImage({ src: url }).run();
-          }}
-          title="图片"
-        >
+        <label className="p-1.5 rounded-md transition-colors text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] cursor-pointer" title="插入图片（选文件，或 Ctrl+V 粘贴截图）">
           <ImageIcon className="w-4 h-4" />
-        </ToolbarBtn>
+          <input type="file" accept="image/*" className="hidden" onChange={e => {
+            const f = e.target.files?.[0];
+            if (f) fileToImageDataURL(f).then(({ src, alt }) => editor.chain().focus().setImage({ src, alt }).run());
+            e.target.value = '';
+          }} />
+        </label>
       </div>
 
       {/* 编辑器内容 */}
