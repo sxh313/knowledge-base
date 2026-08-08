@@ -278,11 +278,21 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
         <ToolbarBtn onClick={() => editor.chain().focus().toggleBlockquote().run()} active={isActive('blockquote')} title="引用"><Quote className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleCodeBlock().run()} active={isActive('codeBlock')} title="代码块"><CodeXml className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="分隔线"><Minus className="w-4 h-4" /></ToolbarBtn>
-        <label className="p-1.5 rounded-md transition-colors text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] cursor-pointer" title="插入图片（选文件，或 Ctrl+V 粘贴截图）">
+        <label className="p-1.5 rounded-md transition-colors text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] cursor-pointer" title="插入图片（选文件）">
           <ImageIcon className="w-4 h-4" />
           <input type="file" accept="image/*" className="hidden" onChange={e => {
             const f = e.target.files?.[0];
-            if (f) fileToImageDataURL(f).then(({ src, alt }) => editor.chain().focus().setImage({ src, alt }).run());
+            console.debug('[img] 选了文件:', f?.name, f?.type, f?.size, '字节');
+            if (!f) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+              const src = reader.result as string;
+              console.debug('[img] dataURL 已生成，长度:', src.length);
+              editor.chain().focus().setImage({ src, alt: f.name }).run();
+              console.debug('[img] setImage 已调用，当前编辑器 HTML 长度:', editor.getHTML().length);
+            };
+            reader.onerror = (err) => console.error('[img] FileReader 错误:', err);
+            reader.readAsDataURL(f);
             e.target.value = '';
           }} />
         </label>
