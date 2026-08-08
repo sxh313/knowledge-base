@@ -402,7 +402,12 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div>
-                <label className="text-xs text-gray-400">Personal Access Token（需 repo 权限）</label>
+                <label className="text-xs text-gray-400 flex items-center justify-between">
+                  <span>Personal Access Token（需 repo 权限）</span>
+                  <a href="https://github.com/settings/tokens/new?scopes=repo&description=knowledge-base-sync"
+                    target="_blank" rel="noreferrer"
+                    className="text-[var(--color-primary)] hover:underline">前往生成 →</a>
+                </label>
                 <input type="password" className="input-field mt-1 text-sm font-mono" value={settings.sync.token}
                   onChange={e => updateSync({ token: e.target.value })} placeholder="ghp_..." />
               </div>
