@@ -48,7 +48,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       Placeholder.configure({
         placeholder: placeholder || '输入 / 插入内容，或直接输入文字...',
       }),
-      Image,
+      Image.configure({ allowBase64: true }),
       TaskList,
       TaskItem.configure({ nested: true }),
       CodeBlockLowlight.configure({ lowlight }),
