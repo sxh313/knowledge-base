@@ -319,6 +319,12 @@
   .prose-custom .hljs-tag, .prose-custom .hljs-name { color: #7ee787; }
   .prose-custom .hljs-meta { color: #8b949e; }
 
+  /* 编辑区聚焦高亮 + 段落 hover（灵动反馈） */
+  .prose-custom { transition: background-color 0.25s ease; }
+  .prose-custom:focus-within { background-color: color-mix(in srgb, var(--color-primary) 3%, transparent); }
+  .prose-custom p { transition: background-color 0.15s ease; border-radius: 0.25rem; }
+  .prose-custom p:hover { background-color: color-mix(in srgb, var(--color-primary) 4%, transparent); }
+
   /* 表格样式（飞书式） */
   .prose-custom table {
     border-collapse: collapse;

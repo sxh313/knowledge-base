@@ -162,9 +162,9 @@ export default function JournalEditor() {
         )}
         {/* 保存状态指示器 */}
         <span className="text-xs text-[var(--color-text-secondary)] flex items-center gap-1">
-          {saveStatus === 'saving' && <span className="text-[var(--color-accent)]">💾 保存中...</span>}
-          {saveStatus === 'saved' && <span className="text-[var(--color-success)]">✅ 已保存</span>}
-          {saveStatus === 'error' && <span className="text-[var(--color-danger)]">⚠️ 保存失败</span>}
+          {saveStatus === 'saving' && <span key="saving" className="animate-fade-in text-[var(--color-accent)]">💾 保存中...</span>}
+          {saveStatus === 'saved' && <span key="saved" className="animate-fade-in text-[var(--color-success)]">✅ 已保存</span>}
+          {saveStatus === 'error' && <span key="error" className="animate-fade-in text-[var(--color-danger)]">⚠️ 保存失败</span>}
         </span>
         <button className="btn-primary text-sm" onClick={handleSave} disabled={saving || !title.trim()}>
           {saving ? '保存中...' : '保存'}
@@ -192,7 +192,7 @@ export default function JournalEditor() {
                 </span>
               )}
               {currentEntry?.subject && <span className="tag-accent">{currentEntry.subject}</span>}
-              {content.trim() && <span>· {content.replace(/\s+/g, '').length} 字</span>}
+              {content.trim() && <span key={content.replace(/\s+/g, '').length} className="animate-fade-in tabular-nums">· {content.replace(/\s+/g, '').length} 字</span>}
               {currentEntry?.summary && <span className="text-[var(--color-primary)]">· ✨ 已生成总结</span>}
             </div>
 
