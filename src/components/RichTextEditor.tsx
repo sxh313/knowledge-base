@@ -16,7 +16,7 @@ import {
   Bold, Italic, Strikethrough,
   Code, Link as LinkIcon, List, ListOrdered,
   Quote, Heading1, Heading2, Heading3, Pilcrow, CodeXml, Minus, Image as ImageIcon,
-  Undo2, Redo2, ListChecks, ZoomIn, ZoomOut,
+  Undo2, Redo2, ListChecks, ZoomIn, ZoomOut, Copy,
 } from 'lucide-react';
 import { markdownToHtml, htmlToMarkdown } from '../lib/markdownUtils';
 import { getSlashCommands, type SlashCommandItem } from './tiptap/slashCommand';
@@ -308,6 +308,11 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
         <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
         <ToolbarBtn onClick={() => setFontScale(s => Math.max(0.7, +(s - 0.1).toFixed(1)))} title="缩小字体"><ZoomOut className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => setFontScale(s => Math.min(1.6, +(s + 0.1).toFixed(1)))} title="放大字体"><ZoomIn className="w-4 h-4" /></ToolbarBtn>
+        <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
+        <ToolbarBtn onClick={() => {
+          const md = htmlToMarkdown(editor.getHTML());
+          navigator.clipboard?.writeText(md);
+        }} title="复制为 Markdown"><Copy className="w-4 h-4" /></ToolbarBtn>
       </div>
 
       {/* 编辑器内容 */}

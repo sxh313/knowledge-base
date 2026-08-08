@@ -36,6 +36,10 @@ export default function App() {
         e.preventDefault();
         setPaletteOpen(prev => !prev);
       }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+        e.preventDefault();
+        window.location.href = '/edit/new';
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
