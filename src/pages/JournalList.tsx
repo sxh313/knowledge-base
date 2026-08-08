@@ -176,11 +176,20 @@ export default function JournalList() {
                       {entry.timeSpentMinutes ? <span className="text-xs text-[var(--color-text-tertiary)]">⏱ {entry.timeSpentMinutes}min</span> : null}
                     </div>
                   </div>
-                  {entry.summary && (
-                    <span className="text-xs text-[var(--color-primary)] whitespace-nowrap shrink-0 font-medium">
-                      ✨ AI 已总结
-                    </span>
-                  )}
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); togglePin(entry.id); }}
+                      className={`p-1 rounded-md transition-colors ${entry.pinned ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-2)]'}`}
+                      title={entry.pinned ? '取消置顶' : '置顶'}
+                    >
+                      <Star className={`h-4 w-4 ${entry.pinned ? 'fill-[var(--color-accent)]' : ''}`} />
+                    </button>
+                    {entry.summary && (
+                      <span className="text-xs text-[var(--color-primary)] whitespace-nowrap font-medium">
+                        ✨ AI 已总结
+                      </span>
+                    )}
+                  </div>
                 </div>
               </article>
             ))
