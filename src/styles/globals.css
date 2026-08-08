@@ -265,6 +265,7 @@
   /* Prose 排版 */
   .prose-custom {
     @apply prose prose-sm max-w-none;
+    font-size: var(--editor-fs, 0.95rem);
     @apply prose-headings:text-[var(--color-text)] prose-headings:font-semibold;
     @apply prose-p:text-[var(--color-text)] prose-p:leading-relaxed;
     @apply prose-a:text-[var(--color-primary)] prose-a:no-underline hover:prose-a:underline;

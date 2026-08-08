@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useReducer } from 'react';
+import { useEffect, useRef, useState, useCallback, useReducer, type CSSProperties } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
@@ -16,7 +16,7 @@ import {
   Bold, Italic, Strikethrough,
   Code, Link as LinkIcon, List, ListOrdered,
   Quote, Heading1, Heading2, Heading3, Pilcrow, CodeXml, Minus, Image as ImageIcon,
-  Undo2, Redo2, ListChecks,
+  Undo2, Redo2, ListChecks, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { markdownToHtml, htmlToMarkdown } from '../lib/markdownUtils';
 import { getSlashCommands, type SlashCommandItem } from './tiptap/slashCommand';
@@ -37,6 +37,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
   const [slashIndex, setSlashIndex] = useState(0);
   // 撤销/重做可用性需要随编辑器事务更新而重渲染
   const [, force] = useReducer((x: number) => x + 1, 0);
+  const [fontScale, setFontScale] = useState(1);
   const slashItemsRef = useRef<HTMLDivElement>(null);
 
   const editor = useEditor({
@@ -232,7 +233,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
   const isActive = (name: string, attrs?: Record<string, unknown>) => editor.isActive(name, attrs);
 
   return (
-    <div className="relative">
+    <div className="relative" style={{ ['--editor-fs']: `${0.95 * fontScale}rem` } as CSSProperties}>
       {/* 浮动工具栏（选中文字时） */}
       {editor && (
       <BubbleMenu editor={editor}>
@@ -296,6 +297,9 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
             e.target.value = '';
           }} />
         </label>
+        <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
+        <ToolbarBtn onClick={() => setFontScale(s => Math.max(0.7, +(s - 0.1).toFixed(1)))} title="缩小字体"><ZoomOut className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => setFontScale(s => Math.min(1.6, +(s + 0.1).toFixed(1)))} title="放大字体"><ZoomIn className="w-4 h-4" /></ToolbarBtn>
       </div>
 
       {/* 编辑器内容 */}
