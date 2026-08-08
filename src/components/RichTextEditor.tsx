@@ -62,7 +62,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
     autofocus: autoFocus ? 'end' : false,
     editorProps: {
       attributes: {
-        class: 'prose-custom max-w-none focus:outline-none min-h-[400px] px-1 py-2',
+        class: 'prose-custom max-w-none focus:outline-none min-h-[400px] p-4 border border-[var(--color-border)] rounded-lg',
       },
 
     },
