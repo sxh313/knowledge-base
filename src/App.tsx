@@ -57,7 +57,7 @@ export default function App() {
   }, [entries]);
 
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <Routes>
         <Route element={<Layout onOpenPalette={() => setPaletteOpen(true)} />}>
