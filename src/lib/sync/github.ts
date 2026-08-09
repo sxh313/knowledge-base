@@ -291,6 +291,28 @@ export async function syncNow(cfg: SyncConfig): Promise<SyncResult> {
   return { sha, pulled, pushed: true, conflicts, baselineHashes: buildBaseline(merged.journals) };
 }
 
+/**
+ * 仅从云端拉取：拉取远端 → 与本地合并（取较新、检测冲突）→ 写回本地 → 重建派生索引。
+ * 不推送（不会把本地改动上传）。适合“把云端最新数据取到本设备”。
+ */
+export async function pullFromCloud(cfg: SyncConfig): Promise<{ pulled: number; conflicts: number }> {
+  const local = await collectAllData();
+  const remote = await ghGet(cfg);
+  const baseline = cfg.baselineHashes ?? {};
+  let pulled = 0;
+  let conflicts = 0;
+  if (remote?.content) {
+    const remoteData = JSON.parse(b64decode(remote.content)) as FullData;
+    const conflictedIds = detectConflictedIds(local.journals, remoteData.journals, baseline);
+    conflicts = await recordConflicts(local.journals, remoteData.journals, conflictedIds);
+    const merged = keepLocalForConflicts(mergeData(local, remoteData), local, conflictedIds);
+    await writeAllData(merged);
+    await rebuildDocumentIndexes();
+    pulled = remoteData.journals.length + remoteData.cards.length + remoteData.notes.length;
+  }
+  return { pulled, conflicts };
+}
+
 /** 测试连接：验证 token + 仓库可访问 */
 export async function testConnection(cfg: SyncConfig): Promise<{ ok: boolean; message: string }> {
   try {

@@ -28,7 +28,7 @@ export default function JournalEditor() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [mode, setMode] = useState<EditMode>('rich');
+  const [mode, setMode] = useState<EditMode>(isMobile ? 'markdown' : 'rich');
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [showDocList, setShowDocList] = useState(false);
   // 右侧文档侧栏（大纲/反链/提及）显示开关，持久化
@@ -86,7 +86,7 @@ export default function JournalEditor() {
       loadOne(id);
     } else {
       setCurrent(null);
-      setTitle(''); setContent(''); setMode('rich');
+      setTitle(''); setContent(''); setMode(isMobile ? 'markdown' : 'rich');
     }
   }, [id]);
   useEffect(() => {

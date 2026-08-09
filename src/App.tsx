@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useSettingsStore } from './stores/settingsStore';
 import { useJournalStore } from './stores/journalStore';
 import { useThemeStore } from './stores/themeStore';
+import { useSyncStore } from './stores/syncStore';
 import { buildSearchIndex } from './lib/search/fuse';
 import { getCardsDueToday, ensureIndexesRebuilt } from './lib/db/queries';
 
@@ -28,6 +29,8 @@ export default function App() {
   const { load: loadSettings } = useSettingsStore();
   const { entries, loadAll } = useJournalStore();
   const { applySystemChange } = useThemeStore();
+  const { doSync } = useSyncStore();
+  const syncEnabled = !!useSettingsStore((s) => s.settings?.sync?.enabled);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
@@ -41,6 +44,20 @@ export default function App() {
       loadAll();
     })();
   }, []);
+
+  // 自动云同步：启用后，打开应用 / 切回标签页 / 恢复联网时自动同步一次
+  useEffect(() => {
+    if (!syncEnabled) return;
+    const trigger = () => { if (document.visibilityState === 'visible') doSync(); };
+    document.addEventListener('visibilitychange', trigger);
+    window.addEventListener('online', trigger);
+    const t = setTimeout(() => doSync(), 3000); // 启动后稍延迟同步一次
+    return () => {
+      document.removeEventListener('visibilitychange', trigger);
+      window.removeEventListener('online', trigger);
+      clearTimeout(t);
+    };
+  }, [syncEnabled, doSync]);
 
   // 复习提醒：加载后检查到期卡片，浏览器通知
   useEffect(() => {

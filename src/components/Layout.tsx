@@ -2,7 +2,7 @@ import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   FileText, MessageSquare, Brain, BarChart3, Settings, BookOpen, Layers,
   ChevronLeft, Sun, Moon, Monitor, Search, HelpCircle, Smartphone, MoreHorizontal, X, Trash2,
-  Cloud, Loader2, Tag, Inbox,
+  Cloud, Loader2, Tag, Inbox, Plus,
 } from 'lucide-react';
 import { useState, useRef, useCallback } from 'react';
 import { useThemeStore, type ThemeMode } from '../stores/themeStore';
@@ -120,6 +120,18 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
             <Outlet />
           </div>
         </main>
+
+        {/* 移动端悬浮：快速收集（在编辑/收集箱页隐藏，避免遮挡） */}
+        {!location.pathname.startsWith('/edit') && location.pathname !== '/inbox' && (
+          <button
+            onClick={() => navigate('/inbox')}
+            className="fixed bottom-[4.75rem] right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-primary)] text-white shadow-lg active:scale-90 transition-transform"
+            title="快速收集"
+            aria-label="快速收集"
+          >
+            <Plus className="h-6 w-6" />
+          </button>
+        )}
 
         {/* 底部 Tab 栏 */}
         <nav className="glass flex items-center border-t border-[var(--color-border)] shrink-0 pb-[env(safe-area-inset-bottom)]">

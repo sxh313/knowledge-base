@@ -64,12 +64,12 @@ export async function getSettings(): Promise<AppSettings> {
       theme: 'auto',
       reviewDailyGoal: 20,
       sync: {
-        enabled: false,
-        owner: 'sxh313',
-        repo: 'knowledge-base',
-        branch: 'knowledge-base',
+        enabled: !!env.VITE_SYNC_TOKEN,
+        owner: env.VITE_SYNC_OWNER ?? 'sxh313',
+        repo: env.VITE_SYNC_REPO ?? 'knowledge-base',
+        branch: env.VITE_SYNC_BRANCH ?? 'knowledge-base',
         path: 'data.json',
-        token: '',
+        token: env.VITE_SYNC_TOKEN ?? '',
         autoSync: true,
       },
     };
@@ -112,6 +112,15 @@ export async function getSettings(): Promise<AppSettings> {
     settings.sync.branch = 'knowledge-base';
     backfilled = true;
   }
+  // 云同步：环境变量（.env.local，不入库）提供 Token 等则自动补填并启用，实现“零手填”同步
+  const syncEnvToken = env.VITE_SYNC_TOKEN as string | undefined;
+  if (syncEnvToken) {
+    if (!settings.sync.token) { settings.sync.token = syncEnvToken; backfilled = true; }
+    if (!settings.sync.enabled) { settings.sync.enabled = true; backfilled = true; }
+  }
+  if (env.VITE_SYNC_OWNER && !settings.sync.owner) { settings.sync.owner = env.VITE_SYNC_OWNER as string; backfilled = true; }
+  if (env.VITE_SYNC_REPO && !settings.sync.repo) { settings.sync.repo = env.VITE_SYNC_REPO as string; backfilled = true; }
+  if (env.VITE_SYNC_BRANCH && !settings.sync.branch) { settings.sync.branch = env.VITE_SYNC_BRANCH as string; backfilled = true; }
   if (backfilled) await db.settings.put(settings);
   return settings;
 }
