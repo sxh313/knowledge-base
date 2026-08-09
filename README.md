@@ -119,9 +119,99 @@ src/
 
 ## 📦 部署
 
-本项目为纯前端应用，`npm run build` 后可将 `dist/` 部署到任意静态托管（Vercel、Netlify、GitHub Pages、Nginx 等）。
+本项目为纯前端应用，`npm run build` 后可将 `dist/` 部署到任意静态托管。以下是几种「放到 GitHub / 上线」的方式。
 
-`deploy.sh` / `deploy.ps1` 提供一键提交并推送到 GitHub 的脚本。
+### 方式一：Vercel（推荐 · 自带 Web 搜索能力）
+
+项目已带 `vercel.json`（SPA 回退）与 `api/search.ts`（Serverless 函数，提供免 Key 的 Web 搜索 / 天气）。Vercel 部署后 `/api/search` 自动可用，AI 助手的「联网搜索」才能在网页端工作。
+
+1. 把代码推到 GitHub 仓库（如 `sxh313/knowledge-base`）
+2. 打开 [vercel.com](https://vercel.com) → 「New Project」→ 导入该仓库
+3. Framework Preset 选 **Vite**，Build Command 保持 `npm run build`，Output Directory 保持 `dist`
+4. （可选）在「Environment Variables」填入 `.env.local` 里的变量（如 `VITE_SYNC_TOKEN` 等），让同步配置「点击填入」
+5. 点 **Deploy**，几十秒后拿到 `https://你的项目.vercel.app`
+
+> **Production Branch**：在 Vercel 项目设置里把 Production Branch 改成你的工作分支（如 `knowledge-base`），否则非 `main` 分支的推送不会触发正式部署。
+
+之后每次 `git push` 到该分支，Vercel 自动重新构建部署。
+
+### 方式二：GitHub Pages（纯静态 · 无 Serverless）
+
+> 注意：GitHub Pages 不支持 Serverless 函数，AI 助手的「联网搜索」在 Pages 上不可用（其他功能正常）。
+
+GitHub Pages 需要**子路径 base**（仓库部署在 `https://用户名.github.io/仓库名/`）。构建时设置 `base`：
+
+```bash
+# 仓库名为 knowledge-base 时
+vite build --base=/knowledge-base/
+```
+
+或用 [peaceiris/actions-gh-pages](https://github.com/peaceiris/actions-gh-pages) Action 自动发布（新增 `.github/workflows/deploy.yml`）：
+
+```yaml
+name: Deploy to GitHub Pages
+on:
+  push:
+    branches: [knowledge-base]
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm ci
+      - run: npm run build -- --base=/仓库名/
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: dist }
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: github-pages
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+```
+
+在仓库 **Settings → Pages → Source** 选「GitHub Actions」即可。
+
+### 方式三：Cloudflare Pages / Netlify
+
+同样导入仓库，Build Command `npm run build`，Output Directory `dist`。Netlify 需加 `_redirects`（`/* /index.html 200`）做 SPA 回退；本项目 `vercel.json` 的 rewrites 仅对 Vercel 生效。
+
+### 推送代码到 GitHub
+
+`deploy.sh` / `deploy.ps1` 提供一键提交并推送到 GitHub 的脚本。手动推送：
+
+```bash
+git add -A
+git commit -m "你的提交信息"
+git push origin 你的分支名
+```
+
+> 国内若 `git push` 卡在 `port 22`，走 SSH over 443：
+> `git -c url."ssh://git@ssh.github.com:443/".insteadOf="git@github.com:" push origin 你的分支`
+
+## 🖥️ 桌面端（Windows .exe）
+
+本项目可打包为 Windows 桌面应用（Electron，本地优先、数据仍在本地）：
+
+```bash
+# 先安装依赖（含 electron + electron-builder）
+npm install
+
+# 打包为 NSIS 安装包（release/ 知识库 Setup x.x.x.exe）
+npm run electron:build
+
+# 或打包为单文件便携版（release/知识库 x.x.x.exe）
+npm run electron:build:portable
+```
+
+打包产物在 `release/` 目录。桌面端使用 HashRouter + `file://` 加载，云同步、AI 等功能与网页端一致（联网搜索需联网但无 Serverless，会回退为本地知识库作答）。
 
 ## 🤖 开发说明
 
