@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 /// <reference types="vite-plugin-pwa/client" />
+/// <reference types="vite-plugin-pwa/react" />
 
 declare module '*.md' {
   const content: string;
@@ -24,3 +25,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+// 构建时注入的应用版本号(来自 package.json)
+declare const __APP_VERSION__: string;

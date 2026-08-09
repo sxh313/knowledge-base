@@ -494,14 +494,21 @@ export async function deleteSavedSearch(id: string) {
 // ──── Conversations ────
 
 export async function saveConversation(data: Omit<AIConversation, 'id' | 'createdAt'>) {
-  const conv: AIConversation = { id: crypto.randomUUID(), ...data, createdAt: Date.now() };
+  const now = Date.now();
+  const conv: AIConversation = { id: crypto.randomUUID(), ...data, createdAt: now, updatedAt: now };
   await db.aiConversations.put(conv);
   return conv;
 }
 
 export async function getConversations(journalId?: string, limit = 30) {
-  if (journalId) return db.aiConversations.where('journalId').equals(journalId).reverse().sortBy('createdAt');
-  return db.aiConversations.orderBy('createdAt').reverse().limit(limit).toArray();
+  // 过滤软删除的对话
+  const filter = (c: AIConversation) => !c.deletedAt;
+  if (journalId) {
+    const list = await db.aiConversations.where('journalId').equals(journalId).reverse().sortBy('createdAt');
+    return list.filter(filter);
+  }
+  const all = await db.aiConversations.orderBy('createdAt').reverse().limit(limit * 2).toArray();
+  return all.filter(filter).slice(0, limit);
 }
 
 /** 获取单个对话 */
@@ -511,13 +518,17 @@ export async function getConversation(id: string) {
 
 /** 新建或更新对话（upsert，按 id 覆盖；一个对话一条记录） */
 export async function upsertConversation(conv: AIConversation): Promise<AIConversation> {
-  await db.aiConversations.put(conv);
-  return conv;
+  const updated = { ...conv, updatedAt: conv.updatedAt ?? Date.now() };
+  await db.aiConversations.put(updated);
+  return updated;
 }
 
-/** 删除对话 */
+/** 删除对话（软删除：标记 deletedAt 墓碑，云同步时传播到远端，避免被远端数据复活） */
 export async function deleteConversation(id: string) {
-  await db.aiConversations.delete(id);
+  const existing = await db.aiConversations.get(id);
+  if (!existing) return;
+  const now = Date.now();
+  await db.aiConversations.put({ ...existing, deletedAt: now, updatedAt: now });
 }
 
 // ──── Fetch Available Models from Provider API ────

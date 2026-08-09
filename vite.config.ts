@@ -2,10 +2,22 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
+import fs from 'fs';
+
+// 桌面端构建(Electron):使用相对路径 base,禁用 PWA Service Worker(桌面应用无需离线缓存)
+const isElectronBuild = process.env.BUILD_TARGET === 'electron';
+// 注入应用版本号(来自 package.json)供设置页显示
+const appVersion = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')).version;
 
 export default defineConfig({
+  // 桌面端用相对路径,确保 loadFile 时 /assets 能正确解析到 dist 下
+  base: isElectronBuild ? './' : '/',
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   plugins: [
     react(),
+    // Web 搜索 dev 代理仅在开发模式生效,不影响打包
     {
       name: 'api-search-dev',
       configureServer(server) {
@@ -27,8 +39,10 @@ export default defineConfig({
         });
       },
     },
-    VitePWA({
-      registerType: 'autoUpdate',
+    // 桌面端构建跳过 PWA(Service Worker 在 Electron 无意义)
+    !isElectronBuild && VitePWA({
+      registerType: 'prompt',
+      injectRegister: false,
       includeAssets: ['icons/*.png', 'favicon.ico'],
       manifest: {
         name: '知识库',

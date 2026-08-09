@@ -13,6 +13,7 @@ import {
   type RetrievedChunk,
 } from '../lib/ai/retrieval';
 import { getConversations, getConversation, upsertConversation, deleteConversation } from '../lib/db/queries';
+import { useSyncStore } from '../stores/syncStore';
 import type { AIConversation } from '../lib/db/schema';
 import CitationList from '../components/CitationList';
 import ReactMarkdown from 'react-markdown';
@@ -35,6 +36,7 @@ export default function AIChat() {
   const { isProcessing, error, chat: aiChat, callDirect, streamingContent } = useAIStore();
   const { entries, create } = useJournalStore();
   const { settings } = useSettingsStore();
+  const { doSync } = useSyncStore();
   const [conversations, setConversations] = useState<AIConversation[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
@@ -82,6 +84,10 @@ export default function AIChat() {
     await deleteConversation(id);
     if (currentId === id) handleNew();
     refreshConversations();
+    // 已启用云同步时立即同步,使远端(data.json + conversations/*.md)也删除该对话
+    if (settings?.sync?.enabled && settings.sync.token) {
+      try { await doSync(); } catch { /* 忽略同步错误,本地删除已完成 */ }
+    }
   };
   const titleOf = (conv: AIConversation) => {
     const u = conv.messages.find((m) => m.role === 'user');

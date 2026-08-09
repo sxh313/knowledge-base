@@ -193,7 +193,9 @@ function conversationToMarkdown(c: AIConversation): string {
 /** 推送 AI 对话为 conversations/*.md（每条对话一个文件） */
 export async function pushConversationsAsMarkdown(cfg: SyncConfig): Promise<{ pushed: number }> {
   if (!cfg?.token || !cfg.owner || !cfg.repo) throw new Error('未配置同步 Token/仓库');
-  const convs = await db.aiConversations.toArray();
+  const allConvs = await db.aiConversations.toArray();
+  // 过滤软删除的对话（已删则不在 conversations/ 中生成 .md，下次推送会从远端移除）
+  const convs = allConvs.filter((c) => !c.deletedAt);
   const commitSha = await getBranchSha(cfg);
   const baseTreeSha = await getCommitTreeSha(cfg, commitSha);
   const existing = (await listTree(cfg, baseTreeSha)).filter((e) => e.path.startsWith(`${CONV_DIR}/`) && e.path.endsWith('.md'));
