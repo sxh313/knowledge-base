@@ -30,12 +30,13 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
     try {
       const result = await syncNow(cfg);
       const now = Date.now();
-      await updateSettings({ sync: { ...cfg, lastSyncAt: now, lastSyncSha: result.sha } });
+      await updateSettings({ sync: { ...cfg, lastSyncAt: now, lastSyncSha: result.sha, baselineHashes: result.baselineHashes } });
       await useSettingsStore.getState().load();
+      const baseMsg = result.pulled > 0 ? `已同步，合并 ${result.pulled} 条远端记录` : '已同步';
       set({
         status: 'success',
         lastSyncAt: now,
-        message: result.pulled > 0 ? `已同步，合并 ${result.pulled} 条远端记录` : '已同步',
+        message: result.conflicts > 0 ? `${baseMsg}；检测到 ${result.conflicts} 处冲突，请在下方查看` : baseMsg,
       });
       return true;
     } catch (e) {

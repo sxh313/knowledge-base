@@ -4,7 +4,7 @@ import { useSettingsStore } from './stores/settingsStore';
 import { useJournalStore } from './stores/journalStore';
 import { useThemeStore } from './stores/themeStore';
 import { buildSearchIndex } from './lib/search/fuse';
-import { getCardsDueToday } from './lib/db/queries';
+import { getCardsDueToday, ensureIndexesRebuilt } from './lib/db/queries';
 
 import Layout from './components/Layout';
 import CommandPalette from './components/CommandPalette';
@@ -21,6 +21,8 @@ import SettingsPage from './pages/SettingsPage';
 import Manual from './pages/Manual';
 import Trash from './pages/Trash';
 import Tags from './pages/Tags';
+import SearchResultsPage from './pages/SearchResultsPage';
+import Inbox from './pages/Inbox';
 
 export default function App() {
   const { load: loadSettings } = useSettingsStore();
@@ -31,7 +33,13 @@ export default function App() {
 
   useEffect(() => {
     loadSettings();
-    loadAll();
+    // 启动时若存在缺少 contentHash 的旧文档，先重建索引（chunks/links/hash + 搜索），再加载列表
+    (async () => {
+      try {
+        await ensureIndexesRebuilt();
+      } catch { /* 忽略重建错误 */ }
+      loadAll();
+    })();
   }, []);
 
   // 复习提醒：加载后检查到期卡片，浏览器通知
@@ -61,7 +69,10 @@ export default function App() {
         e.preventDefault();
         setPaletteOpen(prev => !prev);
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        window.location.href = '/inbox';
+      } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'n') {
         e.preventDefault();
         window.location.href = '/edit/new';
       }
@@ -104,6 +115,8 @@ export default function App() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/tags" element={<Tags />} />
           <Route path="/manual" element={<Manual />} />
+          <Route path="/inbox" element={<Inbox />} />
+          <Route path="/search" element={<SearchResultsPage />} />
           <Route path="/trash" element={<Trash />} />
         </Route>
       </Routes>

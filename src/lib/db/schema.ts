@@ -2,18 +2,36 @@ import Dexie, { type Table } from 'dexie';
 
 // ──── Data Model Interfaces ────
 
+export type JournalStatus = 'inbox' | 'active' | 'archived';
+
+export interface JournalSourceRef {
+  url?: string;
+  title?: string;
+  author?: string;
+  siteName?: string;
+  book?: string;
+  course?: string;
+  capturedAt?: number;
+  excerpt?: string;
+}
+
 export interface JournalEntry {
   id: string;
   title: string;
   content: string;           // Markdown
   contentPlain: string;      // plain text for search
+  contentHash?: string;      // 规范化标题与内容的稳定哈希
   summary?: string;          // AI-generated summary
+  aliases?: string[];
   tags: string[];
   subject: string;
+  status?: JournalStatus;
+  properties?: Record<string, string | number | boolean | string[] | null>;
+  folderPath?: string;
   difficulty?: number;       // 1-5
   timeSpentMinutes?: number;
   sourceType: 'manual' | 'voice' | 'import' | 'webclip';
-  sourceRef?: { url?: string; book?: string; course?: string };
+  sourceRef?: JournalSourceRef;
   pinned?: boolean;          // 置顶/收藏
   createdAt: number;         // timestamp ms
   updatedAt: number;
@@ -93,6 +111,8 @@ export interface SyncConfig {
   autoSync: boolean;    // 编辑停顿后自动同步
   lastSyncAt?: number;
   lastSyncSha?: string;
+  /** 上次成功同步后各文档的 contentHash 基线（用于三方冲突检测；仅存本地，不同步） */
+  baselineHashes?: Record<string, string>;
 }
 
 export interface AppSettings {
@@ -122,6 +142,70 @@ export interface JournalVersion {
   createdAt: number;
 }
 
+export interface DocumentLink {
+  id: string;
+  sourceId: string;
+  targetId?: string;
+  targetTitle: string;
+  linkText: string;
+  position?: number;
+  broken: boolean;
+  createdAt: number;
+}
+
+export interface DocumentChunk {
+  id: string;
+  journalId: string;
+  title: string;
+  heading?: string;
+  content: string;
+  contentPlain: string;
+  startOffset: number;
+  endOffset: number;
+  ordinal: number;
+  createdAt: number;
+}
+
+export interface Attachment {
+  id: string;
+  journalId: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  blob?: Blob;
+  dataUrl?: string;
+  createdAt: number;
+}
+
+export interface SavedSearch {
+  id: string;
+  name: string;
+  query: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PropertyDefinition {
+  id: string;
+  name: string;
+  label: string;
+  type: 'text' | 'number' | 'boolean' | 'date' | 'select' | 'multi-select';
+  options?: string[];
+  required?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SyncConflict {
+  id: string;
+  journalId: string;
+  local: JournalEntry;
+  remote: JournalEntry;
+  detectedAt: number;
+  resolvedAt?: number;
+  resolution?: 'local' | 'remote' | 'both';
+}
+
 // ──── Database Class ────
 
 export class StudyJournalDB extends Dexie {
@@ -133,6 +217,12 @@ export class StudyJournalDB extends Dexie {
   aiConversations!: Table<AIConversation>;
   settings!: Table<AppSettings>;
   journalVersions!: Table<JournalVersion>;
+  documentLinks!: Table<DocumentLink>;
+  documentChunks!: Table<DocumentChunk>;
+  attachments!: Table<Attachment>;
+  savedSearches!: Table<SavedSearch>;
+  propertyDefinitions!: Table<PropertyDefinition>;
+  syncConflicts!: Table<SyncConflict>;
 
   constructor() {
     super('StudyJournalDB');
@@ -149,8 +239,25 @@ export class StudyJournalDB extends Dexie {
     this.version(2).stores({
       journalVersions: 'id, journalId, createdAt',
     });
-    // 说明：曾在此追加 version(2) 以支持 availableModels / shengsuanyun 字段，
-    // 但二者均为非索引字段，Dexie 会自动兼容，无需升级 schema 版本，故移除冗余定义。
+    // version(3): 主文档扩展字段 + 可重建索引与本地优先辅助数据
+    this.version(3).stores({
+      journals: 'id, createdAt, updatedAt, subject, status, folderPath, contentHash, *tags, *aliases, deletedAt',
+      documentLinks: 'id, sourceId, targetId, targetTitle, broken, [sourceId+targetId]',
+      documentChunks: 'id, journalId, heading, ordinal, [journalId+ordinal]',
+      attachments: 'id, journalId, mimeType, createdAt',
+      savedSearches: 'id, name, createdAt, updatedAt',
+      propertyDefinitions: 'id, name, type, updatedAt',
+      syncConflicts: 'id, journalId, detectedAt, resolvedAt',
+    }).upgrade(async (tx) => {
+      await tx.table<JournalEntry, string>('journals').toCollection().modify((entry) => {
+        entry.aliases ??= [];
+        entry.tags ??= [];
+        entry.subject ??= '';
+        entry.status ??= 'active';
+        entry.properties ??= {};
+      });
+    });
+    // 说明：availableModels / shengsuanyun 等非索引字段由读取时兼容补全，无需单独升级版本。
   }
 }
 

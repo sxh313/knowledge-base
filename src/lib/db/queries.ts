@@ -1,4 +1,22 @@
-import { db, type JournalEntry, type Note, type KnowledgeCard, type AIConversation, type AppSettings, type AISettings, type JournalVersion } from './schema';
+import {
+  db,
+  type JournalEntry,
+  type Note,
+  type KnowledgeCard,
+  type AIConversation,
+  type AppSettings,
+  type AISettings,
+  type JournalVersion,
+  type DocumentLink,
+  type SavedSearch,
+  type Attachment,
+  type SyncConflict,
+} from './schema';
+import {
+  persistJournalWithIndexes,
+  rebuildDocumentIndexes,
+  type JournalCreateInput,
+} from '../indexing/documents';
 
 // ──── Settings ────
 
@@ -114,12 +132,21 @@ export async function updateAIProviders(providers: Partial<AISettings>) {
 
 // ──── Journals ────
 
-export async function createJournal(data: Omit<JournalEntry, 'id' | 'createdAt' | 'updatedAt'>) {
+export async function createJournal(data: JournalCreateInput) {
   const now = Date.now();
-  const id = crypto.randomUUID();
-  const entry: JournalEntry = { id, ...data, createdAt: now, updatedAt: now };
-  await db.journals.put(entry);
-  return entry;
+  const entry: JournalEntry = {
+    id: crypto.randomUUID(),
+    ...data,
+    contentPlain: data.contentPlain ?? '',
+    aliases: data.aliases ?? [],
+    tags: data.tags ?? [],
+    subject: data.subject ?? '',
+    status: data.status ?? 'active',
+    properties: data.properties ?? {},
+    createdAt: now,
+    updatedAt: now,
+  };
+  return persistJournalWithIndexes(entry);
 }
 
 // ──── 文档版本历史 ────
@@ -174,20 +201,19 @@ export async function duplicateJournal(id: string) {
     updatedAt: now,
     deletedAt: undefined,
   };
-  await db.journals.put(entry);
-  return entry;
+  return persistJournalWithIndexes(entry);
 }
 
 export async function updateJournal(id: string, data: Partial<JournalEntry>) {
   const existing = await db.journals.get(id);
   if (!existing) throw new Error('Journal not found');
-  const updated = { ...existing, ...data, updatedAt: Date.now() };
-  await db.journals.put(updated);
-  return updated;
+  return persistJournalWithIndexes({ ...existing, ...data, id, updatedAt: Date.now() });
 }
 
 export async function deleteJournal(id: string) {
-  await db.journals.update(id, { deletedAt: Date.now() });
+  const existing = await db.journals.get(id);
+  if (!existing) return;
+  await persistJournalWithIndexes({ ...existing, deletedAt: Date.now(), updatedAt: Date.now() });
 }
 
 export async function getJournal(id: string) {
@@ -205,18 +231,75 @@ export async function getTrashedJournals() {
   return db.journals.where('deletedAt').above(0).toArray();
 }
 
-/** 从回收站恢复文档 */
 export async function restoreJournal(id: string) {
   const existing = await db.journals.get(id);
   if (!existing) throw new Error('Journal not found');
-  const updated = { ...existing, deletedAt: undefined, updatedAt: Date.now() };
-  await db.journals.put(updated);
-  return updated;
+  return persistJournalWithIndexes({ ...existing, deletedAt: undefined, updatedAt: Date.now() });
 }
 
-/** 物理删除（彻底删除）文档 */
+/** 物理删除（彻底删除）文档：同步清理双链/分块/附件 */
 export async function purgeJournal(id: string) {
-  await db.journals.delete(id);
+  await db.transaction('rw', [db.journals, db.documentLinks, db.documentChunks, db.attachments], async () => {
+    await db.journals.delete(id);
+    await db.documentLinks.where('sourceId').equals(id).delete();
+    await db.documentLinks.where('targetId').equals(id).delete();
+    await db.documentChunks.where('journalId').equals(id).delete();
+    await db.attachments.where('journalId').equals(id).delete();
+  });
+}
+
+// ──── 文档索引与反向链接 ────
+
+/**
+ * 启动时检查：若存在未软删且缺少 contentHash 的文档（旧数据 / 导入数据），
+ * 则重建全部文档索引（chunks / links / hash）并刷新搜索索引。返回是否执行了重建。
+ */
+export async function ensureIndexesRebuilt(): Promise<boolean> {
+  const all = await db.journals.toArray();
+  const needsRebuild = all.some((j) => !j.deletedAt && !j.contentHash);
+  if (!needsRebuild) return false;
+  await rebuildDocumentIndexes();
+  return true;
+}
+
+export interface BacklinkInfo {
+  link: DocumentLink;
+  source: JournalEntry;
+}
+
+/**
+ * 反向链接：所有指向 journalId 的文档链接（含来源文档信息）。
+ * 只返回未软删的来源文档，按来源更新时间倒序。
+ */
+export async function getBacklinks(journalId: string): Promise<BacklinkInfo[]> {
+  const links = await db.documentLinks.where('targetId').equals(journalId).toArray();
+  if (links.length === 0) return [];
+  const sourceIds = Array.from(new Set(links.map((l) => l.sourceId)));
+  const sources = await db.journals.bulkGet(sourceIds);
+  const sourceMap = new Map<string, JournalEntry>();
+  sources.forEach((s) => {
+    if (s) sourceMap.set(s.id, s);
+  });
+  return links
+    .filter((l) => {
+      const src = sourceMap.get(l.sourceId);
+      return !!src && !src.deletedAt;
+    })
+    .map((l) => ({ link: l, source: sourceMap.get(l.sourceId)! }))
+    .sort((a, b) => b.source.updatedAt - a.source.updatedAt);
+}
+
+/**
+ * 当前文档的失效出链：指向不存在目标的 [[链接]]（broken=true）。
+ * 按出现位置（position）升序，便于在正文中定位。
+ */
+export async function getBrokenOutgoingLinks(sourceId: string): Promise<DocumentLink[]> {
+  const links = await db.documentLinks
+    .where('sourceId')
+    .equals(sourceId)
+    .filter((l) => l.broken)
+    .toArray();
+  return links.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
 }
 
 export async function searchJournalsByTags(tags: string[]) {
@@ -308,6 +391,97 @@ export async function resetCardProgress(id: string) {
   return existing;
 }
 
+// ──── 附件（attachments） ────
+
+/** Blob → dataURL（用于导出/序列化；JSON.stringify 无法直接处理 Blob） */
+export function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+export async function putAttachment(a: Omit<Attachment, 'id' | 'createdAt'> & { id?: string }): Promise<Attachment> {
+  const rec: Attachment = { ...a, id: a.id ?? crypto.randomUUID(), createdAt: Date.now() };
+  await db.attachments.put(rec);
+  return rec;
+}
+
+export async function getAttachment(id: string) {
+  return db.attachments.get(id);
+}
+
+export async function getAttachmentsForJournal(journalId: string) {
+  return db.attachments.where('journalId').equals(journalId).toArray();
+}
+
+export async function deleteAttachment(id: string) {
+  await db.attachments.delete(id);
+}
+
+export async function deleteAttachmentsForJournal(journalId: string) {
+  await db.attachments.where('journalId').equals(journalId).delete();
+}
+
+// ──── 同步冲突（syncConflicts） ────
+
+export async function getSyncConflicts(): Promise<SyncConflict[]> {
+  const all = await db.syncConflicts.toArray();
+  return all.sort((a, b) => b.detectedAt - a.detectedAt);
+}
+
+/** 解决冲突：local=保留本地 / remote=用远端覆盖本地 / both=保留本地并把远端存为副本 */
+export async function resolveSyncConflict(id: string, resolution: 'local' | 'remote' | 'both') {
+  const c = await db.syncConflicts.get(id);
+  if (!c) return;
+  if (resolution === 'remote') {
+    // 用远端版本覆盖本地
+    await persistJournalWithIndexes(c.remote);
+  } else if (resolution === 'both') {
+    // 保留本地，同时把远端版本存为新文档副本
+    await persistJournalWithIndexes({
+      ...c.remote,
+      id: crypto.randomUUID(),
+      title: (c.remote.title || '无标题') + '（远端副本）',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  }
+  // 'local'：保留本地，无需操作
+  await db.syncConflicts.update(id, { resolvedAt: Date.now(), resolution });
+}
+
+export async function deleteSyncConflict(id: string) {
+  await db.syncConflicts.delete(id);
+}
+
+// ──── 保存的搜索（savedSearches） ────
+
+/** 获取全部保存的搜索（按更新时间倒序） */
+export async function getSavedSearches(): Promise<SavedSearch[]> {
+  const all = await db.savedSearches.toArray();
+  return all.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** 创建或更新保存的搜索（同名覆盖查询串，不缓存结果） */
+export async function saveSavedSearch(name: string, query: string): Promise<SavedSearch> {
+  const nameTrim = name.trim();
+  if (!nameTrim) throw new Error('搜索名称不能为空');
+  const now = Date.now();
+  const existing = await db.savedSearches.where('name').equals(nameTrim).first();
+  const ss: SavedSearch = existing
+    ? { ...existing, query, updatedAt: now }
+    : { id: crypto.randomUUID(), name: nameTrim, query, createdAt: now, updatedAt: now };
+  await db.savedSearches.put(ss);
+  return ss;
+}
+
+export async function deleteSavedSearch(id: string) {
+  await db.savedSearches.delete(id);
+}
+
 // ──── Conversations ────
 
 export async function saveConversation(data: Omit<AIConversation, 'id' | 'createdAt'>) {
@@ -365,14 +539,27 @@ export async function fetchAvailableModels(
 // ──── Data Export / Import ────
 
 export async function exportAllData() {
+  // 附件 Blob 无法直接 JSON 序列化，预先转成 dataUrl
+  const rawAttachments = await db.attachments.toArray();
+  const attachments = await Promise.all(
+    rawAttachments.map(async (a) => ({
+      ...a,
+      blob: undefined,
+      dataUrl: a.dataUrl ?? (a.blob ? await blobToDataUrl(a.blob) : undefined),
+    })),
+  );
   const data = {
-    version: 1,
+    version: 2,
     exportedAt: Date.now(),
     journals: await db.journals.toArray(),
     notes: await db.notes.toArray(),
     cards: await db.cards.toArray(),
     graphNodes: await db.graphNodes.toArray(),
     graphEdges: await db.graphEdges.toArray(),
+    journalVersions: await db.journalVersions.toArray(),
+    attachments,
+    savedSearches: await db.savedSearches.toArray(),
+    propertyDefinitions: await db.propertyDefinitions.toArray(),
     settings: await db.settings.toArray(),
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -392,11 +579,30 @@ export async function importData(file: File) {
   } catch {
     throw new Error('文件内容不是有效的 JSON 格式');
   }
-  await db.transaction('rw', db.journals, db.notes, db.cards, db.graphNodes, db.graphEdges, async () => {
-    if (Array.isArray(data.journals)) await db.journals.bulkPut(data.journals);
-    if (Array.isArray(data.notes)) await db.notes.bulkPut(data.notes);
-    if (Array.isArray(data.cards)) await db.cards.bulkPut(data.cards);
-    if (Array.isArray(data.graphNodes)) await db.graphNodes.bulkPut(data.graphNodes);
-    if (Array.isArray(data.graphEdges)) await db.graphEdges.bulkPut(data.graphEdges);
-  });
+  await db.transaction(
+    'rw',
+    [
+      db.journals,
+      db.notes,
+      db.cards,
+      db.graphNodes,
+      db.graphEdges,
+      db.journalVersions,
+      db.attachments,
+      db.savedSearches,
+      db.propertyDefinitions,
+    ],
+    async () => {
+      if (Array.isArray(data.journals)) await db.journals.bulkPut(data.journals);
+      if (Array.isArray(data.notes)) await db.notes.bulkPut(data.notes);
+      if (Array.isArray(data.cards)) await db.cards.bulkPut(data.cards);
+      if (Array.isArray(data.graphNodes)) await db.graphNodes.bulkPut(data.graphNodes);
+      if (Array.isArray(data.graphEdges)) await db.graphEdges.bulkPut(data.graphEdges);
+      if (Array.isArray(data.journalVersions)) await db.journalVersions.bulkPut(data.journalVersions);
+      if (Array.isArray(data.attachments)) await db.attachments.bulkPut(data.attachments);
+      if (Array.isArray(data.savedSearches)) await db.savedSearches.bulkPut(data.savedSearches);
+      if (Array.isArray(data.propertyDefinitions)) await db.propertyDefinitions.bulkPut(data.propertyDefinitions);
+    },
+  );
+  await rebuildDocumentIndexes();
 }

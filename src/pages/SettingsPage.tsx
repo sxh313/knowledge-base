@@ -7,6 +7,7 @@ import { fetchAvailableModels } from '../lib/db/queries';
 import type { SyncConfig } from '../lib/db/schema';
 import { useSyncStore } from '../stores/syncStore';
 import { exportKeys, importKeys, type KeyBundle } from '../lib/utils/keyVault';
+import SyncConflicts from '../components/SyncConflicts';
 import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search } from 'lucide-react';
 
 const PROVIDER_INFO: { key: ProviderName; label: string; desc: string; icon: string }[] = [
@@ -432,6 +433,7 @@ export default function SettingsPage() {
               </div>
               {syncMsg && <p className="text-xs text-gray-500">{syncMsg}</p>}
               {syncStatus === 'error' && <p className="text-xs text-red-500">同步失败，请检查配置与网络</p>}
+              <SyncConflicts refreshKey={settings.sync?.lastSyncAt ?? 0} />
               <details className="text-xs text-gray-400">
                 <summary className="cursor-pointer">如何获取 Token 与配置？</summary>
                 <div className="mt-1 leading-relaxed space-y-1">

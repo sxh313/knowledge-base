@@ -42,6 +42,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const commands = useMemo(() => {
     const actions = [
       { type: 'action' as const, icon: Plus, label: '新建文档', desc: '创建一篇新文档', action: () => { setCurrent(null); navigate('/edit/new'); } },
+      { type: 'action' as const, icon: Search, label: '高级搜索', desc: '按标签/分类/时间/状态等条件搜索文档', action: () => navigate(deferredQuery.trim() ? `/search?q=${encodeURIComponent(deferredQuery.trim())}` : '/search') },
       { type: 'action' as const, icon: CalendarDays, label: '今日笔记', desc: '一键创建/打开今天的每日总结', action: async () => {
         const { entry } = await createTodayNote();
         navigate(`/edit/${entry.id}`);

@@ -20,6 +20,7 @@ import {
   Lightbulb, Languages, Sparkles, BookOpen, Search, PaintRoller,
 } from 'lucide-react';
 import { markdownToHtml, htmlToMarkdown } from '../lib/markdownUtils';
+import { putAttachment, getAttachment } from '../lib/db/queries';
 import { useJournalStore } from '../stores/journalStore';
 import { getSlashCommands, type SlashCommandItem } from './tiptap/slashCommand';
 import { Callout } from './tiptap/callout';
@@ -28,6 +29,32 @@ import SearchReplaceBar from './SearchReplaceBar';
 
 // 代码语法高亮：注册常用语言集合
 const lowlight = createLowlight(common);
+
+// 附件图片解析缓存：attachmentId → 可渲染 dataUrl（跨实例复用，避免重复查库）
+const attachmentSrcCache = new Map<string, string>();
+
+/** 把 DOM 中 attachment://<id> 的 <img> 解析为可渲染 dataUrl（仅替换渲染属性，不改 ProseMirror 模型，故 getHTML 仍是 attachment://id） */
+async function resolveAttachmentImages(root: HTMLElement) {
+  const imgs = Array.from(root.querySelectorAll<HTMLImageElement>('img[src^="attachment://"]'));
+  if (imgs.length === 0) return;
+  for (const img of imgs) {
+    const raw = img.getAttribute('src');
+    if (!raw) continue;
+    const id = raw.slice('attachment://'.length);
+    if (!id) continue;
+    let url = attachmentSrcCache.get(id);
+    if (!url) {
+      try {
+        const att = await getAttachment(id);
+        url = att?.dataUrl ?? '';
+        if (url) attachmentSrcCache.set(id, url);
+      } catch {
+        url = '';
+      }
+    }
+    if (url && img.getAttribute('src') !== url) img.setAttribute('src', url);
+  }
+}
 
 interface RichTextEditorProps {
   value: string;          // Markdown
@@ -40,9 +67,11 @@ interface RichTextEditorProps {
   insertSignal?: { text: string; n: number } | null;
   /** 点击双向链接 [[目标]] 时触发（父组件负责跳转到目标文档） */
   onWikilinkClick?: (target: string) => void;
+  /** 当前文档 id（有值时粘贴/拖入图片会落库为附件并用 attachment://id 引用；未保存的新文档退化为 base64） */
+  journalId?: string;
 }
 
-export default function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, insertSignal, onWikilinkClick }: RichTextEditorProps) {
+export default function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, insertSignal, onWikilinkClick, journalId }: RichTextEditorProps) {
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
@@ -132,6 +161,43 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
     }
   }, [value, editor]);
 
+  // 附件图片：把图片以附件形式存储，正文用 attachment://<id> 引用（渲染时解析回 dataUrl）
+  const insertImageFromDataUrl = useCallback(async (dataUrl: string, name: string, mimeType: string) => {
+    const ed = editor;
+    if (!ed) return;
+    let src = dataUrl;
+    // 仅在已保存文档（有 id）时落库为附件；新建未保存文档退化为 base64（避免产生孤立附件）
+    if (journalId) {
+      try {
+        const att = await putAttachment({
+          journalId,
+          name: name || 'image',
+          mimeType: mimeType || 'image/png',
+          size: Math.round(dataUrl.length * 0.75),
+          dataUrl,
+        });
+        attachmentSrcCache.set(att.id, dataUrl);
+        src = `attachment://${att.id}`;
+      } catch {
+        /* 落库失败则退化用 base64 内联 */
+      }
+    }
+    ed.chain().focus().setImage({ src, alt: name }).run();
+  }, [editor, journalId]);
+
+  // 用 ref 暴露最新插入函数给粘贴/拖拽监听（监听只绑定一次，避免依赖变化重建）
+  const insertImageRef = useRef(insertImageFromDataUrl);
+  useEffect(() => { insertImageRef.current = insertImageFromDataUrl; }, [insertImageFromDataUrl]);
+
+  // 解析正文里 attachment://<id> 图片为可渲染 dataUrl（content 保持引用，仅渲染层替换 src）
+  useEffect(() => {
+    if (!editor) return;
+    const run = () => { if (editor && !editor.isDestroyed) resolveAttachmentImages(editor.view.dom); };
+    run();
+    const raf = requestAnimationFrame(run);
+    return () => cancelAnimationFrame(raf);
+  }, [editor, value]);
+
   // 飞书式：粘贴（Ctrl+V 截图）/ 拖拽图片自动插入（DOM 级监听，HMR 友好）
   useEffect(() => {
     if (!editor) return;
@@ -139,7 +205,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
     const insertImageFile = (file: File) =>
       fileToImageDataURL(file).then(({ src, alt }) => {
         if (!src) return;
-        editor.chain().focus().setImage({ src, alt }).run();
+        insertImageRef.current(src, alt, file.type);
         console.debug('[paste] 图片已插入');
       });
     const onPaste = (e: ClipboardEvent) => {
@@ -468,8 +534,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
             reader.onload = () => {
               const src = reader.result as string;
               console.debug('[img] dataURL 已生成，长度:', src.length);
-              editor.chain().focus().setImage({ src, alt: f.name }).run();
-              console.debug('[img] setImage 已调用，当前编辑器 HTML 长度:', editor.getHTML().length);
+              insertImageFromDataUrl(src, f.name, f.type);
             };
             reader.onerror = (err) => console.error('[img] FileReader 错误:', err);
             reader.readAsDataURL(f);

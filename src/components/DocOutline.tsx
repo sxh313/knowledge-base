@@ -5,6 +5,8 @@ interface DocOutlineProps {
   content: string;
   /** 可选：点击大纲项的回调（用于滚动到对应位置） */
   onJump?: (headingId: string) => void;
+  /** 嵌入模式：只渲染标题列表，不带外层面板与“大纲”标题栏（用于嵌入侧栏页签） */
+  embedded?: boolean;
 }
 
 interface Heading {
@@ -39,13 +41,10 @@ function parseHeadings(markdown: string): Heading[] {
   return headings;
 }
 
-export default function DocOutline({ content, onJump }: DocOutlineProps) {
+export default function DocOutline({ content, onJump, embedded }: DocOutlineProps) {
   const [activeId, setActiveId] = useState<string>('');
 
   const headings = useMemo(() => parseHeadings(content), [content]);
-
-  // 只在有标题时显示
-  if (headings.length < 2) return null;
 
   const handleClick = (h: Heading) => {
     setActiveId(h.id);
@@ -71,7 +70,40 @@ export default function DocOutline({ content, onJump }: DocOutlineProps) {
   };
 
   // 计算最小缩进级别
-  const minLevel = Math.min(...headings.map(h => h.level));
+  const minLevel = headings.length ? Math.min(...headings.map(h => h.level)) : 1;
+
+  const headingButtons = headings.map((h, i) => (
+    <button
+      key={i}
+      onClick={() => handleClick(h)}
+      className={`w-full text-left text-xs py-1 px-2 rounded transition-colors flex items-start gap-1 ${
+        activeId === h.id
+          ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)] font-medium'
+          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'
+      }`}
+      style={{ paddingLeft: `${(h.level - minLevel) * 12 + 8}px` }}
+      title={h.text}
+    >
+      <ChevronRight className="h-3 w-3 mt-0.5 flex-shrink-0 opacity-50" />
+      <span className="truncate">{h.text}</span>
+    </button>
+  ));
+
+  // 嵌入模式：仅渲染标题列表（供侧栏页签复用），无外层面板与"大纲"标题栏
+  if (embedded) {
+    return (
+      <div className="p-2 space-y-0.5">
+        {headings.length < 2 ? (
+          <p className="text-xs text-[var(--color-text-tertiary)] px-2 py-3">暂无标题大纲</p>
+        ) : (
+          headingButtons
+        )}
+      </div>
+    );
+  }
+
+  // 独立面板模式（默认）：仅在标题数 ≥ 2 时显示
+  if (headings.length < 2) return null;
 
   return (
     <div className="w-56 shrink-0 border-l border-[var(--color-border)] bg-[var(--color-surface)] overflow-y-auto">
@@ -81,24 +113,7 @@ export default function DocOutline({ content, onJump }: DocOutlineProps) {
           大纲
         </span>
       </div>
-      <div className="p-2 space-y-0.5">
-        {headings.map((h, i) => (
-          <button
-            key={i}
-            onClick={() => handleClick(h)}
-            className={`w-full text-left text-xs py-1 px-2 rounded transition-colors flex items-start gap-1 ${
-              activeId === h.id
-                ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)] font-medium'
-                : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'
-            }`}
-            style={{ paddingLeft: `${(h.level - minLevel) * 12 + 8}px` }}
-            title={h.text}
-          >
-            <ChevronRight className="h-3 w-3 mt-0.5 flex-shrink-0 opacity-50" />
-            <span className="truncate">{h.text}</span>
-          </button>
-        ))}
-      </div>
+      <div className="p-2 space-y-0.5">{headingButtons}</div>
     </div>
   );
 }

@@ -4,7 +4,8 @@
 //           软删除（deletedAt）会传播到远端。
 
 import { db } from '../db/schema';
-import type { SyncConfig } from '../db/schema';
+import type { SyncConfig, JournalEntry } from '../db/schema';
+import { rebuildDocumentIndexes } from '../indexing/documents';
 
 const API = 'https://api.github.com';
 
@@ -25,19 +26,50 @@ export interface FullData {
   graphNodes: unknown[];
   graphEdges: unknown[];
   aiConversations: unknown[];
+  savedSearches: unknown[];
+  journalVersions: unknown[];
+  propertyDefinitions: unknown[];
+  attachments: unknown[];
 }
 
-/** 收集本地全部数据（同步用） */
+// Blob → dataURL（附件序列化用；settings 不参与同步，因其含 API Key）
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** 收集本地全部数据（同步用）；附件 Blob 序列化为 dataUrl，settings 不同步（含密钥） */
 export async function collectAllData(): Promise<FullData> {
-  const [journals, notes, cards, graphNodes, graphEdges, aiConversations] = await Promise.all([
+  const [journals, notes, cards, graphNodes, graphEdges, aiConversations, savedSearches, journalVersions, propertyDefinitions, rawAttachments] = await Promise.all([
     db.journals.toArray(),
     db.notes.toArray(),
     db.cards.toArray(),
     db.graphNodes.toArray(),
     db.graphEdges.toArray(),
     db.aiConversations.toArray(),
+    db.savedSearches.toArray(),
+    db.journalVersions.toArray(),
+    db.propertyDefinitions.toArray(),
+    db.attachments.toArray(),
   ]);
-  return { version: 1, exportedAt: Date.now(), journals, notes, cards, graphNodes, graphEdges, aiConversations };
+  // 附件 Blob 无法直接 JSON 序列化，转成 dataUrl
+  const attachments = await Promise.all(
+    rawAttachments.map(async (a) => ({
+      ...a,
+      blob: undefined,
+      dataUrl: a.dataUrl ?? (a.blob ? await blobToDataUrl(a.blob).catch(() => undefined) : undefined),
+    })),
+  );
+  return {
+    version: 1,
+    exportedAt: Date.now(),
+    journals, notes, cards, graphNodes, graphEdges, aiConversations,
+    savedSearches, journalVersions, propertyDefinitions, attachments,
+  };
 }
 
 interface TimedRow {
@@ -67,23 +99,32 @@ function mergeByNewest(a: unknown[], b: unknown[]): unknown[] {
 }
 
 export function mergeData(local: FullData, remote: FullData): FullData {
+  // 远端为旧版本时可能缺新增字段，用 ?? [] 容错
+  const r = remote as Partial<FullData>;
   return {
     version: 1,
     exportedAt: Date.now(),
-    journals: mergeByNewest(local.journals, remote.journals),
-    notes: mergeByNewest(local.notes, remote.notes),
-    cards: mergeByNewest(local.cards, remote.cards),
-    graphNodes: mergeByNewest(local.graphNodes, remote.graphNodes),
-    graphEdges: mergeByNewest(local.graphEdges, remote.graphEdges),
-    aiConversations: mergeByNewest(local.aiConversations, remote.aiConversations),
+    journals: mergeByNewest(local.journals, r.journals ?? []),
+    notes: mergeByNewest(local.notes, r.notes ?? []),
+    cards: mergeByNewest(local.cards, r.cards ?? []),
+    graphNodes: mergeByNewest(local.graphNodes, r.graphNodes ?? []),
+    graphEdges: mergeByNewest(local.graphEdges, r.graphEdges ?? []),
+    aiConversations: mergeByNewest(local.aiConversations, r.aiConversations ?? []),
+    savedSearches: mergeByNewest(local.savedSearches, r.savedSearches ?? []),
+    journalVersions: mergeByNewest(local.journalVersions, r.journalVersions ?? []),
+    propertyDefinitions: mergeByNewest(local.propertyDefinitions, r.propertyDefinitions ?? []),
+    attachments: mergeByNewest(local.attachments, r.attachments ?? []),
   };
 }
 
-/** 将合并后的数据写回本地（bulkPut 覆盖同 id） */
+/** 将合并后的数据写回本地（bulkPut 覆盖同 id）；派生索引在 syncNow 中重建 */
 export async function writeAllData(data: FullData): Promise<void> {
   await db.transaction(
     'rw',
-    [db.journals, db.notes, db.cards, db.graphNodes, db.graphEdges, db.aiConversations],
+    [
+      db.journals, db.notes, db.cards, db.graphNodes, db.graphEdges, db.aiConversations,
+      db.savedSearches, db.journalVersions, db.propertyDefinitions, db.attachments,
+    ],
     async () => {
       await Promise.all([
         db.journals.bulkPut(data.journals as never),
@@ -92,11 +133,83 @@ export async function writeAllData(data: FullData): Promise<void> {
         db.graphNodes.bulkPut(data.graphNodes as never),
         db.graphEdges.bulkPut(data.graphEdges as never),
         db.aiConversations.bulkPut(data.aiConversations as never),
+        db.savedSearches.bulkPut(data.savedSearches as never),
+        db.journalVersions.bulkPut(data.journalVersions as never),
+        db.propertyDefinitions.bulkPut(data.propertyDefinitions as never),
+        db.attachments.bulkPut(data.attachments as never),
       ]);
     },
   );
 }
+// ──── 三方冲突检测（基于 contentHash 基线） ────
 
+interface HashedRow {
+  id?: string;
+  contentHash?: string;
+}
+
+/** 检测冲突：本地与远端相对基线都发生改变、且彼此不同 → 冲突 */
+function detectConflictedIds(localJ: unknown[], remoteJ: unknown[], baseline: Record<string, string>): Set<string> {
+  const localMap = new Map<string, string>();
+  for (const j of localJ as HashedRow[]) {
+    if (j.id && j.contentHash) localMap.set(j.id, j.contentHash);
+  }
+  const conflict = new Set<string>();
+  for (const r of remoteJ as HashedRow[]) {
+    if (!r.id || !r.contentHash) continue;
+    const lh = localMap.get(r.id);
+    if (!lh) continue;
+    const bh = baseline[r.id];
+    if (bh && lh !== bh && r.contentHash !== bh && lh !== r.contentHash) conflict.add(r.id);
+  }
+  return conflict;
+}
+
+/** 记录冲突快照（已有未解决冲突则跳过，避免重复堆叠） */
+async function recordConflicts(localJ: unknown[], remoteJ: unknown[], ids: Set<string>): Promise<number> {
+  if (ids.size === 0) return 0;
+  const localById = new Map(localJ.map((j) => [(j as HashedRow).id!, j]));
+  const remoteById = new Map(remoteJ.map((j) => [(j as HashedRow).id!, j]));
+  let recorded = 0;
+  for (const id of ids) {
+    const existing = await db.syncConflicts.where('journalId').equals(id).filter((c) => !c.resolvedAt).first();
+    if (existing) continue;
+    const localEntry = localById.get(id);
+    const remoteEntry = remoteById.get(id);
+    if (!localEntry || !remoteEntry) continue;
+    await db.syncConflicts.put({
+      id: crypto.randomUUID(),
+      journalId: id,
+      local: localEntry as JournalEntry,
+      remote: remoteEntry as JournalEntry,
+      detectedAt: Date.now(),
+    });
+    recorded++;
+  }
+  return recorded;
+}
+
+/** 冲突文档强制保留本地版本（不被远端覆盖） */
+function keepLocalForConflicts(merged: FullData, local: FullData, ids: Set<string>): FullData {
+  if (ids.size === 0) return merged;
+  const localById = new Map(local.journals.map((j) => [(j as HashedRow).id!, j]));
+  return {
+    ...merged,
+    journals: merged.journals.map((j) => {
+      const id = (j as HashedRow).id;
+      return id && ids.has(id) ? (localById.get(id) ?? j) : j;
+    }),
+  };
+}
+
+/** 由合并后的文档构建新的 contentHash 基线 */
+function buildBaseline(journals: unknown[]): Record<string, string> {
+  const m: Record<string, string> = {};
+  for (const j of journals as HashedRow[]) {
+    if (j.id && j.contentHash) m[j.id] = j.contentHash;
+  }
+  return m;
+}
 function authHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
 }
@@ -135,6 +248,8 @@ export interface SyncResult {
   sha: string;
   pulled: number;   // 从远端拉取并合并的记录数
   pushed: boolean;
+  conflicts: number; // 本次检测到的冲突数
+  baselineHashes: Record<string, string>; // 新基线（合并后 contentHash）
 }
 
 /**
@@ -143,13 +258,22 @@ export interface SyncResult {
 export async function syncNow(cfg: SyncConfig): Promise<SyncResult> {
   const local = await collectAllData();
   const remote = await ghGet(cfg);
+  const baseline = cfg.baselineHashes ?? {};
 
   let merged = local;
   let pulled = 0;
+  let conflicts = 0;
+
   if (remote?.content) {
     const remoteData = JSON.parse(b64decode(remote.content)) as FullData;
-    merged = mergeData(local, remoteData);
+    // 三方冲突检测（本地与远端相对基线都改变且不同）
+    const conflictedIds = detectConflictedIds(local.journals, remoteData.journals, baseline);
+    conflicts = await recordConflicts(local.journals, remoteData.journals, conflictedIds);
+    // 合并：冲突文档保留本地，其余按「较新」
+    merged = keepLocalForConflicts(mergeData(local, remoteData), local, conflictedIds);
     await writeAllData(merged);
+    // 同步完成后本地重建派生索引（双链/分块/搜索），派生数据不参与同步
+    await rebuildDocumentIndexes();
     pulled =
       remoteData.journals.length +
       remoteData.cards.length +
@@ -164,7 +288,7 @@ export async function syncNow(cfg: SyncConfig): Promise<SyncResult> {
     throw new Error(`数据体积 ${(byteSize / 1024 / 1024).toFixed(1)}MB 超过 95MB 上限，已阻止上传。请在设置中清理旧数据（如 AI 对话历史）后再试。`);
   }
   const sha = await ghPut(cfg, json, remote?.sha);
-  return { sha, pulled, pushed: true };
+  return { sha, pulled, pushed: true, conflicts, baselineHashes: buildBaseline(merged.journals) };
 }
 
 /** 测试连接：验证 token + 仓库可访问 */

@@ -2,10 +2,11 @@ import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ChevronDown, ChevronRight, FileText, FolderOpen, Plus, Hash,
-  Star, Clock, Trash2, Files,
+  Star, Clock, Trash2, Files, MoreVertical, FolderInput, Copy,
 } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import type { JournalEntry } from '../lib/db/schema';
+import ContextMenu from './ContextMenu';
 
 /** 折叠区头部 */
 function SectionHeader({
@@ -37,12 +38,19 @@ interface DocTreeProps {
 
 export default function DocTree({ onNavigate }: DocTreeProps = {}) {
   const navigate = useNavigate();
-  const { entries, setCurrent, currentEntry } = useJournalStore();
+  const { entries, setCurrent, currentEntry, remove, update, duplicate, togglePin } = useJournalStore();
   const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(new Set());
   const [expandedTags, setExpandedTags] = useState(false);
   const [showAllDocs, setShowAllDocs] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
+  // 右键/⋮菜单：主菜单 + “移动到”分类子菜单
+  const [ctx, setCtx] = useState<{ x: number; y: number; doc: JournalEntry } | null>(null);
+  const [moveCtx, setMoveCtx] = useState<{ x: number; y: number; doc: JournalEntry } | null>(null);
+  const allSubjects = useMemo(
+    () => Array.from(new Set(entries.map((e) => e.subject).filter(Boolean))) as string[],
+    [entries],
+  );
 
   // 置顶文档
   const favorites = useMemo(
@@ -97,20 +105,33 @@ export default function DocTree({ onNavigate }: DocTreeProps = {}) {
   const isActive = (id: string) => currentEntry?.id === id;
 
   const renderDocRow = (doc: JournalEntry, indent = false) => (
-    <button
+    <div
       key={doc.id}
-      className={`flex items-center gap-1.5 w-full px-2 py-1 rounded-md transition-colors ${
+      className={`group flex items-center gap-1 w-full rounded-md transition-colors ${
         isActive(doc.id)
           ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)]'
           : 'hover:bg-[var(--color-surface-2)] text-[var(--color-text-secondary)]'
       }`}
       style={{ paddingLeft: indent ? 28 : 8 }}
-      onClick={() => handleDocClick(doc)}
+      onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, doc }); }}
     >
-      <FileText className="h-3 w-3 flex-shrink-0 opacity-50" />
-      <span className="text-xs truncate">{doc.title || '无标题'}</span>
-      {doc.pinned && <Star className="h-2.5 w-2.5 ml-auto flex-shrink-0 text-[var(--color-accent)]" />}
-    </button>
+      <button
+        className="flex items-center gap-1.5 flex-1 min-w-0 py-1 pr-1 text-left"
+        onClick={() => handleDocClick(doc)}
+        title={doc.title || '无标题'}
+      >
+        <FileText className="h-3 w-3 flex-shrink-0 opacity-50" />
+        <span className="text-xs truncate">{doc.title || '无标题'}</span>
+        {doc.pinned && <Star className="h-2.5 w-2.5 ml-auto flex-shrink-0 text-[var(--color-accent)]" />}
+      </button>
+      <button
+        className="mr-1 p-0.5 rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] opacity-40 hover:opacity-100 focus:opacity-100 transition-opacity"
+        title="更多操作"
+        onClick={(e) => { e.stopPropagation(); setCtx({ x: e.clientX, y: e.clientY, doc }); }}
+      >
+        <MoreVertical className="h-3 w-3" />
+      </button>
+    </div>
   );
 
   return (
@@ -234,6 +255,33 @@ export default function DocTree({ onNavigate }: DocTreeProps = {}) {
         <Trash2 className="h-3.5 w-3.5 flex-shrink-0" />
         <span className="text-xs">回收站</span>
       </button>
+
+      {/* 文档右键/⋮ 菜单 */}
+      {ctx && (
+        <ContextMenu
+          x={ctx.x}
+          y={ctx.y}
+          onClose={() => setCtx(null)}
+          items={[
+            { key: 'move', label: '移动到…', icon: <FolderInput className="h-4 w-4" />, onClick: () => { const c = ctx; setCtx(null); if (c) setMoveCtx({ x: c.x, y: c.y, doc: c.doc }); } },
+            { key: 'pin', label: ctx.doc.pinned ? '从“置顶”移除' : '收藏（置顶）', icon: <Star className="h-4 w-4" />, onClick: () => togglePin(ctx.doc.id) },
+            { key: 'dup', label: '复制文档', icon: <Copy className="h-4 w-4" />, onClick: () => duplicate(ctx.doc.id) },
+            { key: 'del', label: '删除（移到回收站）', icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => { const t = ctx.doc.title || '无标题'; if (window.confirm(`删除文档「${t}」？\n（移到回收站，可在回收站恢复）`)) remove(ctx.doc.id); } },
+          ]}
+        />
+      )}
+      {moveCtx && (
+        <ContextMenu
+          x={moveCtx.x}
+          y={moveCtx.y}
+          onClose={() => setMoveCtx(null)}
+          items={[
+            { key: 'none', label: '（无分类）', onClick: () => { update(moveCtx.doc.id, { subject: '' }); } },
+            ...allSubjects.map((s) => ({ key: `subj-${s}`, label: s, onClick: () => { update(moveCtx.doc.id, { subject: s }); } })),
+            { key: 'new', label: '新建分类…', icon: <Plus className="h-4 w-4" />, divider: true, onClick: () => { const ns = window.prompt('输入新的分类名称'); if (ns && ns.trim()) update(moveCtx.doc.id, { subject: ns.trim() }); } },
+          ]}
+        />
+      )}
     </div>
   );
 }

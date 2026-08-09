@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface ContextMenuItem {
   key: string;
@@ -46,10 +47,10 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
   const left = Math.min(x, maxX);
   const top = Math.min(y, maxY);
 
-  return (
+  return createPortal(
     <div
       ref={ref}
-      className="fixed z-50 min-w-[160px] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-xl animate-fade-in"
+      className="fixed z-[9999] min-w-[160px] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-xl animate-fade-in"
       style={{ left, top }}
     >
       {items.map((item) => (
@@ -71,6 +72,7 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
           {item.divider && <div className="my-1 h-px bg-[var(--color-border)]" />}
         </div>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }

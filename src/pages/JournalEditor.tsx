@@ -1,18 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Star, PanelLeft, Maximize, Download, FileCode, ChevronDown, History } from 'lucide-react';
+import { Star, PanelLeft, PanelRight, Maximize, Download, FileCode, ChevronDown, History, Trash2 } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
 import { useViewModeStore } from '../stores/viewModeStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useSyncStore } from '../stores/syncStore';
 import { buildMessages } from '../lib/ai/prompts';
-import { extractWikilinks, markdownToHtml } from '../lib/markdownUtils';
+import { markdownToHtml } from '../lib/markdownUtils';
 import { saveVersion, getVersions, deleteVersion } from '../lib/db/queries';
 import type { JournalVersion } from '../lib/db/schema';
 import RichTextEditor from '../components/RichTextEditor';
 import AIChatPanel from '../components/AIChatPanel';
-import DocOutline from '../components/DocOutline';
+import DocumentSidebar from '../components/DocumentSidebar';
 import DocTree from '../components/DocTree';
 
 type EditMode = 'rich' | 'markdown';
@@ -20,7 +20,7 @@ type EditMode = 'rich' | 'markdown';
 export default function JournalEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { entries, currentEntry, create, update, loadOne, setCurrent, saveStatus, togglePin } = useJournalStore();
+  const { entries, currentEntry, create, update, remove, loadOne, setCurrent, saveStatus, togglePin } = useJournalStore();
   const { callAI, isProcessing, streamingContent } = useAIStore();
   const { isMobile } = useViewModeStore();
   const { settings } = useSettingsStore();
@@ -31,6 +31,16 @@ export default function JournalEditor() {
   const [mode, setMode] = useState<EditMode>('rich');
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [showDocList, setShowDocList] = useState(false);
+  // 右侧文档侧栏（大纲/反链/提及）显示开关，持久化
+  const [showSidebar, setShowSidebar] = useState<boolean>(() => {
+    const saved = localStorage.getItem('editor-sidebar-visible');
+    return saved === null ? true : saved === '1';
+  });
+  const toggleSidebar = () => setShowSidebar((s) => {
+    const next = !s;
+    localStorage.setItem('editor-sidebar-visible', next ? '1' : '0');
+    return next;
+  });
   const [saving, setSaving] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   /** 选中→AI 操作：把 AI 处理结果通过 signal 注入回编辑器选区 */
@@ -205,11 +215,14 @@ export default function JournalEditor() {
     setShowHistory(false);
   };
 
-  // 反向引用：哪些文档用 [[本文档标题]] 链接了本文档
-  const myTitle = currentEntry?.title?.trim();
-  const backlinks = myTitle
-    ? entries.filter(e => !e.deletedAt && e.id !== currentEntry?.id && extractWikilinks(e.content).some(t => t.trim() === myTitle))
-    : [];
+  // 删除当前文档（软删除 → 回收站，可恢复）
+  const handleDelete = async () => {
+    if (!currentEntry?.id) return;
+    if (!window.confirm(`删除文档「${currentEntry.title || '无标题'}」？\n（移到回收站，可在回收站恢复）`)) return;
+    await remove(currentEntry.id);
+    setCurrent(null);
+    navigate('/');
+  };
 
   const handleExportHTML = async () => {
     setShowExportMenu(false);
@@ -239,6 +252,13 @@ export default function JournalEditor() {
         <button className="btn-ghost text-sm" onClick={() => navigate('/')} title="返回">← 返回</button>
         <button className={`btn-ghost p-1.5 ${showDocList ? 'text-[var(--color-primary)] bg-[var(--color-primary-light)]' : ''}`} onClick={() => setShowDocList(s => !s)} title="显示/隐藏文档列表">
           <PanelLeft className="h-4 w-4" />
+        </button>
+        <button
+          className={`btn-ghost p-1.5 ${showSidebar ? 'text-[var(--color-primary)] bg-[var(--color-primary-light)]' : ''}`}
+          onClick={toggleSidebar}
+          title="显示/隐藏右侧文档面板（大纲/反链/提及）"
+        >
+          <PanelRight className="h-4 w-4" />
         </button>
         <button className="btn-ghost p-1.5" onClick={() => { if (!document.fullscreenElement) document.documentElement.requestFullscreen?.(); else document.exitFullscreen?.(); }} title="聚焦模式（全屏）">
           <Maximize className="h-4 w-4" />
@@ -315,6 +335,15 @@ export default function JournalEditor() {
             {currentEntry.pinned ? '已置顶' : '置顶'}
           </button>
         )}
+        {currentEntry?.id && (
+          <button
+            className="btn-ghost p-1.5 text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)]"
+            onClick={handleDelete}
+            title="删除（移到回收站）"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        )}
         <button className="btn-ghost p-1.5" onClick={() => { if (!document.fullscreenElement) document.documentElement.requestFullscreen?.(); else document.exitFullscreen?.(); }} title="聚焦模式（全屏）">
           <Maximize className="h-4 w-4" />
         </button>
@@ -381,6 +410,7 @@ export default function JournalEditor() {
                 onAIAction={handleSelectionAI}
                 insertSignal={insertSignal}
                 onWikilinkClick={handleWikilinkClick}
+                journalId={currentEntry?.id}
               />
             ) : (
               <textarea
@@ -392,26 +422,18 @@ export default function JournalEditor() {
               />
             )}
 
-            {/* 反向引用：哪些文档链接了本文档 */}
-            {backlinks.length > 0 && (
-              <div className="mt-6 rounded-lg border border-[var(--color-border)] p-3 bg-[var(--color-surface)]">
-                <p className="text-xs font-medium text-[var(--color-text-secondary)] mb-2">🔗 反向引用（{backlinks.length}）</p>
-                <div className="space-y-1">
-                  {backlinks.map(b => (
-                    <button key={b.id} onClick={() => { setCurrent(b); navigate(`/edit/${b.id}`); }} className="block w-full text-left rounded-md p-2 hover:bg-[var(--color-surface-2)] transition-colors">
-                      <p className="text-sm font-medium text-[var(--color-primary)] truncate">{b.title || '无标题'}</p>
-                      <p className="text-xs text-[var(--color-text-tertiary)] truncate mt-0.5">{b.contentPlain?.slice(0, 80) || b.content?.slice(0, 80)}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
-        {/* 文档大纲（仅富文本模式、非移动端且非 AI 面板时显示） */}
-        {mode === 'rich' && !showAIPanel && !isMobile && content.trim() && (
-          <DocOutline content={content} />
+        {/* 文档侧栏：大纲 / 反向链接 / 未链接提及（非移动端且非 AI 面板且未手动隐藏时显示） */}
+        {showSidebar && !showAIPanel && !isMobile && (
+          <DocumentSidebar
+            journalId={currentEntry?.id}
+            title={title}
+            aliases={currentEntry?.aliases}
+            content={content}
+            onNavigate={(targetId) => navigate(`/edit/${targetId}`)}
+          />
         )}
 
         {/* AI 面板（移动端全屏覆盖，桌面端右侧固定宽度） */}

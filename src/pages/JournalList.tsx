@@ -1,17 +1,22 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Star, Menu, X, Copy, CalendarDays, UploadCloud, LayoutTemplate } from 'lucide-react';
+import { Star, Menu, X, Copy, CalendarDays, UploadCloud, LayoutTemplate, Trash2, FolderInput, Plus, MoreVertical } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useViewModeStore } from '../stores/viewModeStore';
 import DocTree from '../components/DocTree';
+import ContextMenu, { type ContextMenuItem } from '../components/ContextMenu';
+import type { JournalEntry } from '../lib/db/schema';
 import TemplatePicker from '../components/TemplatePicker';
 
 export default function JournalList() {
   const navigate = useNavigate();
-  const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedSubject, setSelectedSubject, togglePin, duplicate, sortBy, setSortBy, create, createTodayNote } = useJournalStore();
+  const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedSubject, setSelectedSubject, togglePin, duplicate, remove, update, sortBy, setSortBy, create, createTodayNote } = useJournalStore();
   const { hasAnyProviderConfigured } = useSettingsStore();
   const { isMobile } = useViewModeStore();
+  // 右键菜单：主菜单 + “移动到”分类子菜单
+  const [ctx, setCtx] = useState<{ x: number; y: number; entry: JournalEntry } | null>(null);
+  const [moveCtx, setMoveCtx] = useState<{ x: number; y: number; entry: JournalEntry } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showTreeDrawer, setShowTreeDrawer] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -334,7 +339,8 @@ export default function JournalList() {
                   dragIdRef.current = null;
                   if (from) reorderDocs(from, entry.id);
                 }}
-                onClick={() => { setCurrent(entry); navigate(`/edit/${entry.id}`); }}>
+                onClick={() => { setCurrent(entry); navigate(`/edit/${entry.id}`); }}
+                onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, entry }); }}>
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-[var(--color-text)] truncate flex items-center gap-1.5">
@@ -356,18 +362,11 @@ export default function JournalList() {
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     <button
-                      onClick={(e) => { e.stopPropagation(); togglePin(entry.id); }}
-                      className={`p-1 rounded-md transition-colors ${entry.pinned ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-2)]'}`}
-                      title={entry.pinned ? '取消置顶' : '置顶'}
+                      onClick={(e) => { e.stopPropagation(); setCtx({ x: e.clientX, y: e.clientY, entry }); }}
+                      className="p-1 rounded-md transition-colors text-[var(--color-text-tertiary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-2)]"
+                      title="更多操作"
                     >
-                      <Star className={`h-4 w-4 ${entry.pinned ? 'fill-[var(--color-accent)]' : ''}`} />
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); duplicate(entry.id); }}
-                      className="p-1 rounded-md transition-colors text-[var(--color-text-tertiary)] hover:text-[var(--color-primary)] hover:bg-[var(--color-surface-2)]"
-                      title="复制文档"
-                    >
-                      <Copy className="h-4 w-4" />
+                      <MoreVertical className="h-4 w-4" />
                     </button>
                     {entry.summary && (
                       <span className="text-xs text-[var(--color-primary)] whitespace-nowrap font-medium">
@@ -381,6 +380,33 @@ export default function JournalList() {
           )}
         </div>
       </div>
+
+      {/* 文档右键菜单 */}
+      {ctx && (
+        <ContextMenu
+          x={ctx.x}
+          y={ctx.y}
+          onClose={() => setCtx(null)}
+          items={[
+            { key: 'move', label: '移动到…', icon: <FolderInput className="h-4 w-4" />, onClick: () => { const c = ctx; setCtx(null); if (c) setMoveCtx({ x: c.x, y: c.y, entry: c.entry }); } },
+            { key: 'pin', label: ctx.entry.pinned ? '从“置顶”移除' : '收藏（置顶）', icon: <Star className="h-4 w-4" />, onClick: () => togglePin(ctx.entry.id) },
+            { key: 'dup', label: '复制文档', icon: <Copy className="h-4 w-4" />, onClick: () => duplicate(ctx.entry.id) },
+            { key: 'del', label: '删除（移到回收站）', icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => { const t = ctx.entry.title || '无标题'; if (window.confirm(`删除文档「${t}」？\n（移到回收站，可在回收站恢复）`)) remove(ctx.entry.id); } },
+          ]}
+        />
+      )}
+      {moveCtx && (
+        <ContextMenu
+          x={moveCtx.x}
+          y={moveCtx.y}
+          onClose={() => setMoveCtx(null)}
+          items={[
+            { key: 'none', label: '（无分类）', onClick: () => { update(moveCtx.entry.id, { subject: '' }); } },
+            ...allSubjects.map((s) => ({ key: `subj-${s}`, label: s, onClick: () => { update(moveCtx.entry.id, { subject: s }); } })),
+            { key: 'new', label: '新建分类…', icon: <Plus className="h-4 w-4" />, divider: true, onClick: () => { const ns = window.prompt('输入新的分类名称'); if (ns && ns.trim()) update(moveCtx.entry.id, { subject: ns.trim() }); } },
+          ]}
+        />
+      )}
     </div>
   );
 }

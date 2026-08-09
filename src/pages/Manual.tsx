@@ -1,7 +1,7 @@
 import {
   BookOpen, Search, FileText, Brain, BookCheck, BarChart3,
   Settings as SettingsIcon, HelpCircle, Cloud, KeyRound, Database, Keyboard,
-  PaintRoller, Timer, Tag, Link2, LayoutTemplate, Star, History, CalendarDays, ListOrdered, FileCode,
+  PaintRoller, Timer, Tag, Link2, LayoutTemplate, Star, History, CalendarDays, ListOrdered, FileCode, Inbox,
 } from 'lucide-react';
 
 export default function Manual() {
@@ -58,7 +58,9 @@ export default function Manual() {
           <li><b>提示框 Callout</b> — 工具栏 💡 或斜杠命令 <kbd className="kbd">/提示框</kbd>，4 种变体（💡提示 / ✅技巧 / ⚠️警告 / 🔴危险）；开头按 <kbd className="kbd">Backspace</kbd> 可取消</li>
           <li><b>格式刷</b> — 工具栏 🖌️：先选中带格式的文字点刷<b>复制格式</b>，再选目标文字点刷<b>套用格式</b>（粗体/斜体/删除线/代码）</li>
           <li><b>选中→AI</b> — 选中文字浮现飞书式菜单：<b>🌐翻译 / 📖解释 / ✨润色</b>，AI 结果自动回填到选区</li>
-          <li><b>双向链接</b> — 工具栏 🔗 插入 <code className="font-mono">[[文档标题]]</code>，显示为可点击 chip，点击跳转；目标文档底部自动显示「🔗 反向引用」</li>
+          <li><b>双向链接</b> — 工具栏 🔗 插入 <code className="font-mono">[[文档标题]]</code>，显示为可点击 chip，点击跳转</li>
+          <li><b>右侧文档面板</b> — 编辑器右侧「大纲 / 反链 / 提及」三页签（工具栏 ▭ 可隐藏）：<b>大纲</b>跳转章节；<b>反链</b>列出引用本文的文档 + 失效链接（可一键创建目标）；<b>提及</b>列出提到本文标题但未建链的文档，一键转为 <code className="font-mono">[[双链]]</code></li>
+          <li><b>附件图片</b> — 已保存文档中粘贴/拖入的图片会以附件存储，正文用 <code className="font-mono">attachment://</code> 引用（随云同步）；未保存的新文档仍用 base64 内联</li>
           <li><b>禁用拖拽</b> — 选中内容不能拖动移动（避免误操作），移动内容用剪切 <kbd className="kbd">Ctrl+X</kbd> + 粘贴</li>
         </ul>
       </Section>
@@ -78,6 +80,34 @@ export default function Manual() {
           <li><b>置顶收藏</b> — 文档右上角 ⭐ 置顶；置顶文档显示在列表「📌 收藏夹」快捷卡片条，一键直达</li>
           <li><b>手动排序</b> — 文档列表直接<b>拖拽卡片</b>调整顺序，自动切到「↕ 手动排序」模式，顺序持久化</li>
           <li><b>导入 .md</b> — 把 <code className="font-mono">.md</code> 文件<b>拖进文档列表</b>，批量导入（自动识别标题）</li>
+        </ul>
+      </Section>
+
+      {/* 快速收集箱 */}
+      <Section icon={Inbox} title="快速收集箱（Inbox）" color="text-cyan-500">
+        <ul className="list-disc pl-5 space-y-1">
+          <li><b>入口</b> — 侧栏「收集箱」，或快捷键 <kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">Shift</kbd>+<kbd className="kbd">N</kbd>（<kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">N</kbd> 仍是普通新建）</li>
+          <li><b>快速捕捉 / 网页剪藏</b> — 标题、来源网址、正文；<b>标题处粘贴网址会自动识别</b>为来源</li>
+          <li><b>稍后整理</b> — 行内改标题、选分类、加标签、建立双链；点「标记已整理」转为正式文档（状态 active）</li>
+        </ul>
+      </Section>
+
+      {/* 高级搜索 */}
+      <Section icon={Search} title="高级搜索" color="text-emerald-500">
+        <ul className="list-disc pl-5 space-y-1">
+          <li><b>入口</b> — 命令面板（<kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">K</kbd>）选「高级搜索」，或访问 <code className="font-mono">/search</code></li>
+          <li><b>字段语法</b> — <code className="font-mono">tag:编程 subject:计算机 after:2026-01-01 before:2026-08-01 is:inbox has:attachment link: -link: "精确短语"</code></li>
+          <li><b>结果</b> — 关键词高亮、正文命中片段、匹配原因（标题/正文/别名/标签）、分类与修改时间</li>
+          <li><b>保存搜索</b> — 点「保存」命名后可一键复用（不缓存结果）</li>
+        </ul>
+      </Section>
+
+      {/* 知识图谱 */}
+      <Section icon={Brain} title="知识图谱（双链派生）" color="text-indigo-500">
+        <ul className="list-disc pl-5 space-y-1">
+          <li><b>实时派生</b> — 节点 = 文档，边 = 双链；节点大小 = 入链数</li>
+          <li><b>交互</b> — 搜索节点、按分类过滤、显示/隐藏孤立文档；点节点聚焦一跳关系，再点打开文档</li>
+          <li><b>失效链接</b> — 指向不存在目标的 <code className="font-mono">[[链接]]</code> 单独统计，不作为正常节点</li>
         </ul>
       </Section>
 
@@ -122,7 +152,7 @@ export default function Manual() {
           <li><b>生成卡片</b> — 点击「🃏 卡片」，AI 自动从文档生成知识卡片（保存到复习库）</li>
           <li><b>代码分析</b> — 点击「🔍 代码」，AI 审查代码质量和安全</li>
           <li><b>代码解释</b> — 点击「📖 解释」，AI 逐行解释代码逻辑</li>
-          <li><b>AI 对话</b> — 在「AI 助手」页面与 AI 自由对话，支持添加笔记上下文</li>
+          <li><b>AI 对话（RAG）</b> — 「AI 助手」顶部选「知识范围」（全部/分类/标签/指定文档/不使用），提问时自动从知识库检索相关片段并附「参考来源」；可「保存回答为新文档」</li>
           <li><b>多模型路由</b> — 支持胜算云、硅基、智谱、DeepSeek 等多个 AI 入口，自动故障转移</li>
         </ul>
       </Section>

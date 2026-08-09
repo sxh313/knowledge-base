@@ -16,6 +16,7 @@ export async function buildSearchIndex(entries: JournalEntry[]) {
       { name: "contentPlain", weight: 1 },
       { name: "summary", weight: 2 },
       { name: "tags", weight: 2 },
+      { name: "aliases", weight: 2 },
       { name: "subject", weight: 1 },
     ],
     threshold: 0.4,

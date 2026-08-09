@@ -75,6 +75,23 @@ export function extractWikilinks(markdown: string): string[] {
   return Array.from(matches, (m) => m[1].trim());
 }
 
+/** 转义字符串中的正则元字符 */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * 把正文中第一处「未被 [[ ]] 包裹的目标标题文本」转换为 [[双链]]。
+ * 若该标题已是双链、或正文无裸提及，则原样返回（用于"未链接提及 → 转为双链"）。
+ */
+export function linkifyFirstMention(content: string, title: string): string {
+  if (!content || !title) return content;
+  const escaped = escapeRegExp(title);
+  // 前导不是 [[ 且后继不是 ]],命中第一处裸提及
+  const re = new RegExp(`(?<!\\[\\[)(${escaped})(?!\\]\\])`, 'u');
+  return content.replace(re, `[[${title}]]`);
+}
+
 /** Markdown → HTML，并把 GFM alert 块转成 callout div（供 TipTap / 预览使用） */
 export function markdownToHtml(markdown: string): string {
   if (!markdown) return '';

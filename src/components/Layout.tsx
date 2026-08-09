@@ -2,7 +2,7 @@ import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   FileText, MessageSquare, Brain, BarChart3, Settings, BookOpen, Layers,
   ChevronLeft, Sun, Moon, Monitor, Search, HelpCircle, Smartphone, MoreHorizontal, X, Trash2,
-  Cloud, Loader2, Tag,
+  Cloud, Loader2, Tag, Inbox,
 } from 'lucide-react';
 import { useState, useRef, useCallback } from 'react';
 import { useThemeStore, type ThemeMode } from '../stores/themeStore';
@@ -16,6 +16,7 @@ interface LayoutProps {
 
 const navItems = [
   { to: '/', icon: FileText, label: '文档' },
+  { to: '/inbox', icon: Inbox, label: '收集箱' },
   { to: '/ai', icon: MessageSquare, label: 'AI 助手' },
   { to: '/review', icon: BookOpen, label: '复习' },
   { to: '/cards', icon: Layers, label: '卡片库' },
