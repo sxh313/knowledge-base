@@ -1,6 +1,6 @@
 import { db, type DocumentChunk, type DocumentLink, type JournalEntry } from '../db/schema';
 import { extractWikilinks, markdownToPlainText } from '../markdownUtils';
-import { rebuildSearchIndex } from '../search/fuse';
+import { rebuildSearchIndex, updateSearchEntry } from '../search/fuse';
 
 const CHUNK_TARGET_LENGTH = 650;
 const CHUNK_MAX_LENGTH = 800;
@@ -192,7 +192,8 @@ export async function persistJournalWithIndexes(entry: JournalEntry): Promise<Jo
     if (chunks.length) await db.documentChunks.bulkPut(chunks);
   });
   await rebuildBrokenLinkSources();
-  await rebuildSearchIndex();
+  // 搜索索引增量更新（仅更新当前文档，避免每次自动保存都全表 rebuild 的开销）
+  updateSearchEntry(prepared);
   return prepared;
 }
 

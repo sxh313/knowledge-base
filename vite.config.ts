@@ -6,6 +6,27 @@ import path from 'path';
 export default defineConfig({
   plugins: [
     react(),
+    {
+      name: 'api-search-dev',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (!req.url?.startsWith('/api/search')) return next();
+          const url = new URL(req.url, 'http://localhost');
+          const q = url.searchParams.get('q');
+          if (!q) { res.statusCode = 400; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: 'Missing q' })); return; }
+          try {
+            const { doSearch } = await import('./src/lib/server/searchEngine');
+            const results = await doSearch(q);
+            res.setHeader('Content-Type', 'application/json');
+ res.end(JSON.stringify({ results }));
+          } catch (e) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: e.message || 'Search failed' }));
+          }
+        });
+      },
+    },
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icons/*.png', 'favicon.ico'],
@@ -27,6 +48,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // 限制预缓存体积，避免首次加载缓存过多非核心资源
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         runtimeCaching: [
           {
             urlPattern: /^https?:\/\/.*\/v1\/chat\/completions/,
@@ -44,10 +67,15 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'markdown-vendor': ['react-markdown', 'remark-gfm', 'rehype-highlight'],
-          'data-vendor': ['dexie', 'zustand', 'fuse.js'],
+        // 按模块路径分包：把编辑器(tiptap/prosemirror)、markdown、react、data 拆成独立 chunk，
+        // 配合路由级懒加载，首屏主 chunk 体积大幅下降
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react-markdown') || id.includes('remark') || id.includes('rehype') || id.includes('lowlight') || id.includes('highlight.js') || id.includes('marked') || id.includes('turndown')) return 'markdown';
+            if (id.includes('@tiptap') || id.includes('prosemirror')) return 'editor';
+            // 其余第三方依赖（react 核心、路由、状态、数据库等）合并为单个 vendor chunk，避免循环依赖
+            return 'vendor';
+          }
         },
       },
     },

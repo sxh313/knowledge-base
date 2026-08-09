@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 零依赖虚拟滚动：长列表（AI 对话消息）按需渲染，屏外内容跳过布局/绘制 */
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 140px;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    设计系统 — 知识库
    分层：tokens → base → components → utilities

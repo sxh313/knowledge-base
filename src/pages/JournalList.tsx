@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Star, Menu, X, Copy, CalendarDays, UploadCloud, LayoutTemplate, Trash2, FolderInput, Plus, MoreVertical } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
@@ -11,7 +11,7 @@ import TemplatePicker from '../components/TemplatePicker';
 
 export default function JournalList() {
   const navigate = useNavigate();
-  const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedSubject, setSelectedSubject, togglePin, duplicate, remove, update, sortBy, setSortBy, create, createTodayNote } = useJournalStore();
+  const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedTag, selectedSubject, setSelectedSubject, togglePin, duplicate, remove, update, sortBy, setSortBy, create, createTodayNote } = useJournalStore();
   const { hasAnyProviderConfigured } = useSettingsStore();
   const { isMobile } = useViewModeStore();
   // 右键菜单：主菜单 + “移动到”分类子菜单
@@ -118,11 +118,21 @@ export default function JournalList() {
     }
   }, [entries.length]);
 
-  const filtered = getFilteredEntries();
-  const allSubjects = [...new Set(entries.map(e => e.subject).filter(Boolean))].sort();
+  // 用 useMemo 缓存过滤/排序结果，避免每次 render 都对全量 entries 重新计算
+  const filtered = useMemo(
+    () => getFilteredEntries(),
+    [getFilteredEntries, entries, searchQuery, selectedTag, selectedSubject, sortBy, manualTick],
+  );
+  const allSubjects = useMemo(
+    () => [...new Set(entries.map(e => e.subject).filter(Boolean) as string[])].sort(),
+    [entries],
+  );
   const getDifficultyStars = (d?: number) => d ? '★'.repeat(d) + '☆'.repeat(5-d) : '';
   // 收藏夹：置顶文档，首页快捷直达
-  const pinnedEntries = entries.filter(e => e.pinned && !e.deletedAt).sort((a, b) => b.updatedAt - a.updatedAt);
+  const pinnedEntries = useMemo(
+    () => entries.filter(e => e.pinned && !e.deletedAt).sort((a, b) => b.updatedAt - a.updatedAt),
+    [entries],
+  );
 
   const dismissOnboarding = () => {
     localStorage.setItem('onboarding-dismissed', '1');
@@ -213,6 +223,12 @@ export default function JournalList() {
               <LayoutTemplate className="h-4 w-4" />
               模板
             </button>
+            <select value={sortBy} onChange={e => setSortBy(e.target.value as 'created' | 'updated' | 'title' | 'manual')} className="input-field text-xs w-auto" title="排序方式">
+              <option value="created">创建时间</option>
+              <option value="updated">修改时间</option>
+              <option value="title">标题</option>
+              <option value="manual">↕ 手动排序</option>
+            </select>
             <button className="btn-primary text-sm" onClick={() => { setCurrent(null); navigate('/edit/new'); }}>
               新建文档
             </button>
@@ -250,12 +266,6 @@ export default function JournalList() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
-          <select value={sortBy} onChange={e => setSortBy(e.target.value as 'created' | 'updated' | 'title' | 'manual')} className="input-field text-xs w-auto">
-            <option value="created">创建时间</option>
-            <option value="updated">修改时间</option>
-            <option value="title">标题</option>
-            <option value="manual">↕ 手动排序</option>
-          </select>
           {allSubjects.length > 0 && (
             <div className="flex gap-2 flex-wrap text-xs">
               {allSubjects.map(s => (

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import { Play, Pause, RotateCcw, Timer, Coffee, Settings2, X } from 'lucide-react';
 import { usePomodoroStore } from '../stores/pomodoroStore';
 import { useJournalStore } from '../stores/journalStore';
@@ -17,6 +17,18 @@ function currentEditingId(): string | null {
   return id === 'new' ? null : id;
 }
 
+const POS_KEY = 'pomodoro-pos';
+function loadPos(): { x: number; y: number } | null {
+  try {
+    const raw = localStorage.getItem(POS_KEY);
+    if (raw) { const p = JSON.parse(raw); if (p && typeof p.x === 'number' && typeof p.y === 'number') return p; }
+  } catch { /* ignore */ }
+  return null;
+}
+function savePos(p: { x: number; y: number } | null) {
+  try { if (p) localStorage.setItem(POS_KEY, JSON.stringify(p)); else localStorage.removeItem(POS_KEY); } catch { /* ignore */ }
+}
+
 export default function PomodoroWidget() {
   const {
     phase, remaining, isRunning, focusMinutes, breakMinutes,
@@ -24,6 +36,38 @@ export default function PomodoroWidget() {
     start, pause, reset, tick, switchPhase, setDurations,
   } = usePomodoroStore();
   const [expanded, setExpanded] = useState(false);
+  const visible = usePomodoroStore((s) => s.visible);
+  // 可拖动位置（持久化）
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(() => loadPos());
+  const posRef = useRef(pos); posRef.current = pos;
+  const dragRef = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
+  const movedRef = useRef(false);
+
+  const onDragStart = (e: ReactPointerEvent) => {
+    const root = (e.currentTarget as HTMLElement).closest('.pomo-root') as HTMLElement | null;
+    const rect = root?.getBoundingClientRect();
+    dragRef.current = { sx: e.clientX, sy: e.clientY, ox: rect?.left ?? 0, oy: rect?.top ?? 0 };
+    movedRef.current = false;
+  };
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const dx = e.clientX - d.sx;
+      const dy = e.clientY - d.sy;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) movedRef.current = true;
+      const x = Math.max(8, Math.min(window.innerWidth - 60, d.ox + dx));
+      const y = Math.max(8, Math.min(window.innerHeight - 60, d.oy + dy));
+      setPos({ x, y });
+    };
+    const onUp = () => {
+      if (dragRef.current) savePos(posRef.current);
+      dragRef.current = null;
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+  }, []);
   const [showSettings, setShowSettings] = useState(false);
   const [fMin, setFMin] = useState(String(focusMinutes));
   const [bMin, setBMin] = useState(String(breakMinutes));
@@ -73,13 +117,17 @@ export default function PomodoroWidget() {
   const totalSec = phase === 'focus' ? focusMinutes * 60 : breakMinutes * 60;
   const progress = totalSec > 0 ? (1 - remaining / totalSec) : 0;
 
+  if (!visible) return null;
   return (
-    <div className="fixed bottom-4 right-4 z-30 select-none">
+    <div
+      className="pomo-root fixed z-30 select-none"
+      style={pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : { right: 16, bottom: 16 }}
+    >
       {/* 展开面板 */}
       {expanded && (
         <div className="mb-2 w-72 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl animate-slide-up overflow-hidden">
-          {/* 头部 */}
-          <div className="flex items-center justify-between px-4 py-2.5" style={{ background: phaseColor }}>
+          {/* 头部（可拖动） */}
+          <div className="flex items-center justify-between px-4 py-2.5 cursor-move" style={{ background: phaseColor }} onPointerDown={onDragStart}>
             <div className="flex items-center gap-2 text-white">
               {phase === 'focus' ? <Timer className="h-4 w-4" /> : <Coffee className="h-4 w-4" />}
               <span className="text-sm font-medium">{phase === 'focus' ? '专注中' : '休息中'}</span>
@@ -173,17 +221,18 @@ export default function PomodoroWidget() {
 
       {/* 收起态：浮动小按钮 */}
       {!expanded && (
-        <button
-          onClick={handleExpand}
-          className="flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 shadow-lg hover:shadow-xl transition-all active:scale-95"
-          title="番茄钟"
+        <div
+          onPointerDown={onDragStart}
+          onPointerUp={() => { if (!movedRef.current) handleExpand(); }}
+          className="flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 shadow-lg hover:shadow-xl transition-all cursor-move"
+          title="番茄钟（拖动可移动，点击展开）"
         >
           <Timer className="h-4 w-4" style={{ color: phaseColor }} />
           <span className="text-sm font-medium tabular-nums" style={{ color: phaseColor }}>
             {formatTime(remaining)}
           </span>
           {isRunning && <span className="h-2 w-2 rounded-full animate-pulse" style={{ background: phaseColor }} />}
-        </button>
+        </div>
       )}
     </div>
   );

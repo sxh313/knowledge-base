@@ -32,6 +32,14 @@ function saveRecords(rec: PomodoroRecord) {
   } catch { /* ignore */ }
 }
 
+const VISIBLE_KEY = 'pomodoro-visible';
+function loadVisible(): boolean {
+  try {
+    const v = localStorage.getItem(VISIBLE_KEY);
+    return v === null ? true : v === '1';
+  } catch { return true; }
+}
+
 interface PomodoroState {
   phase: PomodoroPhase;
   /** 剩余秒数 */
@@ -41,6 +49,9 @@ interface PomodoroState {
   breakMinutes: number;   // 单次休息时长
   todayMinutes: number;   // 今日已专注分钟数
   totalSessions: number;  // 今日完成番茄数
+
+  visible: boolean;        // 是否显示悬浮窗（可在设置里关闭）
+  setVisible: (v: boolean) => void;
 
   start: () => void;
   pause: () => void;
@@ -63,6 +74,7 @@ export const usePomodoroStore = create<PomodoroState>((set, get) => ({
   breakMinutes: 5,
   todayMinutes: records.dailyMinutes[tKey] ?? 0,
   totalSessions: Math.floor((records.dailyMinutes[tKey] ?? 0) / 25),
+  visible: loadVisible(),
 
   start: () => set({ isRunning: true }),
   pause: () => set({ isRunning: false }),
@@ -111,6 +123,11 @@ export const usePomodoroStore = create<PomodoroState>((set, get) => ({
     breakMinutes: brk,
     remaining: s.phase === 'focus' ? focus * 60 : brk * 60,
   })),
+
+  setVisible: (v) => {
+    try { localStorage.setItem(VISIBLE_KEY, v ? '1' : '0'); } catch { /* ignore */ }
+    set({ visible: v });
+  },
 
   addFocusMinutes: (min) => {
     const rec = loadRecords();

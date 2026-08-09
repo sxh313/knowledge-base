@@ -6,6 +6,7 @@
 import { db } from '../db/schema';
 import type { SyncConfig, JournalEntry } from '../db/schema';
 import { rebuildDocumentIndexes } from '../indexing/documents';
+import { pushJournalsAsMarkdown, pushConversationsAsMarkdown } from './markdownSync';
 
 const API = 'https://api.github.com';
 
@@ -288,6 +289,9 @@ export async function syncNow(cfg: SyncConfig): Promise<SyncResult> {
     throw new Error(`数据体积 ${(byteSize / 1024 / 1024).toFixed(1)}MB 超过 95MB 上限，已阻止上传。请在设置中清理旧数据（如 AI 对话历史）后再试。`);
   }
   const sha = await ghPut(cfg, json, remote?.sha);
+  // 自动推送文档 + AI 对话为 Markdown（每篇/每条一个文件到 docs/ 和 conversations/）
+  try { await pushJournalsAsMarkdown(cfg); } catch { /* ignore */ }
+  try { await pushConversationsAsMarkdown(cfg); } catch { /* ignore */ }
   return { sha, pulled, pushed: true, conflicts, baselineHashes: buildBaseline(merged.journals) };
 }
 
