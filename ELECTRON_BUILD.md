@@ -143,6 +143,15 @@ Write-Host "✅ 打包完成:release\知识库 Setup 1.0.0.exe"
 }
 ```
 
+## 桌面端路由与加载说明(重要)
+
+- 桌面端用 **HashRouter**(`app://` 下配合 hash 路由),由 `electron/main.cjs` 加载。
+- **必须用自定义协议 `app://` 加载,不能用 `file://`!**
+  - `file://` 下 ES module 的动态 chunk(`import()` 懒加载)会被 **CORS 阻止**,导致白屏。
+  - 解法:`protocol.registerSchemesAsPrivileged` 把 `app://` 注册为 `standard + secure + supportFetchAPI`,让它拥有真实 origin。
+  - 再 `protocol.handle('app', ...)` 把请求映射到 `dist/` 目录。
+- Electron 构建(`BUILD_TARGET=electron`)会:相对路径 `base: './'` + 禁用 PWA + 加载 PWA 桩模块。
+
 ---
 
 ## 踩坑记录
@@ -153,6 +162,7 @@ Write-Host "✅ 打包完成:release\知识库 Setup 1.0.0.exe"
 | **NSIS 下载超时** | `connect ETIMEDOUT 20.205.243.166:443` | 设 `ELECTRON_BUILDER_BINARIES_MIRROR` 指向 npmmirror |
 | **图标无效** | `VipsForeignLoad: buffer is not in a known format` | `public/icons/*.png` 实际是 SVG;用 `scripts/gen-icon.cjs` 生成真 PNG |
 | **PWA 虚拟模块缺失** | `Failed to resolve virtual:pwa-register/react` | vite 里给 Electron 构建加 `pwa-register-stub` 桩插件(已配置) |
+| **打包后白屏** | 安装打开一片空白,无报错 | `file://` 下动态 chunk 被 CORS 阻止;改用 `app://` 协议(registerSchemesAsPrivileged + protocol.handle) |
 
 ---
 
