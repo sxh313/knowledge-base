@@ -1,5 +1,6 @@
-import { db } from '../db/schema';
+import { db, type JournalEntry } from '../db/schema';
 import { markdownToHtml } from '../markdownUtils';
+import JSZip from 'jszip';
 
 /** 下载文本为文件 */
 function downloadText(content: string, filename: string, mime: string) {
@@ -45,6 +46,61 @@ export async function importData(file: File) {
       if (data.graphEdges) await db.graphEdges.bulkPut(data.graphEdges);
     }
   );
+}
+
+/** 把文件名中的非法字符替换为下划线 */
+function safeFilename(title: string): string {
+  const t = (title || '无标题').replace(/[\\/:*?"<>|\n\r\t]+/g, '_').replace(/\s+/g, ' ').trim();
+  return t.slice(0, 80) || '无标题';
+}
+
+/** 生成 YAML frontmatter（含 id/标题/分类/标签/时间等元数据） */
+function journalFrontmatter(j: JournalEntry): string {
+  const fm: string[] = ['---'];
+  fm.push(`id: ${j.id}`);
+  fm.push(`title: ${JSON.stringify(j.title || '无标题')}`);
+  if (j.subject) fm.push(`subject: ${JSON.stringify(j.subject)}`);
+  if (j.tags?.length) fm.push(`tags: [${j.tags.map((t) => JSON.stringify(t)).join(', ')}]`);
+  if (j.aliases?.length) fm.push(`aliases: [${j.aliases.map((a) => JSON.stringify(a)).join(', ')}]`);
+  if (j.status && j.status !== 'active') fm.push(`status: ${j.status}`);
+  fm.push(`createdAt: ${new Date(j.createdAt).toISOString()}`);
+  fm.push(`updatedAt: ${new Date(j.updatedAt).toISOString()}`);
+  if (j.pinned) fm.push('pinned: true');
+  fm.push('---');
+  return fm.join('\n');
+}
+
+/**
+ * 方案A（单向）：把每篇文档导出为独立 .md（frontmatter + 正文），打包成 zip 下载。
+ * 文件名 = 标题（去非法字符），重名自动加序号；不写入 GitHub、不影响现有同步。
+ */
+export async function exportJournalsAsMarkdownZip() {
+  const journals = await db.journals.filter((j) => !j.deletedAt).toArray();
+  const zip = new JSZip();
+  const folder = zip.folder('docs')!;
+  const used = new Map<string, number>();
+  for (const j of journals) {
+    let name = safeFilename(j.title);
+    if (used.has(name)) {
+      const n = (used.get(name) ?? 1) + 1;
+      used.set(name, n);
+      name = `${name}-${n}`;
+    } else {
+      used.set(name, 1);
+    }
+    folder.file(`${name}.md`, `${journalFrontmatter(j)}\n\n${j.content || ''}\n`);
+  }
+  folder.file(
+    '_README.md',
+    `# 导出说明\n\n导出时间：${new Date().toISOString()}\n文档数：${journals.length}\n\n每篇文档为一个独立 .md 文件，头部 YAML frontmatter 包含 id / 标题 / 分类 / 标签 / 时间等元数据。\n`,
+  );
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `knowledge-base-md-${new Date().toISOString().split('T')[0]}.zip`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function escapeHtml(s: string): string {

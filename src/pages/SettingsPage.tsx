@@ -31,6 +31,8 @@ export default function SettingsPage() {
   const [tokenCopied, setTokenCopied] = useState(false);
   // 来自 .env.local 的同步 Token（运行时注入，非源码硬编码）；用于“点击填入”输入框
   const envSyncToken = import.meta.env.VITE_SYNC_TOKEN;
+  const [mdBusy, setMdBusy] = useState(false);
+  const [mdMsg, setMdMsg] = useState<string | null>(null);
   const [exportOut, setExportOut] = useState('');
   const [importText, setImportText] = useState('');
   const [vaultPwd, setVaultPwd] = useState('');
@@ -522,12 +524,34 @@ export default function SettingsPage() {
           <button className="btn-secondary" onClick={() => document.getElementById('import-file')?.click()}>
             📥 导入数据
           </button>
+          <button className="btn-secondary" onClick={() => import('../lib/services/export').then(m => m.exportJournalsAsMarkdownZip())} title="每篇文档导出为独立 .md（带 frontmatter），打包成 zip 下载">
+            📁 导出为 Markdown(.zip)
+          </button>
+          <button
+            className="btn-secondary"
+            disabled={mdBusy}
+            title="把每篇文档作为 .md 推送到 GitHub 仓库 docs/ 目录（专用文件夹）"
+            onClick={async () => {
+              const cfg = settings?.sync;
+              if (!cfg?.enabled || !cfg.token) { setMdMsg('请先在「云同步」里配置并启用'); return; }
+              setMdBusy(true); setMdMsg(null);
+              try {
+                const { pushJournalsAsMarkdown } = await import('../lib/sync/markdownSync');
+                const r = await pushJournalsAsMarkdown(cfg);
+                setMdMsg(`✅ 已推送 ${r.pushed} 篇文档到 GitHub docs/`);
+              } catch (e) { setMdMsg(`❌ ${(e as Error).message}`); }
+              finally { setMdBusy(false); }
+            }}
+          >
+            {mdBusy ? '推送中...' : '☁️ 推送文档为 Markdown 到 GitHub'}
+          </button>
           <input id="import-file" type="file" accept=".json" className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) import('../lib/services/export').then(m => m.importData(file));
             }} />
         </div>
+        {mdMsg && <p className="text-xs text-gray-500">{mdMsg}</p>}
       </section>
 
       <div className="text-xs text-gray-400 text-center pb-8">

@@ -499,9 +499,25 @@ export async function saveConversation(data: Omit<AIConversation, 'id' | 'create
   return conv;
 }
 
-export async function getConversations(journalId?: string) {
+export async function getConversations(journalId?: string, limit = 30) {
   if (journalId) return db.aiConversations.where('journalId').equals(journalId).reverse().sortBy('createdAt');
-  return db.aiConversations.reverse().toArray();
+  return db.aiConversations.orderBy('createdAt').reverse().limit(limit).toArray();
+}
+
+/** 获取单个对话 */
+export async function getConversation(id: string) {
+  return db.aiConversations.get(id);
+}
+
+/** 新建或更新对话（upsert，按 id 覆盖；一个对话一条记录） */
+export async function upsertConversation(conv: AIConversation): Promise<AIConversation> {
+  await db.aiConversations.put(conv);
+  return conv;
+}
+
+/** 删除对话 */
+export async function deleteConversation(id: string) {
+  await db.aiConversations.delete(id);
 }
 
 // ──── Fetch Available Models from Provider API ────

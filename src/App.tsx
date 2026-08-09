@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import { useSettingsStore } from './stores/settingsStore';
 import { useJournalStore } from './stores/journalStore';
 import { useThemeStore } from './stores/themeStore';
@@ -11,19 +11,21 @@ import Layout from './components/Layout';
 import CommandPalette from './components/CommandPalette';
 import ShortcutsModal from './components/ShortcutsModal';
 import PomodoroWidget from './components/PomodoroWidget';
-import JournalList from './pages/JournalList';
-import JournalEditor from './pages/JournalEditor';
-import AIChat from './pages/AIChat';
-import ReviewPage from './pages/ReviewPage';
-import Cards from './pages/Cards';
-import Stats from './pages/Stats';
-import KnowledgeMap from './pages/KnowledgeMap';
-import SettingsPage from './pages/SettingsPage';
-import Manual from './pages/Manual';
-import Trash from './pages/Trash';
-import Tags from './pages/Tags';
-import SearchResultsPage from './pages/SearchResultsPage';
-import Inbox from './pages/Inbox';
+
+// 路由级懒加载：按需加载各页面，显著减小首屏主 chunk 体积
+const JournalList = lazy(() => import('./pages/JournalList'));
+const JournalEditor = lazy(() => import('./pages/JournalEditor'));
+const AIChat = lazy(() => import('./pages/AIChat'));
+const ReviewPage = lazy(() => import('./pages/ReviewPage'));
+const Cards = lazy(() => import('./pages/Cards'));
+const Stats = lazy(() => import('./pages/Stats'));
+const KnowledgeMap = lazy(() => import('./pages/KnowledgeMap'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const Manual = lazy(() => import('./pages/Manual'));
+const Trash = lazy(() => import('./pages/Trash'));
+const Tags = lazy(() => import('./pages/Tags'));
+const SearchResultsPage = lazy(() => import('./pages/SearchResultsPage'));
+const Inbox = lazy(() => import('./pages/Inbox'));
 
 export default function App() {
   const { load: loadSettings } = useSettingsStore();
@@ -36,12 +38,14 @@ export default function App() {
 
   useEffect(() => {
     loadSettings();
-    // 启动时若存在缺少 contentHash 的旧文档，先重建索引（chunks/links/hash + 搜索），再加载列表
+    // 先加载列表让用户尽快看到内容；派生索引重建在后台执行，不阻塞首屏
+    loadAll();
     (async () => {
       try {
-        await ensureIndexesRebuilt();
+        const rebuilt = await ensureIndexesRebuilt();
+        // 若后台重建了派生索引（chunks/links/hash），刷新列表以触发搜索索引重建
+        if (rebuilt) loadAll();
       } catch { /* 忽略重建错误 */ }
-      loadAll();
     })();
   }, []);
 
@@ -120,6 +124,7 @@ export default function App() {
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <Suspense fallback={<div className="flex items-center justify-center h-screen text-gray-400">加载中…</div>}>
       <Routes>
         <Route element={<Layout onOpenPalette={() => setPaletteOpen(true)} />}>
           <Route path="/" element={<JournalList />} />
@@ -137,6 +142,7 @@ export default function App() {
           <Route path="/trash" element={<Trash />} />
         </Route>
       </Routes>
+      </Suspense>
       <PomodoroWidget />
     </BrowserRouter>
   );

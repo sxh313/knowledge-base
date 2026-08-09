@@ -2,13 +2,14 @@ import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   FileText, MessageSquare, Brain, BarChart3, Settings, BookOpen, Layers,
   ChevronLeft, Sun, Moon, Monitor, Search, HelpCircle, Smartphone, MoreHorizontal, X, Trash2,
-  Cloud, Loader2, Tag, Inbox, Plus,
+  Cloud, Loader2, Tag, Inbox, Plus, Timer,
 } from 'lucide-react';
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useThemeStore, type ThemeMode } from '../stores/themeStore';
 import { useViewModeStore, type ViewMode } from '../stores/viewModeStore';
 import { useSyncStore } from '../stores/syncStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { usePomodoroStore } from '../stores/pomodoroStore';
 
 interface LayoutProps {
   onOpenPalette?: () => void;
@@ -50,6 +51,12 @@ const viewModeConfig: Record<ViewMode, { icon: typeof Monitor; label: string }> 
 export default function Layout({ onOpenPalette }: LayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [showMoreSheet, setShowMoreSheet] = useState(false);
+  // 顶部栏日期缓存：每分钟更新一次，避免每次 render 都 new Date()
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(t);
+  }, []);
   // 可拖拽调整主侧栏宽度（持久化到 localStorage）
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     const saved = Number(localStorage.getItem('sidebar-width'));
@@ -82,6 +89,8 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
   const { mode: viewMode, isMobile, cycleMode } = useViewModeStore();
   const { status: syncStatus, lastSyncAt, doSync } = useSyncStore();
   const syncEnabled = !!useSettingsStore(s => s.settings?.sync?.enabled);
+  const pomoVisible = usePomodoroStore((s) => s.visible);
+  const setPomoVisible = usePomodoroStore((s) => s.setVisible);
 
   const ThemeIcon = themeConfig[mode].icon;
   const nextTheme = themeCycle[(themeCycle.indexOf(mode) + 1) % themeCycle.length];
@@ -313,6 +322,9 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
             <kbd className="ml-1 text-[10px] text-[var(--color-text-tertiary)]">⌘K</kbd>
           </button>
           <div className="flex-1" />
+          <span className="text-xs text-[var(--color-text-tertiary)] tabular-nums hidden sm:inline">
+            {now.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}
+          </span>
           <button
             onClick={cycleMode}
             className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)]"
@@ -334,6 +346,13 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
               <span className="hidden md:inline">{syncStatus === 'syncing' ? '同步中' : '同步'}</span>
             </button>
           )}
+          <button
+            onClick={() => setPomoVisible(!pomoVisible)}
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors hover:bg-[var(--color-surface-2)] ${pomoVisible ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-tertiary)]'}`}
+            title={pomoVisible ? '隐藏番茄钟' : '显示番茄钟'}
+          >
+            <Timer className="h-4 w-4" />
+          </button>
           <NavLink
             to="/manual"
             className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)] ${
