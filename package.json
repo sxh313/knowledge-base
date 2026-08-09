@@ -17,7 +17,8 @@
     "push": "bash deploy.sh",
     "electron:dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "tsc -b && cross-env BUILD_TARGET=electron vite build && electron-builder --win",
-    "electron:build:portable": "tsc -b && cross-env BUILD_TARGET=electron vite build && electron-builder --win portable"
+    "electron:build:portable": "tsc -b && cross-env BUILD_TARGET=electron vite build && electron-builder --win portable",
+    "exe": "powershell -ExecutionPolicy Bypass -File deploy-exe.ps1"
   },
   "dependencies": {
     "@tiptap/core": "^3.29.2",
@@ -97,7 +98,7 @@
           ]
         }
       ],
-      "icon": "public/icons/icon-512x512.png"
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,
