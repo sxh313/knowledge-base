@@ -4,7 +4,7 @@ import {
   ChevronLeft, Sun, Moon, Monitor, Search, HelpCircle, Smartphone, MoreHorizontal, X, Trash2,
   Cloud, Loader2, Tag,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useThemeStore, type ThemeMode } from '../stores/themeStore';
 import { useViewModeStore, type ViewMode } from '../stores/viewModeStore';
 import { useSyncStore } from '../stores/syncStore';
@@ -49,6 +49,32 @@ const viewModeConfig: Record<ViewMode, { icon: typeof Monitor; label: string }> 
 export default function Layout({ onOpenPalette }: LayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [showMoreSheet, setShowMoreSheet] = useState(false);
+  // 可拖拽调整主侧栏宽度（持久化到 localStorage）
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('sidebar-width'));
+    return Number.isFinite(saved) && saved > 0 ? saved : 176;
+  });
+  const startResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const onMove = (ev: MouseEvent) => {
+      const w = Math.max(150, Math.min(360, ev.clientX));
+      setSidebarWidth(w);
+    };
+    const onUp = () => {
+      setSidebarWidth(w => {
+        localStorage.setItem('sidebar-width', String(w));
+        return w;
+      });
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, []);
   const location = useLocation();
   const navigate = useNavigate();
   const { mode, setMode } = useThemeStore();
@@ -160,10 +186,19 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
     <div className="flex h-screen overflow-hidden">
       {/* 侧栏 */}
       <aside
-        className={`glass flex flex-col border-r border-[var(--color-border)] transition-all duration-300 ${
-          collapsed ? 'w-16' : 'w-56'
+        className={`glass relative flex flex-col border-r border-[var(--color-border)] ${
+          collapsed ? 'w-16 transition-all duration-300' : ''
         }`}
+        style={collapsed ? undefined : { width: sidebarWidth }}
       >
+        {/* 可拖拽调整宽度的把手（仅展开态） */}
+        {!collapsed && (
+          <div
+            onMouseDown={startResize}
+            className="absolute right-0 top-0 bottom-0 z-10 w-1.5 cursor-col-resize hover:bg-[var(--color-primary)]/40 transition-colors"
+            title="拖动调整侧栏宽度"
+          />
+        )}
         {/* Logo 区 */}
         <div className="flex h-14 items-center justify-between border-b border-[var(--color-border)] px-4 relative">
           {!collapsed ? (

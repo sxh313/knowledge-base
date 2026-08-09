@@ -47,6 +47,9 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
   const [fontScale, setFontScale] = useState(1);
   const [showSearch, setShowSearch] = useState(false);
   const slashItemsRef = useRef<HTMLDivElement>(null);
+  // 记录最后由编辑器 emit 出去的 markdown，用于区分「外部加载」与「自身输入」，
+  // 避免输入时回流触发 setContent 把 TipTap 增量历史栈清空（撤销一次清空的 bug 根因）
+  const lastEmittedRef = useRef(value);
 
   const editor = useEditor({
     extensions: [
@@ -73,16 +76,31 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       attributes: {
         class: 'prose-custom max-w-none focus:outline-none min-h-[400px] p-3 border border-[var(--color-border)] rounded-lg',
       },
-
+      handleDOMEvents: {
+        dragstart: (view: any, event: DragEvent) => {
+          // 禁用 Callout 内的拖拽：ProseMirror 对自定义 wrapping 节点的 slice 处理
+          // 会导致「复制生成新提示框」或「内容丢失」。改用剪切(Ctrl+X)+粘贴移动。
+          // 此 handler 在 ProseMirror 内部 dragstart 之前执行，preventDefault 能可靠取消。
+          const { $from } = view.state.selection;
+          for (let d = $from.depth; d > 0; d--) {
+            if ($from.node(d).type.name === 'callout') {
+              event.preventDefault();
+              return true;
+            }
+          }
+          return false;
+        },
+      },
     },
     onUpdate: ({ editor }) => {
-      const html = editor.getHTML();
-      onChange(htmlToMarkdown(html));
+      const md = htmlToMarkdown(editor.getHTML());
+      // 标记本次变化由编辑器自身产生：下方 effect 据此跳过 setContent，保留撤销/重做历史栈
+      lastEmittedRef.current = md;
+      onChange(md);
     },
   });
 
   // 外部内容变化时同步到编辑器（如加载已有文档）
-  const lastEmittedRef = useRef(value);
   useEffect(() => {
     if (!editor) return;
     if (value !== lastEmittedRef.current) {
@@ -127,10 +145,10 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       if (hasImage) e.preventDefault();
     };
     const onDragStart = (e: DragEvent) => {
-      // 隐藏文字拖动虚影，避免拖到编辑器外的视觉干扰（编辑器内移动仍正常）
-      const ghost = document.createElement('img');
-      ghost.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-      e.dataTransfer?.setDragImage(ghost, 0, 0);
+      // 兜底：Callout 内拖拽禁用（主逻辑在 editorProps.handleDOMEvents.dragstart）
+      if (editor.isActive('callout')) {
+        e.preventDefault();
+      }
     };
     dom.addEventListener('paste', onPaste);
     dom.addEventListener('drop', onDrop);
@@ -167,6 +185,42 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, []);
+
+  // Callout 内 Enter：用 document capture 拦截（最早的捕获阶段，先于 ProseMirror 任何监听），
+  // 阻止默认 splitBlock（会把 callout 拆散成普通段落），改为：
+  //   非空段落 Enter → 在 callout 内当前段落后插新段落
+  //   空段落 Enter    → 在 callout 后插新段落并移光标（退出 callout，保留 callout）
+  useEffect(() => {
+    if (!editor) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+      let selection = editor.state.selection;
+      // 非空选区（如选中文字后回车）：先 collapse 到末尾再判断
+      if (!selection.empty) {
+        editor.chain().setTextSelection(selection.to).run();
+        selection = editor.state.selection;
+      }
+      const $from = selection.$from;
+      let calloutDepth = -1;
+      for (let d = $from.depth; d > 0; d--) {
+        if ($from.node(d).type.name === 'callout') { calloutDepth = d; break; }
+      }
+      if (calloutDepth < 0) return;   // 不在 callout 内，放行
+      e.preventDefault();
+      e.stopPropagation();
+      if ($from.parent.content.size === 0) {
+        // 空段落：在 callout 后插入新段落并移光标过去（退出 callout，保留 callout）
+        const calloutEnd = $from.after(calloutDepth);
+        editor.chain().insertContentAt(calloutEnd, { type: 'paragraph' }).setTextSelection(calloutEnd + 1).focus().run();
+      } else {
+        // 非空：在当前段落后插入新段落（仍在 callout 内，避免 splitBlock 拆散 callout）
+        const paraEnd = $from.after($from.depth);
+        editor.chain().insertContentAt(paraEnd, { type: 'paragraph' }).setTextSelection(paraEnd + 1).focus().run();
+      }
+    };
+    document.addEventListener('keydown', onKey, true);   // document capture：最早，先于 ProseMirror
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [editor]);
 
   // AI 结果注入：n 变化时把 text 插入/替换当前选区
   const lastInsertN = useRef(0);
@@ -334,7 +388,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
         <ToolbarBtn onClick={() => editor.chain().focus().toggleOrderedList().run()} active={isActive('orderedList')} title="有序列表"><ListOrdered className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleTaskList().run()} active={isActive('taskList')} title="待办清单"><ListChecks className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleBlockquote().run()} active={isActive('blockquote')} title="引用"><Quote className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().setCallout('note').run()} active={isActive('callout')} title="提示框（Callout）"><Lightbulb className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => editor.chain().focus().toggleCallout('note').run()} active={isActive('callout')} title="提示框（Callout，再次点击取消）"><Lightbulb className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleCodeBlock().run()} active={isActive('codeBlock')} title="代码块"><CodeXml className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="分隔线"><Minus className="w-4 h-4" /></ToolbarBtn>
         <label className="p-1.5 rounded-md transition-colors text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] cursor-pointer" title="插入图片（选文件）">

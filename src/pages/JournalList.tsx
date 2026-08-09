@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Star, Menu, X, Copy, CalendarDays, UploadCloud } from 'lucide-react';
+import { Star, Menu, X, Copy, CalendarDays, UploadCloud, LayoutTemplate } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useViewModeStore } from '../stores/viewModeStore';
 import DocTree from '../components/DocTree';
+import TemplatePicker from '../components/TemplatePicker';
 
 export default function JournalList() {
   const navigate = useNavigate();
@@ -15,6 +16,30 @@ export default function JournalList() {
   const [showTreeDrawer, setShowTreeDrawer] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [showTemplates, setShowTemplates] = useState(false);
+  // 手动拖拽排序
+  const dragIdRef = useRef<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [manualTick, setManualTick] = useState(0);
+
+  // 拖拽：把 fromId 移到 toId 的位置，写入 localStorage 并切到手动排序
+  const reorderDocs = useCallback((fromId: string, toId: string) => {
+    if (fromId === toId) return;
+    const ids = getFilteredEntries().map(f => f.id);
+    const from = ids.indexOf(fromId);
+    const to = ids.indexOf(toId);
+    if (from < 0 || to < 0) return;
+    ids.splice(from, 1);
+    ids.splice(to, 0, fromId);
+    localStorage.setItem('doc-manual-order', JSON.stringify(ids));
+    setSortBy('manual');
+    setManualTick(t => t + 1);
+  }, [getFilteredEntries, setSortBy]);
+  // 可拖拽调整目录树侧栏宽度（持久化）
+  const [docTreeWidth, setDocTreeWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('doctree-width'));
+    return Number.isFinite(saved) && saved > 0 ? saved : 176;
+  });
 
   // 拖拽导入 .md 文件：批量读取并创建文档
   const handleDrop = useCallback(async (e: React.DragEvent) => {
@@ -54,6 +79,31 @@ export default function JournalList() {
     navigate(`/edit/${entry.id}`);
   };
 
+  // 拖拽调整目录树宽度（基于起始位置 + 增量，避免依赖主侧栏宽度）
+  const startDocTreeResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = docTreeWidth;
+    const onMove = (ev: MouseEvent) => {
+      const w = Math.max(140, Math.min(360, startW + (ev.clientX - startX)));
+      setDocTreeWidth(w);
+    };
+    const onUp = () => {
+      setDocTreeWidth(w => {
+        localStorage.setItem('doctree-width', String(w));
+        return w;
+      });
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [docTreeWidth]);
+
   useEffect(() => { loadAll(); }, []);
 
   useEffect(() => {
@@ -66,6 +116,8 @@ export default function JournalList() {
   const filtered = getFilteredEntries();
   const allSubjects = [...new Set(entries.map(e => e.subject).filter(Boolean))].sort();
   const getDifficultyStars = (d?: number) => d ? '★'.repeat(d) + '☆'.repeat(5-d) : '';
+  // 收藏夹：置顶文档，首页快捷直达
+  const pinnedEntries = entries.filter(e => e.pinned && !e.deletedAt).sort((a, b) => b.updatedAt - a.updatedAt);
 
   const dismissOnboarding = () => {
     localStorage.setItem('onboarding-dismissed', '1');
@@ -93,11 +145,26 @@ export default function JournalList() {
           {importMsg}
         </div>
       )}
+
+      {/* 模板选择 */}
+      {showTemplates && <TemplatePicker onClose={() => setShowTemplates(false)} />}
+
       {/* 左侧：文档目录树（桌面常驻，移动端抽屉） */}
       {!isMobile && (
-        <aside className="w-52 shrink-0 border-r border-[var(--color-border)] overflow-y-auto p-2 hidden lg:block">
-          <DocTree />
-        </aside>
+        <div
+          className="relative shrink-0 hidden lg:block"
+          style={{ width: docTreeWidth }}
+        >
+          <aside className="h-full border-r border-[var(--color-border)] overflow-y-auto p-2">
+            <DocTree />
+          </aside>
+          {/* 可拖拽调整宽度的把手（放在外层，避免被 aside 滚动条遮挡） */}
+          <div
+            onMouseDown={startDocTreeResize}
+            className="absolute right-0 top-0 bottom-0 z-20 w-1.5 cursor-col-resize hover:bg-[var(--color-primary)]/40 transition-colors"
+            title="拖动调整宽度"
+          />
+        </div>
       )}
 
       {isMobile && showTreeDrawer && (
@@ -137,6 +204,10 @@ export default function JournalList() {
               <CalendarDays className="h-4 w-4" />
               今日笔记
             </button>
+            <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={() => setShowTemplates(true)} title="从模板新建文档">
+              <LayoutTemplate className="h-4 w-4" />
+              模板
+            </button>
             <button className="btn-primary text-sm" onClick={() => { setCurrent(null); navigate('/edit/new'); }}>
               新建文档
             </button>
@@ -174,10 +245,11 @@ export default function JournalList() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
-          <select value={sortBy} onChange={e => setSortBy(e.target.value as 'created' | 'updated' | 'title')} className="input-field text-xs w-auto">
+          <select value={sortBy} onChange={e => setSortBy(e.target.value as 'created' | 'updated' | 'title' | 'manual')} className="input-field text-xs w-auto">
             <option value="created">创建时间</option>
             <option value="updated">修改时间</option>
             <option value="title">标题</option>
+            <option value="manual">↕ 手动排序</option>
           </select>
           {allSubjects.length > 0 && (
             <div className="flex gap-2 flex-wrap text-xs">
@@ -191,6 +263,31 @@ export default function JournalList() {
             </div>
           )}
         </div>
+
+        {/* 收藏夹快捷卡片 */}
+        {pinnedEntries.length > 0 && (
+          <div className="mb-3">
+            <p className="text-xs font-medium text-[var(--color-text-secondary)] mb-2 px-1 flex items-center gap-1">
+              <Star className="h-3 w-3 text-[var(--color-accent)] fill-[var(--color-accent)]" />
+              收藏夹
+            </p>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {pinnedEntries.map(e => (
+                <button
+                  key={e.id}
+                  onClick={() => { setCurrent(e); navigate(`/edit/${e.id}`); }}
+                  className="group shrink-0 w-36 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 text-left transition-all hover:border-[var(--color-accent)] hover:shadow-md hover:-translate-y-0.5"
+                  title={e.title}
+                >
+                  <p className="text-xs font-medium text-[var(--color-text)] truncate">{e.title || '无标题'}</p>
+                  <p className="text-[10px] text-[var(--color-text-tertiary)] mt-1 truncate">
+                    {e.subject || '未分类'} · {new Date(e.updatedAt).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* List */}
         <div className="flex-1 overflow-y-auto space-y-2 stagger">
@@ -225,7 +322,18 @@ export default function JournalList() {
           ) : (
             filtered.map(entry => (
               <article key={entry.id}
-                className="card card-hoverable cursor-pointer"
+                className={`card card-hoverable cursor-pointer ${dragOverId === entry.id ? 'ring-2 ring-[var(--color-primary)]/40 border-[var(--color-primary)]' : ''}`}
+                draggable
+                onDragStart={(e) => { dragIdRef.current = entry.id; e.dataTransfer.effectAllowed = 'move'; }}
+                onDragOver={(e) => { e.preventDefault(); if (dragOverId !== entry.id) setDragOverId(entry.id); }}
+                onDragLeave={() => { if (dragOverId === entry.id) setDragOverId(null); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const from = dragIdRef.current;
+                  setDragOverId(null);
+                  dragIdRef.current = null;
+                  if (from) reorderDocs(from, entry.id);
+                }}
                 onClick={() => { setCurrent(entry); navigate(`/edit/${entry.id}`); }}>
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">

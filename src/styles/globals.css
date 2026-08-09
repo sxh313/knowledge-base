@@ -280,26 +280,37 @@
   .prose-custom ul[data-type="taskList"] {
     list-style: none;
     padding-left: 0;
+    margin: 0.5rem 0;
   }
   .prose-custom ul[data-type="taskList"] li {
     display: flex;
     align-items: flex-start;
     gap: 0.5rem;
+    margin: 0;                       /* 去除默认 li 间距，行距紧凑 */
   }
   .prose-custom ul[data-type="taskList"] li > label {
     flex-shrink: 0;
     user-select: none;
-    margin-top: 0.2rem;
+    /* 让 label 高度 = 一行文字高度，checkbox 垂直居中对齐文字第一行 */
+    display: flex;
+    align-items: center;
+    height: 1.5em;
+    line-height: 1;
+  }
+  .prose-custom ul[data-type="taskList"] li > label input[type="checkbox"] {
+    margin: 0;
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--color-primary);
+    cursor: pointer;
   }
   .prose-custom ul[data-type="taskList"] li > div {
     flex: 1;
     min-width: 0;
   }
-  .prose-custom ul[data-type="taskList"] input[type="checkbox"] {
-    cursor: pointer;
-    width: 1rem;
-    height: 1rem;
-    accent-color: var(--color-primary);
+  .prose-custom ul[data-type="taskList"] li > div > p {
+    margin: 0;                       /* 去除段落默认大 margin */
+    line-height: 1.5;                /* 约 0.5 字行间距，紧凑可读 */
   }
   .prose-custom ul[data-type="taskList"] li[data-checked="true"] > div {
     color: var(--color-text-tertiary);

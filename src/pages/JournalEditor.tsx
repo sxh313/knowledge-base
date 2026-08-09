@@ -33,6 +33,34 @@ export default function JournalEditor() {
   /** 选中→AI 操作：把 AI 处理结果通过 signal 注入回编辑器选区 */
   const [insertSignal, setInsertSignal] = useState<{ text: string; n: number } | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
+  // 可拖拽调整编辑页文档列表侧栏宽度（持久化）
+  const [docListWidth, setDocListWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('editor-doctree-width'));
+    return Number.isFinite(saved) && saved > 0 ? saved : 208;
+  });
+  const startDocListResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = docListWidth;
+    const onMove = (ev: MouseEvent) => {
+      const w = Math.max(160, Math.min(420, startW + (ev.clientX - startX)));
+      setDocListWidth(w);
+    };
+    const onUp = () => {
+      setDocListWidth(w => {
+        localStorage.setItem('editor-doctree-width', String(w));
+        return w;
+      });
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [docListWidth]);
 
   const isNew = !id || id === 'new';
 
@@ -250,9 +278,20 @@ export default function JournalEditor() {
       {/* 文档主体 */}
       <div className="flex flex-1 overflow-hidden gap-4">
         {showDocList && (
-          <aside className="w-56 shrink-0 border-r border-[var(--color-border-strong)] bg-[var(--color-surface)] overflow-y-auto p-2 animate-slide-down shadow-md">
-            <DocTree />
-          </aside>
+          <div
+            className="relative shrink-0 shadow-md"
+            style={{ width: docListWidth }}
+          >
+            <aside className="h-full border-r border-[var(--color-border-strong)] bg-[var(--color-surface)] overflow-y-auto p-2 animate-slide-down">
+              <DocTree />
+            </aside>
+            {/* 可拖拽调整宽度的把手 */}
+            <div
+              onMouseDown={startDocListResize}
+              className="absolute right-0 top-0 bottom-0 z-20 w-1.5 cursor-col-resize hover:bg-[var(--color-primary)]/40 transition-colors"
+              title="拖动调整宽度"
+            />
+          </div>
         )}
         <div className="flex-1 overflow-y-auto">
           <div className="py-5">

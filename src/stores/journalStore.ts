@@ -13,7 +13,7 @@ interface JournalStore {
   selectedTag: string | null;
   selectedSubject: string | null;
   saveStatus: SaveStatus;
-  sortBy: 'created' | 'updated' | 'title';
+  sortBy: 'created' | 'updated' | 'title' | 'manual';
 
   loadAll: () => Promise<void>;
   loadOne: (id: string) => Promise<void>;
@@ -30,7 +30,7 @@ interface JournalStore {
   setSelectedSubject: (subject: string | null) => void;
   getFilteredEntries: () => JournalEntry[];
   setSaveStatus: (status: SaveStatus) => void;
-  setSortBy: (s: 'created' | 'updated' | 'title') => void;
+  setSortBy: (s: 'created' | 'updated' | 'title' | 'manual') => void;
 }
 
 export const useJournalStore = create<JournalStore>((set, get) => ({
@@ -42,7 +42,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   selectedTag: null,
   selectedSubject: null,
   saveStatus: 'idle' as SaveStatus,
-  sortBy: 'created' as 'created' | 'updated' | 'title',
+  sortBy: 'created' as 'created' | 'updated' | 'title' | 'manual',
 
   loadAll: async () => {
     set({ isLoading: true, error: null });
@@ -179,7 +179,18 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
       filtered = filtered.filter((e) => e.subject === selectedSubject);
     }
 
-    if (sortBy === 'title') {
+    if (sortBy === 'manual') {
+      // 手动排序：按 localStorage 保存的 id 顺序；未记录的按创建时间补在后面
+      let orderArr: string[] = [];
+      try { orderArr = JSON.parse(localStorage.getItem('doc-manual-order') || '[]'); } catch { /* ignore */ }
+      const orderMap = new Map(orderArr.map((id, i) => [id, i]));
+      filtered = [...filtered].sort((a, b) => {
+        const oa = orderMap.has(a.id) ? orderMap.get(a.id)! : 1e9;
+        const ob = orderMap.has(b.id) ? orderMap.get(b.id)! : 1e9;
+        if (oa !== ob) return oa - ob;
+        return b.createdAt - a.createdAt;
+      });
+    } else if (sortBy === 'title') {
       filtered = [...filtered].sort((a, b) => (a.title || '').localeCompare(b.title || ''));
     } else if (sortBy === 'updated') {
       filtered = [...filtered].sort((a, b) => b.updatedAt - a.updatedAt);
