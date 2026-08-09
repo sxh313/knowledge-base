@@ -182,42 +182,6 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // Callout 内 Enter：用 document capture 拦截（最早的捕获阶段，先于 ProseMirror 任何监听），
-  // 阻止默认 splitBlock（会把 callout 拆散成普通段落），改为：
-  //   非空段落 Enter → 在 callout 内当前段落后插新段落
-  //   空段落 Enter    → 在 callout 后插新段落并移光标（退出 callout，保留 callout）
-  useEffect(() => {
-    if (!editor) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
-      let selection = editor.state.selection;
-      // 非空选区（如选中文字后回车）：先 collapse 到末尾再判断
-      if (!selection.empty) {
-        editor.chain().setTextSelection(selection.to).run();
-        selection = editor.state.selection;
-      }
-      const $from = selection.$from;
-      let calloutDepth = -1;
-      for (let d = $from.depth; d > 0; d--) {
-        if ($from.node(d).type.name === 'callout') { calloutDepth = d; break; }
-      }
-      if (calloutDepth < 0) return;   // 不在 callout 内，放行
-      e.preventDefault();
-      e.stopPropagation();
-      if ($from.parent.content.size === 0) {
-        // 空段落：在 callout 后插入新段落并移光标过去（退出 callout，保留 callout）
-        const calloutEnd = $from.after(calloutDepth);
-        editor.chain().insertContentAt(calloutEnd, { type: 'paragraph' }).setTextSelection(calloutEnd + 1).focus().run();
-      } else {
-        // 非空：在当前段落后插入新段落（仍在 callout 内，避免 splitBlock 拆散 callout）
-        const paraEnd = $from.after($from.depth);
-        editor.chain().insertContentAt(paraEnd, { type: 'paragraph' }).setTextSelection(paraEnd + 1).focus().run();
-      }
-    };
-    document.addEventListener('keydown', onKey, true);   // document capture：最早，先于 ProseMirror
-    return () => document.removeEventListener('keydown', onKey, true);
-  }, [editor]);
-
   // 点击双向链接 chip 跳转
   useEffect(() => {
     if (!editor || !onWikilinkClick) return;

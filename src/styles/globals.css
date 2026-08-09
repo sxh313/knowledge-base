@@ -267,7 +267,7 @@
     @apply prose prose-sm max-w-none;
     font-size: var(--editor-fs, 0.95rem);
     @apply prose-headings:text-[var(--color-text)] prose-headings:font-semibold;
-    @apply prose-p:text-[var(--color-text)] prose-p:leading-relaxed;
+    @apply prose-p:text-[var(--color-text)] prose-p:leading-[1.5];
     @apply prose-a:text-[var(--color-primary)] prose-a:no-underline hover:prose-a:underline;
     @apply prose-strong:text-[var(--color-text)];
     @apply prose-code:text-[var(--color-primary)] prose-code:bg-[var(--color-surface-2)] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:before:content-[''] prose-code:after:content-[''];
@@ -394,6 +394,14 @@
     --callout-color: var(--color-danger);
     --callout-bg: var(--color-danger-light);
     --callout-emoji: "🔴";
+  }
+  /* callout 内段落：行距紧凑（约 0.5 字间距），无段间大 margin */
+  .prose-custom div[data-type="callout"] p {
+    margin: 0;
+    line-height: 1.5;
+  }
+  .prose-custom div[data-type="callout"] p + p {
+    margin-top: 0;
   }
 
   /* 双向链接 wikilink：飞书/Notion 式可点击 chip */

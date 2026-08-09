@@ -20,6 +20,7 @@ export const Callout = Node.create({
   group: 'block',
   content: 'block+',
   defining: true,
+  isolating: true,
 
   addAttributes() {
     return {

@@ -345,7 +345,7 @@ export default function JournalEditor() {
               />
             ) : (
               <textarea
-                className="w-full min-h-[60vh] bg-transparent border-none outline-none resize-none font-mono text-sm leading-relaxed"
+                className="w-full min-h-[60vh] bg-transparent border-none outline-none resize-none font-mono text-sm leading-[1.5]"
                 placeholder="# 在此输入 Markdown..."
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
