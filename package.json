@@ -3,6 +3,8 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "main": "electron/main.cjs",
+  "author": "sxh313",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -12,7 +14,10 @@
     "lint": "eslint .",
     "deploy": "bash deploy.sh",
     "auto-deploy": "bash auto-deploy.sh",
-    "push": "bash deploy.sh"
+    "push": "bash deploy.sh",
+    "electron:dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "tsc -b && cross-env BUILD_TARGET=electron vite build && electron-builder --win",
+    "electron:build:portable": "tsc -b && cross-env BUILD_TARGET=electron vite build && electron-builder --win portable"
   },
   "dependencies": {
     "@tiptap/core": "^3.29.2",
@@ -60,11 +65,47 @@
     "@types/unist": "^3.0.3",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
+    "concurrently": "^10.0.4",
+    "cross-env": "^10.1.0",
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3",
     "postcss": "^8.4.39",
     "tailwindcss": "^3.4.6",
     "typescript": "^5.5.3",
     "vite": "^5.4.0",
     "vite-plugin-pwa": "^0.20.1",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wait-on": "^9.1.0"
+  },
+  "build": {
+    "appId": "com.sxh313.knowledge-base",
+    "productName": "知识库",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "public/icons/icon-512x512.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "知识库"
+    }
   }
 }
