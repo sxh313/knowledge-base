@@ -17,6 +17,29 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    // Electron 构建时 PWA 已禁用,这里为 virtual:pwa-register/react 提供桩模块(桌面端无 Service Worker)
+    isElectronBuild && {
+      name: 'pwa-register-stub',
+      resolveId(id: string) {
+        if (id === 'virtual:pwa-register/react' || id === 'virtual:pwa-register') return '\0' + id;
+        return null;
+      },
+      load(id: string) {
+        if (id === '\0virtual:pwa-register/react' || id === '\0virtual:pwa-register') {
+          return [
+            'const noop = () => {};',
+            'export function useRegisterSW() {',
+            '  return {',
+            '    needRefresh: [false, noop],',
+            '    offlineReady: [false, noop],',
+            '    updateServiceWorker: async () => {},',
+            '  };',
+            '}',
+          ].join('\n');
+        }
+        return null;
+      },
+    },
     // Web 搜索 dev 代理仅在开发模式生效,不影响打包
     {
       name: 'api-search-dev',
