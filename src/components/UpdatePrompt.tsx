@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { RefreshCw, X, Download } from 'lucide-react';
 import { useUpdateStore, setUpdateSW } from '../stores/updateStore';
@@ -29,12 +29,17 @@ export default function UpdatePrompt() {
     },
   });
 
+  // 用 ref 稳定保存 updateServiceWorker(Electron 桩模块下该函数每次渲染都会新建,
+  // 若直接放进 effect 依赖会导致无限重渲染 React error #185)
+  const updateSWRef = useRef(updateServiceWorker);
+  updateSWRef.current = updateServiceWorker;
+
   // 同步 hook 状态到全局 store，供设置页共享
   useEffect(() => {
-    setUpdateSW(updateServiceWorker);
+    setUpdateSW(updateSWRef.current);
     setNeedRefresh(nr);
     setOfflineReady(or);
-  }, [updateServiceWorker, nr, or, setNeedRefresh, setOfflineReady]);
+  }, [nr, or, setNeedRefresh, setOfflineReady]);
 
   const close = () => {
     setNr(false);

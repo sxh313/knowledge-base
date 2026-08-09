@@ -46,7 +46,6 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: '知识库',
-    icon: path.join(__dirname, '..', 'build', 'icon.png'),
     backgroundColor: '#f5f6f7',
     autoHideMenuBar: true,
     show: false,
