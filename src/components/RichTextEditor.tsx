@@ -17,7 +17,7 @@ import {
   Code, Link as LinkIcon, List, ListOrdered,
   Quote, Heading1, Heading2, Heading3, Pilcrow, CodeXml, Minus, Image as ImageIcon,
   Undo2, Redo2, ListChecks, ZoomIn, ZoomOut, Copy,
-  Lightbulb, Languages, Sparkles, BookOpen, Search,
+  Lightbulb, Languages, Sparkles, BookOpen, Search, PaintRoller,
 } from 'lucide-react';
 import { markdownToHtml, htmlToMarkdown } from '../lib/markdownUtils';
 import { useJournalStore } from '../stores/journalStore';
@@ -50,6 +50,8 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
   const [, force] = useReducer((x: number) => x + 1, 0);
   const [fontScale, setFontScale] = useState(1);
   const [showSearch, setShowSearch] = useState(false);
+  // 格式刷：第一次点复制选区格式，第二次点应用到新选区
+  const [storedMarks, setStoredMarks] = useState<{ type: string }[] | null>(null);
   const slashItemsRef = useRef<HTMLDivElement>(null);
   // 记录最后由编辑器 emit 出去的 markdown，用于区分「外部加载」与「自身输入」，
   // 避免输入时回流触发 setContent 把 TipTap 增量历史栈清空（撤销一次清空的 bug 根因）
@@ -213,6 +215,29 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
     const { from, to } = editor.state.selection;
     const text = editor.state.doc.textBetween(from, to, '\n');
     if (text.trim()) onAIAction(action, text);
+  };
+
+  // 格式刷：第一次点（有选区）复制该处文字格式；第二次点（有选区）套用到目标
+  const handleBrush = () => {
+    if (!editor) return;
+    if (storedMarks) {
+      // 应用：先清目标现有常见格式，再套用存储的格式
+      let chain = editor.chain().focus();
+      (['bold', 'italic', 'strike', 'code', 'underline'] as const).forEach(m => { chain = chain.unsetMark(m); });
+      storedMarks.forEach(m => { chain = chain.setMark(m.type); });
+      chain.run();
+      setStoredMarks(null);
+    } else {
+      // 复制：取选区起点的 marks
+      const { from, to } = editor.state.selection;
+      if (from === to) {
+        window.alert('请先选中带格式的文字，再点格式刷复制格式');
+        return;
+      }
+      const marks = editor.state.selection.$from.marks().map(m => ({ type: m.type.name }));
+      setStoredMarks(marks.length > 0 ? marks : null);
+      if (marks.length === 0) window.alert('选中的文字没有可复制的格式');
+    }
   };
 
   const allCommands = getSlashCommands();
@@ -400,6 +425,13 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
           navigator.clipboard?.writeText(md);
         }} title="复制为 Markdown"><Copy className="w-4 h-4" /></ToolbarBtn>
         <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
+        <ToolbarBtn
+          onClick={handleBrush}
+          active={!!storedMarks}
+          title={storedMarks ? '格式刷：选中目标文字后点此套用格式' : '格式刷：选中带格式的文字点此复制'}
+        >
+          <PaintRoller className="w-4 h-4" />
+        </ToolbarBtn>
         <ToolbarBtn onClick={() => setShowSearch(true)} title="查找替换 (Ctrl+H)"><Search className="w-4 h-4" /></ToolbarBtn>
       </div>
 

@@ -395,14 +395,25 @@
     --callout-bg: var(--color-danger-light);
     --callout-emoji: "🔴";
   }
-  /* callout 内段落：行距紧凑（约 0.5 字间距），无段间大 margin */
+  /* 正文段落：行距 1.5（0.5 字间距）+ 段间距 0.5 字，直接 CSS 强制覆盖 prose-sm 默认 */
+  .prose-custom p {
+    line-height: 1.5 !important;
+    margin-top: 0.5em !important;
+    margin-bottom: 0.5em !important;
+  }
+  .prose-custom p:first-child { margin-top: 0 !important; }
+  .prose-custom p:last-child { margin-bottom: 0 !important; }
+  .prose-custom li { line-height: 1.5 !important; }
+  .prose-custom h1, .prose-custom h2, .prose-custom h3 { line-height: 1.5 !important; }
+  .prose-custom blockquote { line-height: 1.5 !important; }
+
+  /* callout 内段落：行距 1.5 + 段间 0.5 字（与正文统一） */
   .prose-custom div[data-type="callout"] p {
-    margin: 0;
+    margin: 0.5em 0;
     line-height: 1.5;
   }
-  .prose-custom div[data-type="callout"] p + p {
-    margin-top: 0;
-  }
+  .prose-custom div[data-type="callout"] p:first-child { margin-top: 0; }
+  .prose-custom div[data-type="callout"] p:last-child { margin-bottom: 0; }
 
   /* 双向链接 wikilink：飞书/Notion 式可点击 chip */
   .prose-custom .wikilink, .wikilink {
