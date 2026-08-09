@@ -1,71 +1,82 @@
 // 生成真正的 PNG 图标(512x512),用于 Electron 打包
-// 纯 Node 实现:用 zlib 手写 PNG。图标为深蓝底 + 白色书本/知识图形
+// 纯 Node 实现:用 zlib 手写 PNG。图标为「蓝色书本」风格:
+// 圆形深蓝紫渐变底 + 中央白色书本(含书脊与文字行)
+// 用带符号距离函数(SDF)实现抗锯齿,边缘更平滑
 const zlib = require('zlib');
 const fs = require('fs');
 const path = require('path');
 
 const SIZE = 512;
-const CENTER = SIZE / 2;
-const RADIUS = SIZE / 2;
 
-// 生成 RGBA 像素:深蓝渐变底 + 白色书本形状(支持任意尺寸,内部归一化坐标)
+// 平滑步进:在边缘 a~b 之间做线性抗锯齿
+function smoothstep(a, b, x) {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+
+// 生成 RGBA 像素
 function draw(size) {
   const data = Buffer.alloc(size * size * 4);
   const c = size / 2;
   const r = size / 2;
+
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const idx = (y * size + x) * 4;
-      // 圆形裁剪
-      const dx = x - c + 0.5;
-      const dy = y - c + 0.5;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const o = size * 0.008; // 抗锯齿边缘
-      let alpha = 0;
-      if (dist < r - o) alpha = 255;
-      else if (dist < r) alpha = Math.round(((r - dist) / o) * 255);
+      const px = x + 0.5, py = y + 0.5;
 
-      if (alpha === 0) { data[idx + 3] = 0; continue; }
+      // 圆形裁剪(带 1px 抗锯齿)
+      const d = Math.sqrt((px - c) * (px - c) + (py - c) * (py - c));
+      const circleAlpha = 1 - smoothstep(r - 1, r + 1, d);
+      if (circleAlpha <= 0) { data[idx + 3] = 0; continue; }
 
-      // 归一化坐标(0~1)
-      const nx = x / size, ny = y / size;
-      // 深蓝紫渐变背景
-      const t = ny;
-      const br = Math.round(26 + (88 - 26) * t);
-      const bg = Math.round(34 + (28 - 34) * t);
-      const bb = Math.round(70 + (110 - 70) * t);
+      // 归一化坐标
+      const nd = d / r; // 0中心 → 1边缘
+      const ny = y / size;
 
-      let cr = br, cg = bg, cb = bb;
+      // ─── 背景:深蓝紫渐变(上浅下深) ───
+      // 顶部 #233A8F → 底部 #1A1A3E,带轻微径向提亮增加立体感
+      const t = ny; // 0顶部 → 1底部
+      let br = Math.round(58 + (26 - 58) * t);
+      let bgc = Math.round(62 + (34 - 62) * t);
+      let bb = Math.round(120 + (70 - 120) * t);
+      // 中心轻微提亮
+      const glow = 1 - nd;
+      br = Math.round(br + 18 * glow);
+      bgc = Math.round(bgc + 18 * glow);
+      bb = Math.round(bb + 24 * glow);
 
-      // 白色书本形状:中心区域,由两个"页面"组成(比例相对尺寸)
-      const bookLeft = c - size * 0.14, bookRight = c + size * 0.14;
-      const bookTop = c - size * 0.18, bookBottom = c + size * 0.18;
+      // ─── 中央白色书本 ───
+      const bookLeft = c - size * 0.14;
+      const bookRight = c + size * 0.14;
+      const bookTop = c - size * 0.18;
+      const bookBottom = c + size * 0.18;
       const spineX = c;
 
-      const inSpine = Math.abs(x - spineX) < size * 0.016 && y > bookTop && y < bookBottom;
-      const inLeft = x > bookLeft && x < spineX && y > bookTop && y < bookBottom;
-      const inRight = x > spineX && x < bookRight && y > bookTop && y < bookBottom;
+      const inSpine = Math.abs(px - spineX) < size * 0.016 && py > bookTop && py < bookBottom;
+      const inLeft = px > bookLeft && px < spineX && py > bookTop && py < bookBottom;
+      const inRight = px > spineX && px < bookRight && py > bookTop && py < bookBottom;
 
       const lineY = (n) => bookTop + size * 0.024 + n * size * 0.044;
-      const inTextLine = (ly, lx1, lx2) => y > ly - size * 0.006 && y < ly + size * 0.006 && x > lx1 && x < lx2;
+      const inTextLine = (ly, lx1, lx2) => py > ly - size * 0.006 && py < ly + size * 0.006 && px > lx1 && px < lx2;
 
-      if (inSpine) { cr = 255; cg = 255; cb = 255; }
+      if (inSpine) { br = 255; bgc = 255; bb = 255; }
       else if (inLeft) {
-        cr = 255; cg = 255; cb = 255;
+        br = 255; bgc = 255; bb = 255;
         for (let n = 0; n < 3; n++) {
-          if (inTextLine(lineY(n), bookLeft + size * 0.028, bookLeft + size * 0.12)) { cr = br; cg = bg; cb = bb; }
+          if (inTextLine(lineY(n), bookLeft + size * 0.028, bookLeft + size * 0.12)) { br = 58; bgc = 62; bb = 120; }
         }
       } else if (inRight) {
-        cr = 255; cg = 255; cb = 255;
+        br = 255; bgc = 255; bb = 255;
         for (let n = 0; n < 3; n++) {
-          if (inTextLine(lineY(n + 1), spineX + size * 0.028, spineX + size * 0.12)) { cr = br; cg = bg; cb = bb; }
+          if (inTextLine(lineY(n + 1), spineX + size * 0.028, spineX + size * 0.12)) { br = 58; bgc = 62; bb = 120; }
         }
       }
 
-      data[idx] = cr;
-      data[idx + 1] = cg;
-      data[idx + 2] = cb;
-      data[idx + 3] = alpha;
+      data[idx] = Math.min(255, Math.round(br));
+      data[idx + 1] = Math.min(255, Math.round(bgc));
+      data[idx + 2] = Math.min(255, Math.round(bb));
+      data[idx + 3] = Math.round(255 * circleAlpha);
     }
   }
   return data;
