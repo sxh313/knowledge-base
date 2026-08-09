@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Routes, Route } from 'react-router-dom';
 import { useEffect, useState, lazy, Suspense } from 'react';
 import { useSettingsStore } from './stores/settingsStore';
 import { useJournalStore } from './stores/journalStore';
@@ -11,6 +11,7 @@ import Layout from './components/Layout';
 import CommandPalette from './components/CommandPalette';
 import ShortcutsModal from './components/ShortcutsModal';
 import PomodoroWidget from './components/PomodoroWidget';
+import UpdatePrompt from './components/UpdatePrompt';
 
 // 路由级懒加载：按需加载各页面，显著减小首屏主 chunk 体积
 const JournalList = lazy(() => import('./pages/JournalList'));
@@ -26,6 +27,15 @@ const Trash = lazy(() => import('./pages/Trash'));
 const Tags = lazy(() => import('./pages/Tags'));
 const SearchResultsPage = lazy(() => import('./pages/SearchResultsPage'));
 const Inbox = lazy(() => import('./pages/Inbox'));
+
+// 桌面端(Electron)用 HashRouter 配合 file://;浏览器端用 BrowserRouter
+const isElectron = typeof navigator !== 'undefined' && /Electron/.test(navigator.userAgent);
+const Router = isElectron ? HashRouter : BrowserRouter;
+// 兼容桌面/浏览器的硬导航
+const goPath = (p: string) => {
+  if (isElectron) window.location.hash = '#' + p;
+  else window.location.href = p;
+};
 
 export default function App() {
   const { load: loadSettings } = useSettingsStore();
@@ -92,10 +102,10 @@ export default function App() {
       }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'n') {
         e.preventDefault();
-        window.location.href = '/inbox';
+        goPath('/inbox');
       } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'n') {
         e.preventDefault();
-        window.location.href = '/edit/new';
+        goPath('/edit/new');
       }
       if ((e.ctrlKey || e.metaKey) && e.key === '/') {
         e.preventDefault();
@@ -122,7 +132,7 @@ export default function App() {
   }, [entries]);
 
   return (
-    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <Suspense fallback={<div className="flex items-center justify-center h-screen text-gray-400">加载中…</div>}>
       <Routes>
@@ -144,6 +154,7 @@ export default function App() {
       </Routes>
       </Suspense>
       <PomodoroWidget />
-    </BrowserRouter>
+      <UpdatePrompt />
+    </Router>
   );
 }

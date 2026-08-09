@@ -91,6 +91,9 @@ export interface AIConversation {
   tokensOutput: number;
   costUsd: number;
   createdAt: number;
+  // 软删除墓碑：与 journals 一致，deletedAt 用于云同步合并时传播删除（避免被远端复活）
+  updatedAt?: number;
+  deletedAt?: number;
 }
 
 export interface AISettings {

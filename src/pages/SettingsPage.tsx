@@ -6,6 +6,7 @@ import type { AISettings } from '../lib/db/schema';
 import { fetchAvailableModels } from '../lib/db/queries';
 import type { SyncConfig } from '../lib/db/schema';
 import { useSyncStore } from '../stores/syncStore';
+import { useUpdateStore, manualCheck, applyUpdate } from '../stores/updateStore';
 import { exportKeys, importKeys, type KeyBundle } from '../lib/utils/keyVault';
 import SyncConflicts from '../components/SyncConflicts';
 import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search } from 'lucide-react';
@@ -37,6 +38,17 @@ export default function SettingsPage() {
   const [importText, setImportText] = useState('');
   const [vaultPwd, setVaultPwd] = useState('');
   const [vaultMsg, setVaultMsg] = useState<string | null>(null);
+  // 应用更新状态
+  const { needRefresh, checking, lastCheckAt, markChecked, setChecking } = useUpdateStore();
+  const [checkMsg, setCheckMsg] = useState<string | null>(null);
+
+  const handleCheckUpdate = async () => {
+    setChecking(true); setCheckMsg(null);
+    const ok = await manualCheck();
+    markChecked();
+    setChecking(false);
+    setCheckMsg(ok ? '已检查，若有新版本将提示更新' : '检查失败，请稍后重试');
+  };
 
   useEffect(() => { load(); }, []);
 
@@ -552,6 +564,39 @@ export default function SettingsPage() {
             }} />
         </div>
         {mdMsg && <p className="text-xs text-gray-500">{mdMsg}</p>}
+      </section>
+
+      {/* 关于与更新 */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold">ℹ️ 关于与更新</h2>
+        <div className="card space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">知识库 · 版本 {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}</p>
+              <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">本地优先的 AI 知识管理工具</p>
+            </div>
+            {needRefresh ? (
+              <button className="btn-primary text-sm" onClick={() => applyUpdate()}>
+                ✨ 发现新版本·立即更新
+              </button>
+            ) : (
+              <button className="btn-secondary text-sm" onClick={handleCheckUpdate} disabled={checking}>
+                {checking ? '检查中...' : '🔄 检查更新'}
+              </button>
+            )}
+          </div>
+          {needRefresh && (
+            <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 p-3">
+              <p className="text-sm text-indigo-700 dark:text-indigo-300">✨ 发现新版本，点击「立即更新」即可安装最新版本并刷新。</p>
+              <button className="btn-primary text-xs mt-2" onClick={() => applyUpdate()}>立即更新</button>
+            </div>
+          )}
+          {checkMsg && !needRefresh && <p className="text-xs text-gray-500">{checkMsg}</p>}
+          {lastCheckAt && (
+            <p className="text-xs text-[var(--color-text-tertiary)]">上次检查：{new Date(lastCheckAt).toLocaleString('zh-CN')}</p>
+          )}
+          <p className="text-xs text-[var(--color-text-tertiary)]">提示：应用会在后台每小时自动检查更新，发现新版本时右下角会弹出提示。</p>
+        </div>
       </section>
 
       <div className="text-xs text-gray-400 text-center pb-8">
