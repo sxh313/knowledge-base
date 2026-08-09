@@ -20,8 +20,10 @@ import {
   Lightbulb, Languages, Sparkles, BookOpen, Search,
 } from 'lucide-react';
 import { markdownToHtml, htmlToMarkdown } from '../lib/markdownUtils';
+import { useJournalStore } from '../stores/journalStore';
 import { getSlashCommands, type SlashCommandItem } from './tiptap/slashCommand';
 import { Callout } from './tiptap/callout';
+import { Wikilink } from './tiptap/wikilink';
 import SearchReplaceBar from './SearchReplaceBar';
 
 // 代码语法高亮：注册常用语言集合
@@ -36,9 +38,11 @@ interface RichTextEditorProps {
   onAIAction?: (action: 'translate' | 'explain' | 'polish', selectedText: string) => void;
   /** AI 结果注入信号：n 变化时把 text 插入/替换到当前选区 */
   insertSignal?: { text: string; n: number } | null;
+  /** 点击双向链接 [[目标]] 时触发（父组件负责跳转到目标文档） */
+  onWikilinkClick?: (target: string) => void;
 }
 
-export default function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, insertSignal }: RichTextEditorProps) {
+export default function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, insertSignal, onWikilinkClick }: RichTextEditorProps) {
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
@@ -69,6 +73,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       TableCell,
       TableHeader,
       Callout,
+      Wikilink,
     ],
     content: markdownToHtml(value),
     autofocus: autoFocus ? 'end' : false,
@@ -78,17 +83,10 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       },
       handleDOMEvents: {
         dragstart: (view: any, event: DragEvent) => {
-          // 禁用 Callout 内的拖拽：ProseMirror 对自定义 wrapping 节点的 slice 处理
-          // 会导致「复制生成新提示框」或「内容丢失」。改用剪切(Ctrl+X)+粘贴移动。
-          // 此 handler 在 ProseMirror 内部 dragstart 之前执行，preventDefault 能可靠取消。
-          const { $from } = view.state.selection;
-          for (let d = $from.depth; d > 0; d--) {
-            if ($from.node(d).type.name === 'callout') {
-              event.preventDefault();
-              return true;
-            }
-          }
-          return false;
+          // 禁用编辑器内所有内容的拖拽（选中后拖动会复制/丢失，尤其 callout 不稳定）。
+          // 移动内容请用剪切(Ctrl+X)+粘贴。外部图片拖入由 onDrop 单独处理，不受影响。
+          event.preventDefault();
+          return true;
         },
       },
     },
@@ -145,10 +143,8 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       if (hasImage) e.preventDefault();
     };
     const onDragStart = (e: DragEvent) => {
-      // 兜底：Callout 内拖拽禁用（主逻辑在 editorProps.handleDOMEvents.dragstart）
-      if (editor.isActive('callout')) {
-        e.preventDefault();
-      }
+      // 兜底：禁用编辑器内所有拖拽（主逻辑在 editorProps.handleDOMEvents.dragstart）
+      e.preventDefault();
     };
     dom.addEventListener('paste', onPaste);
     dom.addEventListener('drop', onDrop);
@@ -221,6 +217,21 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
     document.addEventListener('keydown', onKey, true);   // document capture：最早，先于 ProseMirror
     return () => document.removeEventListener('keydown', onKey, true);
   }, [editor]);
+
+  // 点击双向链接 chip 跳转
+  useEffect(() => {
+    if (!editor || !onWikilinkClick) return;
+    const dom = editor.view.dom;
+    const onClick = (e: MouseEvent) => {
+      const wl = (e.target as HTMLElement).closest('.wikilink') as HTMLElement | null;
+      if (wl) {
+        e.preventDefault();
+        onWikilinkClick(wl.getAttribute('data-wikilink') || wl.textContent || '');
+      }
+    };
+    dom.addEventListener('click', onClick);
+    return () => dom.removeEventListener('click', onClick);
+  }, [editor, onWikilinkClick]);
 
   // AI 结果注入：n 变化时把 text 插入/替换当前选区
   const lastInsertN = useRef(0);
@@ -389,6 +400,13 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
         <ToolbarBtn onClick={() => editor.chain().focus().toggleTaskList().run()} active={isActive('taskList')} title="待办清单"><ListChecks className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleBlockquote().run()} active={isActive('blockquote')} title="引用"><Quote className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleCallout('note').run()} active={isActive('callout')} title="提示框（Callout，再次点击取消）"><Lightbulb className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => {
+          const docs = useJournalStore.getState().entries.filter(e => !e.deletedAt);
+          if (docs.length === 0) { window.alert('还没有文档，先创建一篇吧'); return; }
+          const list = docs.slice(0, 25).map(d => d.title || '无标题').join('、');
+          const target = window.prompt(`输入要链接的文档标题（双向链接）。\n\n可用文档：\n${list}`, '');
+          if (target && target.trim()) editor.chain().focus().insertWikilink(target.trim()).run();
+        }} title="插入双向链接 [[]]"><LinkIcon className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleCodeBlock().run()} active={isActive('codeBlock')} title="代码块"><CodeXml className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="分隔线"><Minus className="w-4 h-4" /></ToolbarBtn>
         <label className="p-1.5 rounded-md transition-colors text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] cursor-pointer" title="插入图片（选文件）">

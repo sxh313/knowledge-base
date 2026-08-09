@@ -7,6 +7,7 @@ import { useViewModeStore } from '../stores/viewModeStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useSyncStore } from '../stores/syncStore';
 import { buildMessages } from '../lib/ai/prompts';
+import { extractWikilinks } from '../lib/markdownUtils';
 import RichTextEditor from '../components/RichTextEditor';
 import AIChatPanel from '../components/AIChatPanel';
 import DocOutline from '../components/DocOutline';
@@ -17,7 +18,7 @@ type EditMode = 'rich' | 'markdown';
 export default function JournalEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { currentEntry, create, update, loadOne, setCurrent, saveStatus, togglePin } = useJournalStore();
+  const { entries, currentEntry, create, update, loadOne, setCurrent, saveStatus, togglePin } = useJournalStore();
   const { callAI, isProcessing, streamingContent } = useAIStore();
   const { isMobile } = useViewModeStore();
   const { settings } = useSettingsStore();
@@ -166,6 +167,20 @@ export default function JournalEditor() {
       /* 错误已由 store 处理，AIChatPanel 未打开时静默 */
     }
   };
+
+  // 点击双向链接：跳转到目标文档
+  const handleWikilinkClick = (target: string) => {
+    const t = target.trim();
+    const doc = entries.find(e => !e.deletedAt && (e.title || '无标题') === t);
+    if (doc) { setCurrent(doc); navigate(`/edit/${doc.id}`); }
+    else { window.alert(`未找到文档「${t}」，可能标题已更改或被删除`); }
+  };
+
+  // 反向引用：哪些文档用 [[本文档标题]] 链接了本文档
+  const myTitle = currentEntry?.title?.trim();
+  const backlinks = myTitle
+    ? entries.filter(e => !e.deletedAt && e.id !== currentEntry?.id && extractWikilinks(e.content).some(t => t.trim() === myTitle))
+    : [];
 
   const handleExportHTML = async () => {
     setShowExportMenu(false);
@@ -326,6 +341,7 @@ export default function JournalEditor() {
                 autoFocus={isNew}
                 onAIAction={handleSelectionAI}
                 insertSignal={insertSignal}
+                onWikilinkClick={handleWikilinkClick}
               />
             ) : (
               <textarea
@@ -335,6 +351,21 @@ export default function JournalEditor() {
                 onChange={(e) => setContent(e.target.value)}
                 spellCheck={false}
               />
+            )}
+
+            {/* 反向引用：哪些文档链接了本文档 */}
+            {backlinks.length > 0 && (
+              <div className="mt-6 rounded-lg border border-[var(--color-border)] p-3 bg-[var(--color-surface)]">
+                <p className="text-xs font-medium text-[var(--color-text-secondary)] mb-2">🔗 反向引用（{backlinks.length}）</p>
+                <div className="space-y-1">
+                  {backlinks.map(b => (
+                    <button key={b.id} onClick={() => { setCurrent(b); navigate(`/edit/${b.id}`); }} className="block w-full text-left rounded-md p-2 hover:bg-[var(--color-surface-2)] transition-colors">
+                      <p className="text-sm font-medium text-[var(--color-primary)] truncate">{b.title || '无标题'}</p>
+                      <p className="text-xs text-[var(--color-text-tertiary)] truncate mt-0.5">{b.contentPlain?.slice(0, 80) || b.content?.slice(0, 80)}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         </div>

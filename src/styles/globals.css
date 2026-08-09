@@ -395,6 +395,23 @@
     --callout-bg: var(--color-danger-light);
     --callout-emoji: "🔴";
   }
+
+  /* 双向链接 wikilink：飞书/Notion 式可点击 chip */
+  .prose-custom .wikilink, .wikilink {
+    color: var(--color-primary);
+    background: var(--color-primary-light);
+    padding: 0.05rem 0.35rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 0.9em;
+    white-space: nowrap;
+    transition: background 0.15s ease;
+    border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
+  }
+  .prose-custom .wikilink:hover, .wikilink:hover {
+    background: color-mix(in srgb, var(--color-primary) 22%, transparent);
+  }
 }
 
 /* ─── Utilities ──────────────────────────────────────────────── */

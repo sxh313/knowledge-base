@@ -58,10 +58,34 @@ turndown.addRule('callout', {
   },
 });
 
+// turndown rule：把 <span data-wikilink="标题"> 转回 [[标题]] 双向链接语法
+turndown.addRule('wikilink', {
+  filter: (node) =>
+    node.nodeName === 'SPAN' && !!(node as HTMLElement).getAttribute('data-wikilink'),
+  replacement: (_content, node) => {
+    const target = (node as HTMLElement).getAttribute('data-wikilink') || '';
+    return `[[${target}]]`;
+  },
+});
+
+/** 提取一段 markdown 里所有双向链接的目标标题（用于反向引用统计） */
+export function extractWikilinks(markdown: string): string[] {
+  if (!markdown) return [];
+  const matches = markdown.matchAll(/\[\[([^\]]+)\]\]/g);
+  return Array.from(matches, (m) => m[1].trim());
+}
+
 /** Markdown → HTML，并把 GFM alert 块转成 callout div（供 TipTap / 预览使用） */
 export function markdownToHtml(markdown: string): string {
   if (!markdown) return '';
   let html = marked.parse(markdown) as string;
+
+  // 双向链接 [[标题]] → <span data-wikilink="标题">标题</span>
+  // 注意：marked 会把 [[x]] 当纯文本输出（在 <p> 内），这里整体替换
+  html = html.replace(/\[\[([^\]]+)\]\]/g, (_m, target: string) => {
+    const t = target.trim().replace(/<[^>]*>/g, '');
+    return `<span data-wikilink="${t}">${t}</span>`;
+  });
 
   // 把 <blockquote><p>[!NOTE]</p>... 结构转成 callout div
   // 兼容 marked 输出：<blockquote>\n<p>[!NOTE]<br>... 或 <p>[!NOTE]</p>
