@@ -25,9 +25,12 @@ export default function SettingsPage() {
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
   const [refreshMsg, setRefreshMsg] = useState<Record<string, string>>({});
   const [manualModel, setManualModel] = useState<Record<string, string>>({});
-  const { doSync, status: syncStatus } = useSyncStore();
+  const { doSync, status: syncStatus, pullOnly } = useSyncStore();
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  const [tokenCopied, setTokenCopied] = useState(false);
+  // 来自 .env.local 的同步 Token（运行时注入，非源码硬编码）；用于“点击填入”输入框
+  const envSyncToken = import.meta.env.VITE_SYNC_TOKEN;
   const [exportOut, setExportOut] = useState('');
   const [importText, setImportText] = useState('');
   const [vaultPwd, setVaultPwd] = useState('');
@@ -411,6 +414,18 @@ export default function SettingsPage() {
                 </label>
                 <input type="password" className="input-field mt-1 text-sm font-mono" value={settings.sync.token}
                   onChange={e => updateSync({ token: e.target.value })} placeholder="ghp_..." />
+                {envSyncToken && (
+                  <button
+                    type="button"
+                    onClick={() => { updateSync({ token: envSyncToken }); setTokenCopied(true); setTimeout(() => setTokenCopied(false), 1500); }}
+                    className="mt-1 flex items-center gap-1 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-primary)] transition-colors w-full text-left"
+                    title="点击填入 Token 到上方输入框"
+                  >
+                    {tokenCopied
+                      ? '✅ 已填入 Token 输入框'
+                      : <>📋 <span className="font-mono break-all">{envSyncToken}</span>（点击填入）</>}
+                  </button>
+                )}
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={settings.sync.autoSync}
@@ -422,8 +437,11 @@ export default function SettingsPage() {
                 <button className="btn-secondary text-sm" onClick={handleTestConn} disabled={syncTesting}>
                   {syncTesting ? '测试中...' : '测试连接'}
                 </button>
-                <button className="btn-primary text-sm" onClick={() => doSync()} disabled={syncStatus === 'syncing'}>
-                  {syncStatus === 'syncing' ? '同步中...' : '立即同步'}
+                <button className="btn-secondary text-sm" onClick={() => pullOnly()} disabled={syncStatus === 'syncing'} title="只把云端数据合并到本地，不上传本地改动">
+                  {syncStatus === 'syncing' ? '拉取中...' : '⬇️ 从云端拉取'}
+                </button>
+                <button className="btn-primary text-sm" onClick={() => doSync()} disabled={syncStatus === 'syncing'} title="双向：拉取云端 + 推送本地">
+                  {syncStatus === 'syncing' ? '同步中...' : '立即同步（推+拉）'}
                 </button>
                 {settings.sync.lastSyncAt && (
                   <span className="text-xs text-gray-400">
