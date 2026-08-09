@@ -1,6 +1,7 @@
 import {
   BookOpen, Search, FileText, Brain, BookCheck, BarChart3,
   Settings as SettingsIcon, HelpCircle, Cloud, KeyRound, Database, Keyboard,
+  PaintRoller, Timer, Tag, Link2, LayoutTemplate, Star, History, CalendarDays, ListOrdered, FileCode,
 } from 'lucide-react';
 
 export default function Manual() {
@@ -50,6 +51,70 @@ export default function Manual() {
         </ul>
       </Section>
 
+      {/* 编辑器进阶 */}
+      <Section icon={PaintRoller} title="编辑器进阶（富文本）" color="text-pink-500">
+        <ul className="list-disc pl-5 space-y-1">
+          <li><b>查找替换</b> — <kbd className="kbd">Ctrl+H</kbd> 或 <kbd className="kbd">Ctrl+F</kbd> 打开查找栏，支持区分大小写、上一个/下一个、替换、全部替换</li>
+          <li><b>提示框 Callout</b> — 工具栏 💡 或斜杠命令 <kbd className="kbd">/提示框</kbd>，4 种变体（💡提示 / ✅技巧 / ⚠️警告 / 🔴危险）；开头按 <kbd className="kbd">Backspace</kbd> 可取消</li>
+          <li><b>格式刷</b> — 工具栏 🖌️：先选中带格式的文字点刷<b>复制格式</b>，再选目标文字点刷<b>套用格式</b>（粗体/斜体/删除线/代码）</li>
+          <li><b>选中→AI</b> — 选中文字浮现飞书式菜单：<b>🌐翻译 / 📖解释 / ✨润色</b>，AI 结果自动回填到选区</li>
+          <li><b>双向链接</b> — 工具栏 🔗 插入 <code className="font-mono">[[文档标题]]</code>，显示为可点击 chip，点击跳转；目标文档底部自动显示「🔗 反向引用」</li>
+          <li><b>禁用拖拽</b> — 选中内容不能拖动移动（避免误操作），移动内容用剪切 <kbd className="kbd">Ctrl+X</kbd> + 粘贴</li>
+        </ul>
+      </Section>
+
+      {/* 文档模板 */}
+      <Section icon={LayoutTemplate} title="文档模板" color="text-violet-500">
+        <ul className="list-disc pl-5 space-y-1">
+          <li><b>从模板新建</b> — 文档列表点「模板」按钮，选择内置模板一键创建</li>
+          <li><b>内置模板</b> — 📄空白 / 🗓️每日复盘 / 📚读书笔记 / 📝会议记录 / ❌错题整理 / 🧠概念学习</li>
+          <li><b>每日笔记</b> — 点「今日笔记」一键创建/打开当天日记（标题为日期）</li>
+        </ul>
+      </Section>
+
+      {/* 收藏与排序 */}
+      <Section icon={Star} title="收藏夹与手动排序" color="text-amber-500">
+        <ul className="list-disc pl-5 space-y-1">
+          <li><b>置顶收藏</b> — 文档右上角 ⭐ 置顶；置顶文档显示在列表「📌 收藏夹」快捷卡片条，一键直达</li>
+          <li><b>手动排序</b> — 文档列表直接<b>拖拽卡片</b>调整顺序，自动切到「↕ 手动排序」模式，顺序持久化</li>
+          <li><b>导入 .md</b> — 把 <code className="font-mono">.md</code> 文件<b>拖进文档列表</b>，批量导入（自动识别标题）</li>
+        </ul>
+      </Section>
+
+      {/* 番茄钟 */}
+      <Section icon={Timer} title="番茄钟（专注计时）" color="text-red-500">
+        <ul className="list-disc pl-5 space-y-1">
+          <li><b>浮动组件</b> — 右下角番茄钟，点展开计时面板（默认 25 分钟专注 + 5 分钟休息，可在设置里改）</li>
+          <li><b>自动累计</b> — 完成一个专注番茄，时长自动累加到<b>当前编辑文档</b>的学习时长</li>
+          <li><b>提醒</b> — 完成/休息结束发桌面通知（需授权通知权限）</li>
+        </ul>
+      </Section>
+
+      {/* 版本历史 */}
+      <Section icon={History} title="版本历史（防误改）" color="text-teal-500">
+        <ul className="list-disc pl-5 space-y-1">
+          <li><b>自动记录</b> — 每次保存自动留一个快照（内容相同则跳过，每篇最多保留 30 个）</li>
+          <li><b>查看</b> — 编辑页点「历史」按钮，左侧版本列表 + 右侧内容预览</li>
+          <li><b>恢复</b> — 选某个版本点「恢复此版本」；覆盖前的内容会自动存一份，不会丢</li>
+        </ul>
+      </Section>
+
+      {/* 导出分享 */}
+      <Section icon={FileCode} title="导出与分享" color="text-lime-600">
+        <ul className="list-disc pl-5 space-y-1">
+          <li><b>导出 HTML</b> — 编辑页「导出 → 导出 HTML」，生成含内联样式的独立文件，可发给别人直接打开</li>
+          <li><b>导出 PDF</b> — 「导出 → 导出 PDF」，调用浏览器打印对话框，另存为 PDF</li>
+        </ul>
+      </Section>
+
+      {/* 标签管理 */}
+      <Section icon={Tag} title="标签管理" color="text-fuchsia-500">
+        <ul className="list-disc pl-5 space-y-1">
+          <li><b>标签云</b> — 侧栏「标签」页，字号代表使用频次，点击进入对应文档</li>
+          <li><b>频次列表</b> — 按使用次数排序，带频次条，点击跳转筛选</li>
+        </ul>
+      </Section>
+
       {/* AI 功能 */}
       <Section icon={Brain} title="AI 功能" color="text-purple-500">
         <ul>
@@ -69,6 +134,7 @@ export default function Manual() {
           <li><b>翻面评分</b> — 点卡片翻面看答案，4 级评分：<b>忘了 / 困难 / 良好 / 轻松</b></li>
           <li><b>间隔规则</b> — 良好/轻松 → 下次间隔变长（少打扰）；忘了/困难 → 很快再复习</li>
           <li><b>卡片库</b> — 管理所有卡片：搜索、按状态/标签筛选、编辑、删除、重置进度</li>
+          <li><b>右键菜单</b> — 卡片库中<b>右键卡片</b>：编辑 / 复制 / 置顶 / 删除（快速操作）</li>
           <li><b>状态流转</b> — 🆕新 → 🔶学习中 → ✅复习中（忘了变 🔁重学）</li>
         </ul>
       </Section>
@@ -135,11 +201,14 @@ export default function Manual() {
       {/* 快捷键 */}
       <Section icon={Keyboard} title="快捷键速查" color="text-indigo-500">
         <ul className="list-disc pl-5 space-y-1">
-          <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">K</kbd> — 命令面板</li>
+          <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">K</kbd> — 命令面板（搜索/跳转/新建）</li>
           <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">S</kbd> — 保存文档</li>
+          <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">H</kbd> / <kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">F</kbd> — 查找替换</li>
           <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">Z</kbd> / <kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">Y</kbd> — 撤销 / 重做（富文本）</li>
+          <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">X</kbd> → <kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">V</kbd> — 剪切 + 粘贴移动内容（编辑器禁用拖拽）</li>
           <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">V</kbd> — 粘贴图片（截图）</li>
-          <li><kbd className="kbd">/</kbd> — 富文本模式插入块命令</li>
+          <li><kbd className="kbd">/</kbd> — 富文本模式插入块命令（标题/列表/代码块/提示框/表格…）</li>
+          <li><kbd className="kbd">Backspace</kbd> — 提示框开头按可取消；行首按删除</li>
           <li><kbd className="kbd">Esc</kbd> — 关闭面板/菜单</li>
         </ul>
       </Section>

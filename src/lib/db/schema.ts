@@ -113,6 +113,15 @@ export interface AppSettings {
   sync?: SyncConfig;
 }
 
+// ──── 文档版本历史快照 ────
+export interface JournalVersion {
+  id: string;
+  journalId: string;
+  title: string;
+  content: string;
+  createdAt: number;
+}
+
 // ──── Database Class ────
 
 export class StudyJournalDB extends Dexie {
@@ -123,6 +132,7 @@ export class StudyJournalDB extends Dexie {
   graphEdges!: Table<KnowledgeEdge>;
   aiConversations!: Table<AIConversation>;
   settings!: Table<AppSettings>;
+  journalVersions!: Table<JournalVersion>;
 
   constructor() {
     super('StudyJournalDB');
@@ -134,6 +144,10 @@ export class StudyJournalDB extends Dexie {
       graphEdges: 'id, sourceId, targetId, relationType',
       aiConversations: 'id, journalId, createdAt',
       settings: 'id',
+    });
+    // version(2): 新增文档版本历史表
+    this.version(2).stores({
+      journalVersions: 'id, journalId, createdAt',
     });
     // 说明：曾在此追加 version(2) 以支持 availableModels / shengsuanyun 字段，
     // 但二者均为非索引字段，Dexie 会自动兼容，无需升级 schema 版本，故移除冗余定义。

@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Star, PanelLeft, Maximize, Download, FileCode, ChevronDown } from 'lucide-react';
+import { Star, PanelLeft, Maximize, Download, FileCode, ChevronDown, History } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
 import { useViewModeStore } from '../stores/viewModeStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useSyncStore } from '../stores/syncStore';
 import { buildMessages } from '../lib/ai/prompts';
-import { extractWikilinks } from '../lib/markdownUtils';
+import { extractWikilinks, markdownToHtml } from '../lib/markdownUtils';
+import { saveVersion, getVersions, deleteVersion } from '../lib/db/queries';
+import type { JournalVersion } from '../lib/db/schema';
 import RichTextEditor from '../components/RichTextEditor';
 import AIChatPanel from '../components/AIChatPanel';
 import DocOutline from '../components/DocOutline';
@@ -34,6 +36,10 @@ export default function JournalEditor() {
   /** 选中→AI 操作：把 AI 处理结果通过 signal 注入回编辑器选区 */
   const [insertSignal, setInsertSignal] = useState<{ text: string; n: number } | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
+  // 版本历史
+  const [showHistory, setShowHistory] = useState(false);
+  const [versions, setVersions] = useState<JournalVersion[]>([]);
+  const [previewVersion, setPreviewVersion] = useState<JournalVersion | null>(null);
   // 可拖拽调整编辑页文档列表侧栏宽度（持久化）
   const [docListWidth, setDocListWidth] = useState<number>(() => {
     const saved = Number(localStorage.getItem('editor-doctree-width'));
@@ -99,6 +105,8 @@ export default function JournalEditor() {
       navigate(`/edit/${entry.id}`, { replace: true });
     } else if (id) {
       await update(id, entryData);
+      // 记录版本快照（saveVersion 内部会去重，与最近一次相同则不存）
+      saveVersion(id, title.trim(), content).catch(() => {});
     }
     setSaving(false);
     // 本地保存完成（编辑停顿约 3 秒自动存）。云同步独立：顶部☁️手动 / 编辑停顿 10s 自动
@@ -174,6 +182,27 @@ export default function JournalEditor() {
     const doc = entries.find(e => !e.deletedAt && (e.title || '无标题') === t);
     if (doc) { setCurrent(doc); navigate(`/edit/${doc.id}`); }
     else { window.alert(`未找到文档「${t}」，可能标题已更改或被删除`); }
+  };
+
+  // 打开版本历史
+  const openHistory = async () => {
+    if (!id || id === 'new') { window.alert('请先保存文档后再查看历史'); return; }
+    const vs = await getVersions(id);
+    setVersions(vs);
+    setPreviewVersion(vs[0] ?? null);
+    setShowHistory(true);
+  };
+  // 恢复到某个历史版本
+  const handleRestore = async (v: JournalVersion) => {
+    if (!window.confirm(`恢复到 ${new Date(v.createdAt).toLocaleString('zh-CN')} 的版本？当前内容会被覆盖（覆盖前的内容已自动存为最新版本，可在历史里找回）`)) return;
+    if (!id) return;
+    // 先把当前内容存一份快照，避免丢失
+    await saveVersion(id, title, content).catch(() => {});
+    const contentPlain = v.content.replace(/[#*`[\]()>|~_ -]/g, '').replace(/\s+/g, ' ').trim();
+    setTitle(v.title);
+    setContent(v.content);
+    await update(id, { title: v.title, content: v.content, contentPlain });
+    setShowHistory(false);
   };
 
   // 反向引用：哪些文档用 [[本文档标题]] 链接了本文档
@@ -263,6 +292,16 @@ export default function JournalEditor() {
             </div>
           )}
         </div>
+
+        {/* 版本历史 */}
+        <button
+          className="btn-ghost text-xs flex items-center gap-1"
+          onClick={openHistory}
+          disabled={!currentEntry?.id}
+          title="版本历史（查看 / 恢复历史版本）"
+        >
+          <History className="h-3.5 w-3.5" /> 历史
+        </button>
 
         <div className="flex-1" />
         {/* 置顶切换 */}
@@ -391,6 +430,51 @@ export default function JournalEditor() {
           </div>
         )}
       </div>
+
+      {/* 版本历史模态 */}
+      {showHistory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 animate-fade-in" onClick={() => setShowHistory(false)}>
+          <div className="flex w-full max-w-4xl h-[70vh] rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            {/* 左：版本列表 */}
+            <div className="w-56 shrink-0 border-r border-[var(--color-border)] overflow-y-auto p-2">
+              <p className="text-xs font-medium text-[var(--color-text-secondary)] px-2 py-1.5">版本历史（{versions.length}）</p>
+              {versions.length === 0 ? (
+                <p className="text-xs text-[var(--color-text-tertiary)] p-4 text-center">还没有历史版本<br/>（编辑后会自动记录）</p>
+              ) : versions.map(v => (
+                <button
+                  key={v.id}
+                  onClick={() => setPreviewVersion(v)}
+                  className={`w-full text-left rounded-md px-2.5 py-2 text-xs transition-colors ${previewVersion?.id === v.id ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)]' : 'hover:bg-[var(--color-surface-2)]'}`}
+                >
+                  <p className="font-medium truncate">{v.title || '无标题'}</p>
+                  <p className="text-[10px] text-[var(--color-text-tertiary)] mt-0.5">{new Date(v.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</p>
+                </button>
+              ))}
+            </div>
+            {/* 右：预览 */}
+            <div className="flex-1 flex flex-col min-w-0">
+              <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2.5">
+                <span className="text-sm font-medium text-[var(--color-text)]">
+                  {previewVersion ? new Date(previewVersion.createdAt).toLocaleString('zh-CN') : '版本预览'}
+                </span>
+                <div className="flex gap-2">
+                  {previewVersion && (
+                    <button className="btn-primary text-xs" onClick={() => handleRestore(previewVersion)}>恢复此版本</button>
+                  )}
+                  <button className="btn-ghost text-xs" onClick={() => setShowHistory(false)}>关闭</button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4">
+                {previewVersion ? (
+                  <div className="prose-custom text-sm" dangerouslySetInnerHTML={{ __html: markdownToHtml(previewVersion.content) }} />
+                ) : (
+                  <p className="text-center text-sm text-[var(--color-text-tertiary)] py-10">选择左侧版本查看内容</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -52,6 +52,26 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
   const [showSearch, setShowSearch] = useState(false);
   // 格式刷：第一次点复制选区格式，第二次点应用到新选区
   const [storedMarks, setStoredMarks] = useState<{ type: string }[] | null>(null);
+  // 双向链接 [[ 浮层
+  const [wlOpen, setWlOpen] = useState(false);
+  const [wlQuery, setWlQuery] = useState('');
+  const [wlIndex, setWlIndex] = useState(0);
+  const wlRef = useRef<HTMLDivElement>(null);
+  const wlStartRef = useRef<number>(-1);
+  const { entries: allDocs } = useJournalStore();
+  // 双向链接浮层：过滤文档（提前定义，供下方 effect 使用）
+  const filteredDocs = wlQuery
+    ? allDocs.filter((d: any) => !d.deletedAt && (d.title || '无标题').toLowerCase().includes(wlQuery.toLowerCase())).slice(0, 8)
+    : allDocs.filter((d: any) => !d.deletedAt).slice(0, 8);
+  // 选中某文档：删除已输入的 [[query，插入 wikilink 节点（editor 在下方声明，函数体延迟引用）
+  const insertWl = (doc: any) => {
+    if (!editor) return;
+    const end = editor.state.selection.$from.pos;
+    const start = wlStartRef.current;
+    if (start < 0) return;
+    editor.chain().focus().deleteRange({ from: Math.max(0, start - 2), to: end }).insertContent({ type: 'wikilink', attrs: { target: doc.title || '无标题' } }).run();
+    setWlOpen(false);
+  };
   const slashItemsRef = useRef<HTMLDivElement>(null);
   // 记录最后由编辑器 emit 出去的 markdown，用于区分「外部加载」与「自身输入」，
   // 避免输入时回流触发 setContent 把 TipTap 增量历史栈清空（撤销一次清空的 bug 根因）
@@ -198,6 +218,46 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
     dom.addEventListener('click', onClick);
     return () => dom.removeEventListener('click', onClick);
   }, [editor, onWikilinkClick]);
+
+  // 输入 [[ 检测：弹出文档搜索浮层
+  useEffect(() => {
+    if (!editor) return;
+    const check = () => {
+      const { $from } = editor.state.selection;
+      const textBefore = editor.state.doc.textBetween(Math.max(0, $from.pos - 30), $from.pos, '\n');
+      const idx = textBefore.lastIndexOf('[[');
+      if (idx >= 0) {
+        const after = textBefore.slice(idx + 2);
+        if (!after.includes(']]') && !after.includes('[[') && after.length <= 30) {
+          wlStartRef.current = $from.pos - after.length;
+          setWlQuery(after);
+          setWlIndex(0);
+          if (!wlOpen) setWlOpen(true);
+          return;
+        }
+      }
+      if (wlOpen) setWlOpen(false);
+    };
+    editor.on('update', check);
+    editor.on('selectionUpdate', check);
+    return () => {
+      editor.off('update', check);
+      editor.off('selectionUpdate', check);
+    };
+  }, [editor, wlOpen]);
+
+  // 浮层打开时的键盘导航
+  useEffect(() => {
+    if (!wlOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setWlIndex(i => Math.min(i + 1, filteredDocs.length - 1)); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); setWlIndex(i => Math.max(i - 1, 0)); }
+      else if (e.key === 'Enter') { e.preventDefault(); const d = filteredDocs[wlIndex]; if (d) insertWl(d); }
+      else if (e.key === 'Escape') { e.preventDefault(); setWlOpen(false); }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [wlOpen, wlIndex, filteredDocs]);
 
   // AI 结果注入：n 变化时把 text 插入/替换当前选区
   const lastInsertN = useRef(0);
@@ -439,6 +499,36 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
 
       {/* 编辑器内容 */}
       <EditorContent editor={editor} />
+
+      {/* 双向链接浮层 */}
+      {wlOpen && (
+        <div
+          ref={wlRef}
+          className="absolute left-0 top-auto mt-2 w-64 max-h-72 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl z-50"
+        >
+          <div className="px-3 py-1.5 text-[10px] text-[var(--color-text-tertiary)] border-b border-[var(--color-border)]">
+            链接到文档（↑↓ 选择，↵ 插入，Esc 取消）
+          </div>
+          {filteredDocs.length === 0 ? (
+            <div className="px-3 py-4 text-center text-xs text-gray-400">无匹配文档</div>
+          ) : (
+            filteredDocs.map((d: any, i) => (
+              <button
+                key={d.id}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-left transition-colors ${i === wlIndex ? 'bg-[var(--color-primary-light)]' : ''}`}
+                onMouseEnter={() => setWlIndex(i)}
+                onClick={() => insertWl(d)}
+              >
+                <span className="text-xs">📄</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-[var(--color-text)] truncate">{d.title || '无标题'}</p>
+                  {d.subject && <p className="text-[10px] text-[var(--color-text-tertiary)] truncate">{d.subject}</p>}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      )}
 
       {/* 斜杠命令菜单 */}
       {slashOpen && (

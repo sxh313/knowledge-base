@@ -1,4 +1,4 @@
-import { db, type JournalEntry, type Note, type KnowledgeCard, type AIConversation, type AppSettings, type AISettings } from './schema';
+import { db, type JournalEntry, type Note, type KnowledgeCard, type AIConversation, type AppSettings, type AISettings, type JournalVersion } from './schema';
 
 // ──── Settings ────
 
@@ -120,6 +120,44 @@ export async function createJournal(data: Omit<JournalEntry, 'id' | 'createdAt' 
   const entry: JournalEntry = { id, ...data, createdAt: now, updatedAt: now };
   await db.journals.put(entry);
   return entry;
+}
+
+// ──── 文档版本历史 ────
+
+/** 保存一个版本快照（内容与最近一次不同才存，每篇文档最多保留 30 个） */
+export async function saveVersion(journalId: string, title: string, content: string) {
+  if (!journalId || !content?.trim()) return;
+  const latest = await db.journalVersions
+    .where('journalId').equals(journalId)
+    .reverse().sortBy('createdAt');
+  const last = latest[0];
+  // 与最近一次内容相同则跳过（避免自动保存产生大量重复快照）
+  if (last && last.title === title && last.content === content) return;
+  const now = Date.now();
+  const v: JournalVersion = {
+    id: crypto.randomUUID(),
+    journalId,
+    title,
+    content,
+    createdAt: now,
+  };
+  await db.journalVersions.put(v);
+  // 超过 30 个，删掉最旧的
+  if (latest.length >= 30) {
+    const toDelete = latest.slice(29).map(x => x.id); // latest 已 reverse，最旧在末尾
+    await db.journalVersions.bulkDelete(toDelete);
+  }
+}
+
+/** 获取某篇文档的全部历史版本（新→旧） */
+export async function getVersions(journalId: string): Promise<JournalVersion[]> {
+  const all = await db.journalVersions.where('journalId').equals(journalId).toArray();
+  return all.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** 删除某个版本 */
+export async function deleteVersion(id: string) {
+  await db.journalVersions.delete(id);
 }
 
 /** 复制文档（克隆，生成新 id） */
