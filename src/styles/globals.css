@@ -346,6 +346,44 @@
   }
   .prose-custom td > p, .prose-custom th > p { margin: 0; }
   .prose-custom .selectedCell { background: var(--color-primary-light); }
+
+  /* Callout 提示框（GFM alerts）：飞书/Notion 式彩色块 */
+  .prose-custom div[data-type="callout"] {
+    margin: 0.75rem 0;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-md);
+    border-left: 4px solid var(--callout-color, var(--color-primary));
+    background: var(--callout-bg, var(--color-primary-light));
+    position: relative;
+  }
+  .prose-custom div[data-type="callout"]::before {
+    content: var(--callout-emoji, "💡");
+    margin-right: 0.4rem;
+    font-size: 1rem;
+    line-height: 1;
+  }
+  .prose-custom div[data-type="callout"] > p:first-child { margin-top: 0; }
+  .prose-custom div[data-type="callout"] > p:last-child { margin-bottom: 0; }
+  .prose-custom div[data-type="callout"][data-variant="note"] {
+    --callout-color: var(--color-primary);
+    --callout-bg: var(--color-primary-light);
+    --callout-emoji: "💡";
+  }
+  .prose-custom div[data-type="callout"][data-variant="tip"] {
+    --callout-color: var(--color-success);
+    --callout-bg: var(--color-success-light);
+    --callout-emoji: "✅";
+  }
+  .prose-custom div[data-type="callout"][data-variant="warning"] {
+    --callout-color: var(--color-accent);
+    --callout-bg: var(--color-accent-light);
+    --callout-emoji: "⚠️";
+  }
+  .prose-custom div[data-type="callout"][data-variant="danger"] {
+    --callout-color: var(--color-danger);
+    --callout-bg: var(--color-danger-light);
+    --callout-emoji: "🔴";
+  }
 }
 
 /* ─── Utilities ──────────────────────────────────────────────── */
@@ -451,4 +489,49 @@
 }
 .rotate-y-180 {
   transform: rotateY(180deg);
+}
+
+/* ─── 打印 / 导出 PDF 样式 ──────────────────────────────────── */
+@media print {
+  /* 隐藏应用外壳，只显示打印容器 */
+  body * { visibility: hidden; }
+  #print-root, #print-root * { visibility: visible; }
+  #print-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 24px;
+    color: #1f2329;
+    background: #fff;
+  }
+  #print-root h1 { font-size: 1.8rem; font-weight: 700; margin: 0 0 0.5rem; }
+  #print-root h2 { font-size: 1.4rem; font-weight: 600; margin: 1rem 0 0.4rem; }
+  #print-root h3 { font-size: 1.15rem; font-weight: 600; margin: 0.8rem 0 0.3rem; }
+  #print-root p { line-height: 1.7; margin: 0.4rem 0; }
+  #print-root pre {
+    background: #0d1117 ! important;
+    color: #c9d1d9 ! important;
+    padding: 0.75rem;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.8rem;
+  }
+  #print-root code { font-family: ui-monospace, monospace; }
+  #print-root blockquote {
+    border-left: 3px solid #3370ff;
+    padding-left: 0.75rem;
+    color: #646a73;
+    margin: 0.5rem 0;
+  }
+  #print-root table { border-collapse: collapse; width: 100%; }
+  #print-root th, #print-root td { border: 1px solid #d0d3da; padding: 0.3rem 0.5rem; }
+  #print-root div[data-type="callout"] {
+    margin: 0.6rem 0;
+    padding: 0.6rem 0.8rem;
+    border-radius: 6px;
+    border-left: 4px solid var(--callout-color, #3370ff);
+    background: var(--callout-bg, #eaf1ff);
+  }
+  @page { margin: 1.5cm; }
 }

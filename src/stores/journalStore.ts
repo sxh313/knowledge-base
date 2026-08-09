@@ -22,6 +22,8 @@ interface JournalStore {
   remove: (id: string) => Promise<void>;
   togglePin: (id: string) => Promise<void>;
   duplicate: (id: string) => Promise<void>;
+  /** 一键创建/打开今日笔记（每日总结），返回 entry 与是否新建 */
+  createTodayNote: () => Promise<{ entry: JournalEntry; created: boolean }>;
   setCurrent: (entry: JournalEntry | null) => void;
   setSearchQuery: (q: string) => void;
   setSelectedTag: (tag: string | null) => void;
@@ -115,6 +117,37 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   duplicate: async (id) => {
     const entry = await duplicateJournal(id);
     set((state) => ({ entries: [entry, ...state.entries] }));
+  },
+  createTodayNote: async () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1;
+    const d = now.getDate();
+    const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const title = `${y}年${m}月${d}日`;
+    // 查找今天的每日笔记（标题匹配 dateStr 或中文标题，或今日创建且标签含"日记"）
+    const { entries } = get();
+    const todayStart = new Date(y, m - 1, d).getTime();
+    const todayEnd = todayStart + 86400000;
+    const existing = entries.find((e) =>
+      !e.deletedAt &&
+      e.createdAt >= todayStart && e.createdAt < todayEnd &&
+      (e.title === title || e.title === dateStr || (e.tags ?? []).includes('日记')),
+    );
+    if (existing) {
+      const fresh = await getJournal(existing.id);
+      set({ currentEntry: fresh });
+      return { entry: fresh ?? existing, created: false };
+    }
+    const entry = await get().create({
+      title,
+      content: `# ${title}\n\n## 今日总结\n\n`,
+      contentPlain: '',
+      tags: ['日记'],
+      subject: '每日笔记',
+      sourceType: 'manual',
+    });
+    return { entry, created: true };
   },
   setCurrent: (entry) => set({ currentEntry: entry }),
   setSearchQuery: (q) => set({ searchQuery: q }),

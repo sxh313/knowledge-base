@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import {
   Plus, Search, Pencil, RotateCcw, Trash2, Layers,
-  PackageOpen, ChevronDown, X, CalendarClock,
+  PackageOpen, ChevronDown, X, CalendarClock, Copy, Pin, PinOff,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useCardStore, type CardFilterState } from '../stores/cardStore';
 import type { KnowledgeCard } from '../lib/db/schema';
 import CardEditorModal from '../components/CardEditorModal';
+import ContextMenu, { type ContextMenuItem } from '../components/ContextMenu';
 
 const stateMeta: Record<KnowledgeCard['state'], { label: string; emoji: string }> = {
   new: { label: '新', emoji: '🆕' },
@@ -29,13 +30,39 @@ export default function Cards() {
     cards, isLoading, searchQuery, filterTag, filterState,
     load, setSearch, setFilterTag, setFilterState, clearFilters,
     getFiltered, getAllTags, getDueCount,
-    removeCard, resetProgress,
+    removeCard, resetProgress, addCard,
   } = useCardStore();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<KnowledgeCard | undefined>(undefined);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; card: KnowledgeCard } | null>(null);
+
+  // 卡片置顶（轻量 localStorage 实现，不进 DB）
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('card-pinned');
+      return new Set(raw ? JSON.parse(raw) : []);
+    } catch { return new Set(); }
+  });
+  const toggleCardPin = (id: string) => {
+    setPinnedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      localStorage.setItem('card-pinned', JSON.stringify([...next]));
+      return next;
+    });
+  };
+  const duplicateCard = async (card: KnowledgeCard) => {
+    await addCard({
+      front: card.front + ' (副本)',
+      back: card.back,
+      tags: card.tags,
+      cardType: card.cardType,
+      journalId: card.journalId,
+    });
+  };
 
   useEffect(() => { load(); }, []);
 
@@ -43,6 +70,8 @@ export default function Cards() {
   const allTags = getAllTags();
   const dueCount = getDueCount();
   const total = cards.length;
+  // 置顶卡片排前面
+  const sorted = [...filtered].sort((a, b) => Number(pinnedIds.has(b.id)) - Number(pinnedIds.has(a.id)));
 
   const toggleExpand = (id: string) => {
     setExpanded((prev) => {
@@ -165,16 +194,21 @@ export default function Cards() {
             <button className="btn-ghost text-xs mt-3" onClick={clearFilters}>清除筛选</button>
           </div>
         ) : (
-          filtered.map((card) => {
+          sorted.map((card) => {
             const meta = stateMeta[card.state];
             const isExpanded = expanded.has(card.id);
+            const isPinned = pinnedIds.has(card.id);
             const days = Math.ceil((card.nextReviewAt - Date.now()) / 86400000);
             const due = days <= 0;
             return (
-              <article key={card.id} className="card space-y-2.5">
+              <article key={card.id}
+                className={`card space-y-2.5 ${isPinned ? 'ring-1 ring-[var(--color-accent)]/40' : ''}`}
+                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, card }); }}
+              >
                 {/* 正面 */}
                 <div className="flex items-start justify-between gap-3">
                   <p className="font-semibold text-[var(--color-text)] flex-1 whitespace-pre-wrap break-words">
+                    {isPinned && <Pin className="inline h-3.5 w-3.5 mr-1 text-[var(--color-accent)] align-text-bottom" />}
                     {card.front}
                   </p>
                   <span className="text-xs whitespace-nowrap" title="卡片状态">
@@ -268,6 +302,33 @@ export default function Cards() {
       {/* 编辑/新建模态框 */}
       {modalOpen && (
         <CardEditorModal card={editing} onClose={() => setModalOpen(false)} />
+      )}
+
+      {/* 右键菜单 */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          items={[
+            { key: 'edit', label: '编辑', icon: <Pencil className="h-3.5 w-3.5" />, onClick: () => openEdit(contextMenu.card) },
+            { key: 'dup', label: '复制', icon: <Copy className="h-3.5 w-3.5" />, onClick: () => duplicateCard(contextMenu.card), divider: true },
+            {
+              key: 'pin',
+              label: pinnedIds.has(contextMenu.card.id) ? '取消置顶' : '置顶',
+              icon: pinnedIds.has(contextMenu.card.id) ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />,
+              onClick: () => toggleCardPin(contextMenu.card.id),
+              divider: true,
+            },
+            {
+              key: 'del',
+              label: '删除',
+              icon: <Trash2 className="h-3.5 w-3.5" />,
+              danger: true,
+              onClick: () => removeCard(contextMenu.card.id),
+            },
+          ] as ContextMenuItem[]}
+        />
       )}
     </div>
   );

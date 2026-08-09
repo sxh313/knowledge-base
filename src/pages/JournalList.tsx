@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Star, Menu, X, Copy } from 'lucide-react';
+import { Star, Menu, X, Copy, CalendarDays, UploadCloud } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useViewModeStore } from '../stores/viewModeStore';
@@ -8,11 +8,51 @@ import DocTree from '../components/DocTree';
 
 export default function JournalList() {
   const navigate = useNavigate();
-  const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedSubject, setSelectedSubject, togglePin, duplicate, sortBy, setSortBy } = useJournalStore();
+  const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedSubject, setSelectedSubject, togglePin, duplicate, sortBy, setSortBy, create, createTodayNote } = useJournalStore();
   const { hasAnyProviderConfigured } = useSettingsStore();
   const { isMobile } = useViewModeStore();
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showTreeDrawer, setShowTreeDrawer] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+
+  // 拖拽导入 .md 文件：批量读取并创建文档
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const files = Array.from(e.dataTransfer.files).filter(
+      (f) => f.name.toLowerCase().endsWith('.md') || f.name.toLowerCase().endsWith('.markdown') || f.type === 'text/markdown',
+    );
+    if (files.length === 0) return;
+    let ok = 0;
+    for (const f of files) {
+      try {
+        const text = await f.text();
+        // 从内容提取首个标题作为文档标题
+        const titleMatch = text.match(/^#\s+(.+)$/m);
+        const title = titleMatch ? titleMatch[1].trim() : f.name.replace(/\.(md|markdown)$/i, '');
+        const contentPlain = text.replace(/[#*`[\]()>|~_ -]/g, '').replace(/\s+/g, ' ').trim();
+        await create({
+          title,
+          content: text,
+          contentPlain,
+          tags: [],
+          subject: '导入',
+          sourceType: 'import',
+        });
+        ok++;
+      } catch {
+        /* 跳过失败的文件 */
+      }
+    }
+    setImportMsg(ok > 0 ? `✅ 已导入 ${ok} 篇文档` : '未能导入任何 .md 文件');
+    setTimeout(() => setImportMsg(null), 3500);
+  }, [create]);
+
+  const handleToday = async () => {
+    const { entry } = await createTodayNote();
+    navigate(`/edit/${entry.id}`);
+  };
 
   useEffect(() => { loadAll(); }, []);
 
@@ -33,7 +73,26 @@ export default function JournalList() {
   };
 
   return (
-    <div className="flex h-full animate-fade-in">
+    <div
+      className="flex h-full animate-fade-in relative"
+      onDrop={handleDrop}
+      onDragOver={(e) => { e.preventDefault(); if (!dragging) setDragging(true); }}
+      onDragLeave={(e) => { if (e.currentTarget === e.target) setDragging(false); }}
+    >
+      {/* 拖拽导入遮罩 */}
+      {dragging && (
+        <div className="absolute inset-0 z-40 m-2 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-[var(--color-primary)] bg-[var(--color-primary-light)]/80 backdrop-blur-sm animate-fade-in pointer-events-none">
+          <UploadCloud className="h-12 w-12 text-[var(--color-primary)] mb-2" />
+          <p className="text-base font-medium text-[var(--color-primary)]">松开以导入 .md 文件</p>
+          <p className="text-xs text-[var(--color-text-secondary)] mt-1">支持批量导入，自动识别标题</p>
+        </div>
+      )}
+      {/* 导入结果提示 */}
+      {importMsg && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] shadow-lg px-4 py-2 text-sm animate-slide-up">
+          {importMsg}
+        </div>
+      )}
       {/* 左侧：文档目录树（桌面常驻，移动端抽屉） */}
       {!isMobile && (
         <aside className="w-52 shrink-0 border-r border-[var(--color-border)] overflow-y-auto p-2 hidden lg:block">
@@ -73,9 +132,15 @@ export default function JournalList() {
               </p>
             </div>
           </div>
-          <button className="btn-primary text-sm" onClick={() => { setCurrent(null); navigate('/edit/new'); }}>
-            新建文档
-          </button>
+          <div className="flex items-center gap-2">
+            <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={handleToday} title="一键创建/打开今天的每日总结">
+              <CalendarDays className="h-4 w-4" />
+              今日笔记
+            </button>
+            <button className="btn-primary text-sm" onClick={() => { setCurrent(null); navigate('/edit/new'); }}>
+              新建文档
+            </button>
+          </div>
         </div>
 
         {/* 首次引导 */}

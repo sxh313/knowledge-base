@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, FileText, Plus, Brain, BookOpen, BarChart3, Settings, MessageSquare } from 'lucide-react';
+import { Search, FileText, Plus, Brain, BookOpen, BarChart3, Settings, MessageSquare, CalendarDays, Tag } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { searchJournals } from '../lib/search/fuse';
 
@@ -11,7 +11,7 @@ interface CommandPaletteProps {
 
 export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const navigate = useNavigate();
-  const { entries, setCurrent } = useJournalStore();
+  const { entries, setCurrent, createTodayNote } = useJournalStore();
   const [query, setQuery] = useState('');
   // 让搜索计算延后，避免快速输入时阻塞 UI（大数据量下尤其明显）
   const deferredQuery = useDeferredValue(query);
@@ -42,10 +42,15 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const commands = useMemo(() => {
     const actions = [
       { type: 'action' as const, icon: Plus, label: '新建文档', desc: '创建一篇新文档', action: () => { setCurrent(null); navigate('/edit/new'); } },
+      { type: 'action' as const, icon: CalendarDays, label: '今日笔记', desc: '一键创建/打开今天的每日总结', action: async () => {
+        const { entry } = await createTodayNote();
+        navigate(`/edit/${entry.id}`);
+      } },
       { type: 'action' as const, icon: MessageSquare, label: 'AI 助手', desc: '与 AI 对话', action: () => navigate('/ai') },
       { type: 'action' as const, icon: BookOpen, label: '复习', desc: '复习知识卡片', action: () => navigate('/review') },
       { type: 'action' as const, icon: Brain, label: '知识图谱', desc: '查看知识关联', action: () => navigate('/knowledge') },
       { type: 'action' as const, icon: BarChart3, label: '统计', desc: '查看学习数据', action: () => navigate('/stats') },
+      { type: 'action' as const, icon: Tag, label: '标签管理', desc: '标签云与按标签筛选', action: () => navigate('/tags') },
       { type: 'action' as const, icon: Settings, label: '设置', desc: 'API 配置和数据管理', action: () => navigate('/settings') },
     ];
 

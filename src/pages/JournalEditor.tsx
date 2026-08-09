@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Star, PanelLeft, Maximize } from 'lucide-react';
+import { Star, PanelLeft, Maximize, Download, FileCode, ChevronDown } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
 import { useViewModeStore } from '../stores/viewModeStore';
@@ -29,6 +29,10 @@ export default function JournalEditor() {
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [showDocList, setShowDocList] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  /** 选中→AI 操作：把 AI 处理结果通过 signal 注入回编辑器选区 */
+  const [insertSignal, setInsertSignal] = useState<{ text: string; n: number } | null>(null);
+  const exportRef = useRef<HTMLDivElement>(null);
 
   const isNew = !id || id === 'new';
 
@@ -113,6 +117,49 @@ export default function JournalEditor() {
     }
   };
 
+  // 选中→AI 操作（飞书式）：翻译/解释/润色，完成后把结果注入编辑器选区
+  const handleSelectionAI = async (action: 'translate' | 'explain' | 'polish', selectedText: string) => {
+    if (!selectedText.trim()) return;
+    const sysMap: Record<string, string> = {
+      translate: '你是一位专业翻译。把以下文本翻译成英文（若原文是英文则翻译成中文），只输出译文，不要任何解释或前后缀。',
+      explain: '你是一位耐心的老师。用简洁通俗的中文解释以下内容，必要时举例，帮助读者快速理解。',
+      polish: '你是一位中文写作助手。润色以下文字，使其更通顺、专业、地道，保留原意，只输出润色后的结果。',
+    };
+    const messages = [
+      { role: 'system' as const, content: sysMap[action] },
+      { role: 'user' as const, content: selectedText },
+    ];
+    try {
+      const result = await callAI('explain', messages);
+      setInsertSignal({ text: result.trim(), n: Date.now() });
+      // 清空残留的 streamingContent（避免污染下次 AI 面板）
+      useAIStore.setState({ streamingContent: '' });
+    } catch {
+      /* 错误已由 store 处理，AIChatPanel 未打开时静默 */
+    }
+  };
+
+  const handleExportHTML = async () => {
+    setShowExportMenu(false);
+    const { exportJournalHTML } = await import('../lib/services/export');
+    exportJournalHTML(title || '未命名', content);
+  };
+  const handleExportPDF = async () => {
+    setShowExportMenu(false);
+    const { exportJournalPDF } = await import('../lib/services/export');
+    exportJournalPDF(title || '未命名', content);
+  };
+
+  // 点击外部关闭导出菜单
+  useEffect(() => {
+    if (!showExportMenu) return;
+    const onDown = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) setShowExportMenu(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [showExportMenu]);
+
   return (
     <div className="flex flex-col h-full animate-fade-in">
       {/* 工具栏 */}
@@ -150,6 +197,28 @@ export default function JournalEditor() {
           <button className="btn-ghost text-xs" onClick={() => setShowAIPanel(!showAIPanel)} title="展开/收起 AI 面板">
             {showAIPanel ? '关闭 AI' : 'AI 助手'}
           </button>
+        </div>
+
+        {/* 导出 */}
+        <div className="relative" ref={exportRef}>
+          <button
+            className="btn-ghost text-xs flex items-center gap-1"
+            onClick={() => setShowExportMenu(s => !s)}
+            disabled={!content.trim()}
+            title="导出为 HTML / PDF"
+          >
+            <Download className="h-3.5 w-3.5" /> 导出 <ChevronDown className="h-3 w-3" />
+          </button>
+          {showExportMenu && (
+            <div className="absolute right-0 top-full mt-1 w-40 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl z-50 py-1 animate-slide-down">
+              <button onClick={handleExportHTML} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-[var(--color-text)] hover:bg-[var(--color-surface-2)]">
+                <FileCode className="h-3.5 w-3.5" /> 导出 HTML
+              </button>
+              <button onClick={handleExportPDF} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-[var(--color-text)] hover:bg-[var(--color-surface-2)]">
+                <FileCode className="h-3.5 w-3.5" /> 导出 PDF（打印）
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex-1" />
@@ -212,7 +281,13 @@ export default function JournalEditor() {
 
             {/* 编辑器 */}
             {mode === 'rich' ? (
-              <RichTextEditor value={content} onChange={setContent} autoFocus={isNew} />
+              <RichTextEditor
+                value={content}
+                onChange={setContent}
+                autoFocus={isNew}
+                onAIAction={handleSelectionAI}
+                insertSignal={insertSignal}
+              />
             ) : (
               <textarea
                 className="w-full min-h-[60vh] bg-transparent border-none outline-none resize-none font-mono text-sm leading-relaxed"

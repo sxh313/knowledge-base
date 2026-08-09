@@ -17,9 +17,12 @@ import {
   Code, Link as LinkIcon, List, ListOrdered,
   Quote, Heading1, Heading2, Heading3, Pilcrow, CodeXml, Minus, Image as ImageIcon,
   Undo2, Redo2, ListChecks, ZoomIn, ZoomOut, Copy,
+  Lightbulb, Languages, Sparkles, BookOpen, Search,
 } from 'lucide-react';
 import { markdownToHtml, htmlToMarkdown } from '../lib/markdownUtils';
 import { getSlashCommands, type SlashCommandItem } from './tiptap/slashCommand';
+import { Callout } from './tiptap/callout';
+import SearchReplaceBar from './SearchReplaceBar';
 
 // 代码语法高亮：注册常用语言集合
 const lowlight = createLowlight(common);
@@ -29,15 +32,20 @@ interface RichTextEditorProps {
   onChange: (value: string) => void;  // 返回 Markdown
   placeholder?: string;
   autoFocus?: boolean;
+  /** 选中→AI 操作（飞书式）：翻译/解释/润色 */
+  onAIAction?: (action: 'translate' | 'explain' | 'polish', selectedText: string) => void;
+  /** AI 结果注入信号：n 变化时把 text 插入/替换到当前选区 */
+  insertSignal?: { text: string; n: number } | null;
 }
 
-export default function RichTextEditor({ value, onChange, placeholder, autoFocus }: RichTextEditorProps) {
+export default function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, insertSignal }: RichTextEditorProps) {
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
   // 撤销/重做可用性需要随编辑器事务更新而重渲染
   const [, force] = useReducer((x: number) => x + 1, 0);
   const [fontScale, setFontScale] = useState(1);
+  const [showSearch, setShowSearch] = useState(false);
   const slashItemsRef = useRef<HTMLDivElement>(null);
 
   const editor = useEditor({
@@ -57,6 +65,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       TableRow,
       TableCell,
       TableHeader,
+      Callout,
     ],
     content: markdownToHtml(value),
     autofocus: autoFocus ? 'end' : false,
@@ -144,6 +153,38 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       editor.off('transaction', handler);
     };
   }, [editor]);
+
+  // Ctrl+H / Ctrl+F 打开搜索替换
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      const k = e.key.toLowerCase();
+      if (mod && (k === 'h' || k === 'f')) {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // AI 结果注入：n 变化时把 text 插入/替换当前选区
+  const lastInsertN = useRef(0);
+  useEffect(() => {
+    if (!editor || !insertSignal) return;
+    if (insertSignal.n === lastInsertN.current) return;
+    lastInsertN.current = insertSignal.n;
+    const { from, to } = editor.state.selection;
+    editor.chain().focus().insertContentAt({ from, to }, insertSignal.text).run();
+  }, [editor, insertSignal]);
+
+  // 选中→AI 操作：取当前选中文本，回调给父组件
+  const triggerSelectionAI = (action: 'translate' | 'explain' | 'polish') => {
+    if (!editor || !onAIAction) return;
+    const { from, to } = editor.state.selection;
+    const text = editor.state.doc.textBetween(from, to, '\n');
+    if (text.trim()) onAIAction(action, text);
+  };
 
   const allCommands = getSlashCommands();
   const filteredCommands = slashQuery
@@ -262,6 +303,14 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
           >
             <LinkIcon className="w-3.5 h-3.5" />
           </ToolbarBtn>
+          {onAIAction && (
+            <>
+              <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
+              <ToolbarBtn onClick={() => triggerSelectionAI('translate')} title="AI 翻译"><Languages className="w-3.5 h-3.5" /></ToolbarBtn>
+              <ToolbarBtn onClick={() => triggerSelectionAI('explain')} title="AI 解释"><BookOpen className="w-3.5 h-3.5" /></ToolbarBtn>
+              <ToolbarBtn onClick={() => triggerSelectionAI('polish')} title="AI 润色"><Sparkles className="w-3.5 h-3.5" /></ToolbarBtn>
+            </>
+          )}
         </div>
       </BubbleMenu>
       )}
@@ -285,6 +334,7 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
         <ToolbarBtn onClick={() => editor.chain().focus().toggleOrderedList().run()} active={isActive('orderedList')} title="有序列表"><ListOrdered className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleTaskList().run()} active={isActive('taskList')} title="待办清单"><ListChecks className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleBlockquote().run()} active={isActive('blockquote')} title="引用"><Quote className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => editor.chain().focus().setCallout('note').run()} active={isActive('callout')} title="提示框（Callout）"><Lightbulb className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleCodeBlock().run()} active={isActive('codeBlock')} title="代码块"><CodeXml className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="分隔线"><Minus className="w-4 h-4" /></ToolbarBtn>
         <label className="p-1.5 rounded-md transition-colors text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] cursor-pointer" title="插入图片（选文件）">
@@ -313,7 +363,11 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
           const md = htmlToMarkdown(editor.getHTML());
           navigator.clipboard?.writeText(md);
         }} title="复制为 Markdown"><Copy className="w-4 h-4" /></ToolbarBtn>
+        <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
+        <ToolbarBtn onClick={() => setShowSearch(true)} title="查找替换 (Ctrl+H)"><Search className="w-4 h-4" /></ToolbarBtn>
       </div>
+
+      {showSearch && editor && <SearchReplaceBar editor={editor} onClose={() => setShowSearch(false)} />}
 
       {/* 编辑器内容 */}
       <EditorContent editor={editor} />

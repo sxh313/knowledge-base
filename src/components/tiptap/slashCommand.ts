@@ -111,5 +111,33 @@ export function getSlashCommands(): SlashCommandItem[] {
         if (url) editor.chain().focus().insertContent(`<a href="${url}">${url}</a>`).run();
       },
     },
+    {
+      title: '提示框',
+      description: '💡 提示块（Callout）',
+      icon: '💡',
+      keywords: '提示 callout note 提示框',
+      action: (editor) => editor.chain().focus().setCallout('note').run(),
+    },
+    {
+      title: '技巧框',
+      description: '✅ 技巧块',
+      icon: '✅',
+      keywords: '技巧 tip callout',
+      action: (editor) => editor.chain().focus().setCallout('tip').run(),
+    },
+    {
+      title: '警告框',
+      description: '⚠️ 警告块',
+      icon: '⚠️',
+      keywords: '警告 warning callout',
+      action: (editor) => editor.chain().focus().setCallout('warning').run(),
+    },
+    {
+      title: '危险框',
+      description: '🔴 危险/重要块',
+      icon: '🔴',
+      keywords: '危险 重要 danger important callout',
+      action: (editor) => editor.chain().focus().setCallout('danger').run(),
+    },
   ];
 }

@@ -2,7 +2,7 @@ import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   FileText, MessageSquare, Brain, BarChart3, Settings, BookOpen, Layers,
   ChevronLeft, Sun, Moon, Monitor, Search, HelpCircle, Smartphone, MoreHorizontal, X, Trash2,
-  Cloud, Loader2,
+  Cloud, Loader2, Tag,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useThemeStore, type ThemeMode } from '../stores/themeStore';
@@ -21,6 +21,7 @@ const navItems = [
   { to: '/cards', icon: Layers, label: '卡片库' },
   { to: '/knowledge', icon: Brain, label: '知识图谱' },
   { to: '/stats', icon: BarChart3, label: '统计' },
+  { to: '/tags', icon: Tag, label: '标签' },
   { to: '/settings', icon: Settings, label: '设置' },
 ];
 

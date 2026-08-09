@@ -9,6 +9,7 @@ import { getCardsDueToday } from './lib/db/queries';
 import Layout from './components/Layout';
 import CommandPalette from './components/CommandPalette';
 import ShortcutsModal from './components/ShortcutsModal';
+import PomodoroWidget from './components/PomodoroWidget';
 import JournalList from './pages/JournalList';
 import JournalEditor from './pages/JournalEditor';
 import AIChat from './pages/AIChat';
@@ -19,6 +20,7 @@ import KnowledgeMap from './pages/KnowledgeMap';
 import SettingsPage from './pages/SettingsPage';
 import Manual from './pages/Manual';
 import Trash from './pages/Trash';
+import Tags from './pages/Tags';
 
 export default function App() {
   const { load: loadSettings } = useSettingsStore();
@@ -100,10 +102,12 @@ export default function App() {
           <Route path="/knowledge" element={<KnowledgeMap />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/tags" element={<Tags />} />
           <Route path="/manual" element={<Manual />} />
           <Route path="/trash" element={<Trash />} />
         </Route>
       </Routes>
+      <PomodoroWidget />
     </BrowserRouter>
   );
 }
