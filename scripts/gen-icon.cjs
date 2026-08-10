@@ -14,37 +14,48 @@ function smoothstep(a, b, x) {
   return t * t * (3 - 2 * t);
 }
 
+// 圆角方形 SDF:返回带符号距离(负=内部)
+function roundedRectSDF(px, py, cx, cy, hw, hh, rad) {
+  const qx = Math.abs(px - cx) - (hw - rad);
+  const qy = Math.abs(py - cy) - (hh - rad);
+  const ox = Math.max(qx, 0);
+  const oy = Math.max(qy, 0);
+  return Math.sqrt(ox * ox + oy * oy) + Math.min(Math.max(qx, qy), 0) - rad;
+}
+
 // 生成 RGBA 像素
 function draw(size) {
   const data = Buffer.alloc(size * size * 4);
   const c = size / 2;
-  const r = size / 2;
+  const hw = size * 0.46;   // 半宽
+  const hh = size * 0.46;   // 半高
+  const rad = size * 0.22;  // 圆角半径
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const idx = (y * size + x) * 4;
       const px = x + 0.5, py = y + 0.5;
 
-      // 圆形裁剪(带 1px 抗锯齿)
-      const d = Math.sqrt((px - c) * (px - c) + (py - c) * (py - c));
-      const circleAlpha = 1 - smoothstep(r - 1, r + 1, d);
-      if (circleAlpha <= 0) { data[idx + 3] = 0; continue; }
+      // 圆角方形裁剪(带抗锯齿)
+      const dRect = roundedRectSDF(px, py, c, c, hw, hh, rad);
+      const rectAlpha = 1 - smoothstep(-1, 1, dRect);
+      if (rectAlpha <= 0) { data[idx + 3] = 0; continue; }
 
       // 归一化坐标
-      const nd = d / r; // 0中心 → 1边缘
+      const nd = Math.sqrt((px - c) * (px - c) + (py - c) * (py - c)) / c;
       const ny = y / size;
 
-      // ─── 背景:深蓝紫渐变(上浅下深) ───
-      // 顶部 #233A8F → 底部 #1A1A3E,带轻微径向提亮增加立体感
+      // ─── 背景:明亮宝蓝色渐变(上亮下深) ───
+      // 顶部 #2E7CF6 亮蓝 → 底部 #1E4FD8 宝蓝,带轻微径向提亮
       const t = ny; // 0顶部 → 1底部
-      let br = Math.round(58 + (26 - 58) * t);
-      let bgc = Math.round(62 + (34 - 62) * t);
-      let bb = Math.round(120 + (70 - 120) * t);
-      // 中心轻微提亮
+      let br = Math.round(88 + (30 - 88) * t);
+      let bgc = Math.round(140 + (70 - 140) * t);
+      let bb = Math.round(246 + (216 - 246) * t);
+      // 中心轻微提亮,更活泼
       const glow = 1 - nd;
-      br = Math.round(br + 18 * glow);
-      bgc = Math.round(bgc + 18 * glow);
-      bb = Math.round(bb + 24 * glow);
+      br = Math.round(br + 30 * glow);
+      bgc = Math.round(bgc + 30 * glow);
+      bb = Math.round(bb + 20 * glow);
 
       // ─── 中央白色书本 ───
       const bookLeft = c - size * 0.14;
@@ -64,19 +75,19 @@ function draw(size) {
       else if (inLeft) {
         br = 255; bgc = 255; bb = 255;
         for (let n = 0; n < 3; n++) {
-          if (inTextLine(lineY(n), bookLeft + size * 0.028, bookLeft + size * 0.12)) { br = 58; bgc = 62; bb = 120; }
+          if (inTextLine(lineY(n), bookLeft + size * 0.028, bookLeft + size * 0.12)) { br = 46; bgc = 110; bb = 246; }
         }
       } else if (inRight) {
         br = 255; bgc = 255; bb = 255;
         for (let n = 0; n < 3; n++) {
-          if (inTextLine(lineY(n + 1), spineX + size * 0.028, spineX + size * 0.12)) { br = 58; bgc = 62; bb = 120; }
+          if (inTextLine(lineY(n + 1), spineX + size * 0.028, spineX + size * 0.12)) { br = 46; bgc = 110; bb = 246; }
         }
       }
 
       data[idx] = Math.min(255, Math.round(br));
       data[idx + 1] = Math.min(255, Math.round(bgc));
       data[idx + 2] = Math.min(255, Math.round(bb));
-      data[idx + 3] = Math.round(255 * circleAlpha);
+      data[idx + 3] = Math.round(255 * rectAlpha);
     }
   }
   return data;

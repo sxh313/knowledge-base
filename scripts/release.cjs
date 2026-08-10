@@ -32,7 +32,8 @@ const setupPath = findSetupExe();
 function findSetupExe() {
   const dir = path.join(ROOT, 'release');
   if (!fs.existsSync(dir)) throw new Error('缺少 release/ 目录,请先 npm run exe 打包');
-  const exe = fs.readdirSync(dir).find((f) => /Setup.*\.exe$/.test(f) && !f.endsWith('.blockmap'));
+  // 匹配英文名(knowledge-base-setup-1.0.0.exe)或中文名(知识库 Setup 1.0.0.exe)
+  const exe = fs.readdirSync(dir).find((f) => /(setup|Setup).*\.exe$/.test(f) && !f.endsWith('.blockmap'));
   if (!exe) throw new Error('release/ 中未找到 Setup 安装包');
   return path.join(dir, exe);
 }
@@ -104,13 +105,26 @@ async function main() {
     console.log(`ℹ️ Release ${tag} 已存在,复用 id=${releaseId}`);
   }
 
-  // 3. 上传安装包资产
-  const fileName = path.basename(setupPath, '.exe');
-  const fileStat = fs.statSync(setupPath);
-  const content = fs.readFileSync(setupPath);
-  console.log(`⏫ 上传 ${fileName}.exe (${(fileStat.size/1024/1024).toFixed(1)} MB)...`);
-  const asset = await api(token, 'POST', `${uploadBase}/releases/${releaseId}/assets?name=${encodeURIComponent(fileName + '.exe')}`, content, true);
-  console.log(`✅ 已上传资产: ${asset.name}`);
+  // 3. 上传资产:安装包 + latest.yml(自动更新必需,文件名与 latest.yml 的 url 一致)
+  const uploadAsset = async (filePath, assetName) => {
+    const stat = fs.statSync(filePath);
+    const content = fs.readFileSync(filePath);
+    console.log(`⏫ 上传 ${assetName} (${(stat.size/1024/1024).toFixed(1)} MB)...`);
+    const asset = await api(token, 'POST', `${uploadBase}/releases/${releaseId}/assets?name=${encodeURIComponent(assetName)}`, content, true);
+    console.log(`✅ 已上传资产: ${asset.name}`);
+    return asset;
+  };
+
+  // 安装包要用英文名(与 latest.yml 的 url 匹配),electron-updater 才找得到
+  const setupBaseName = path.basename(setupPath, '.exe');
+  const setupAssetName = 'knowledge-base-setup-' + version + '.exe';
+  await uploadAsset(setupPath, setupAssetName);
+
+  // 上传 latest.yml(electron-updater 更新的元数据源)
+  const latestYml = path.join(ROOT, 'release', 'latest.yml');
+  if (fs.existsSync(latestYml)) {
+    await uploadAsset(latestYml, 'latest.yml');
+  }
 
   console.log(`\n🎉 发布完成: https://github.com/${owner}/${repo}/releases/tag/${tag}`);
 }

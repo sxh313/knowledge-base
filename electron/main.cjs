@@ -1,8 +1,9 @@
 // Electron 主进程:把 Vite 构建产物(dist/)包装为桌面应用
 // 桌面端使用 HashRouter + loadFile,避免 file:// 协议下的路由问题
-const { app, BrowserWindow, shell, Menu, protocol, net } = require('electron');
+const { app, BrowserWindow, shell, Menu, protocol, net, ipcMain } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
+const { autoUpdater } = require('electron-updater');
 
 const DIST_DIR = path.join(__dirname, '..', 'dist');
 
@@ -39,6 +40,40 @@ if (!gotLock) {
 
 let mainWindow = null;
 
+// ─── 自动更新(electron-updater) ───
+// 配置 GitHub Releases 作为更新源;桌面渲染进程通过 IPC 触发检查/下载/安装
+function setupAutoUpdater() {
+  autoUpdater.autoDownload = false; // 由用户点击后再下载
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  // 转发更新状态到渲染进程
+  const send = (channel, data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update:' + channel, data);
+    }
+  };
+
+  autoUpdater.on('checking-for-update', () => send('status', { status: 'checking' }));
+  autoUpdater.on('update-available', (info) => send('status', { status: 'available', version: info.version, info }));
+  autoUpdater.on('update-not-available', () => send('status', { status: 'not-available' }));
+  autoUpdater.on('error', (err) => send('status', { status: 'error', message: err ? err.message : '未知错误' }));
+  autoUpdater.on('download-progress', (p) => send('progress', { percent: p.percent, transferred: p.transferred, total: p.total }));
+  autoUpdater.on('update-downloaded', (info) => send('status', { status: 'downloaded', version: info.version, info }));
+
+  // IPC:检查更新
+  ipcMain.handle('update:check', () => {
+    autoUpdater.checkForUpdates().catch(() => {});
+  });
+  // IPC:下载更新(下载完成后提示重启安装)
+  ipcMain.handle('update:download', () => {
+    autoUpdater.downloadUpdate().catch(() => {});
+  });
+  // IPC:退出并安装
+  ipcMain.handle('update:install', () => {
+    autoUpdater.quitAndInstall();
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -74,6 +109,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // 初始化自动更新
+  setupAutoUpdater();
+
   // 注册自定义协议:app:// 映射到 dist/ 目录,以同源方式服务静态资源(含 ES module chunk)
   protocol.handle('app', (request) => {
     const url = new URL(request.url);

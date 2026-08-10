@@ -9,6 +9,7 @@ import { useSyncStore } from '../stores/syncStore';
 import { useUpdateStore, manualCheck, applyUpdate } from '../stores/updateStore';
 import { exportKeys, importKeys, type KeyBundle } from '../lib/utils/keyVault';
 import SyncConflicts from '../components/SyncConflicts';
+import DesktopUpdater from '../components/DesktopUpdater';
 import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search } from 'lucide-react';
 
 const PROVIDER_INFO: { key: ProviderName; label: string; desc: string; icon: string }[] = [
@@ -597,6 +598,8 @@ export default function SettingsPage() {
           )}
           <p className="text-xs text-[var(--color-text-tertiary)]">提示：应用会在后台每小时自动检查更新，发现新版本时右下角会弹出提示。</p>
         </div>
+        {/* 桌面端(Electron)自动更新:有更新时点按钮直接下载并重启安装 */}
+        <DesktopUpdater />
       </section>
 
       <div className="text-xs text-gray-400 text-center pb-8">
