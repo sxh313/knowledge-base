@@ -1,9 +1,25 @@
-// Electron 预加载脚本:目前不向渲染进程暴露 Node 能力(应用完全本地优先,基于 IndexedDB)。
-// 预留位置,后续若需要原生能力(系统通知增强、文件对话框等)可在此 contextBridge 暴露。
+// Electron 预加载脚本:通过 contextBridge 暴露自动更新等原生能力。
 // 所有 window 检测必须判断存在性,确保与浏览器环境兼容。
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   isElectron: true,
+  // ─── 自动更新 ───
+  update: {
+    check: () => ipcRenderer.invoke('update:check'),
+    download: () => ipcRenderer.invoke('update:download'),
+    install: () => ipcRenderer.invoke('update:install'),
+    // 订阅更新状态/进度事件,返回取消订阅函数
+    onStatus: (cb) => {
+      const listener = (_e, data) => cb(data);
+      ipcRenderer.on('update:status', listener);
+      return () => ipcRenderer.removeListener('update:status', listener);
+    },
+    onProgress: (cb) => {
+      const listener = (_e, data) => cb(data);
+      ipcRenderer.on('update:progress', listener);
+      return () => ipcRenderer.removeListener('update:progress', listener);
+    },
+  },
 });
