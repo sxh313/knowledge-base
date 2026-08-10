@@ -4,21 +4,20 @@ import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
 import fs from 'fs';
 
-// 桌面端构建(Electron):使用相对路径 base,禁用 PWA Service Worker(桌面应用无需离线缓存)
-const isElectronBuild = process.env.BUILD_TARGET === 'electron';
-// 注入应用版本号(来自 package.json)供设置页显示
+// 桌面端(Electron)或安卓(Capacitor)构建:使用相对路径 base + 禁用 PWA
+const isDesktopBuild = process.env.BUILD_TARGET === 'electron' || process.env.BUILD_TARGET === 'android';
 const appVersion = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')).version;
 
 export default defineConfig({
-  // 桌面端用相对路径,确保 loadFile 时 /assets 能正确解析到 dist 下
-  base: isElectronBuild ? './' : '/',
+  // 桌面/安卓端用相对路径,确保本地加载时 /assets 能正确解析
+  base: isDesktopBuild ? './' : '/',
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
   },
   plugins: [
     react(),
-    // Electron 构建时 PWA 已禁用,这里为 virtual:pwa-register/react 提供桩模块(桌面端无 Service Worker)
-    isElectronBuild && {
+    // 桌面端(Electron)或安卓(Capacitor)构建:PWA 已禁用,这里为 virtual:pwa-register/react 提供桩模块
+    isDesktopBuild && {
       name: 'pwa-register-stub',
       resolveId(id: string) {
         if (id === 'virtual:pwa-register/react' || id === 'virtual:pwa-register') return '\0' + id;
@@ -62,8 +61,8 @@ export default defineConfig({
         });
       },
     },
-    // 桌面端构建跳过 PWA(Service Worker 在 Electron 无意义)
-    !isElectronBuild && VitePWA({
+    // 桌面端/安卓构建跳过 PWA(Service Worker 在桌面/容器化 WebView 无意义)
+    !isDesktopBuild && VitePWA({
       registerType: 'prompt',
       injectRegister: false,
       includeAssets: ['icons/*.png', 'favicon.ico'],
