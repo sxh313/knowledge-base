@@ -18,9 +18,14 @@
     "electron:dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "tsc -b && cross-env BUILD_TARGET=electron vite build && electron-builder --win",
     "electron:build:portable": "tsc -b && cross-env BUILD_TARGET=electron vite build && electron-builder --win portable",
-    "exe": "powershell -ExecutionPolicy Bypass -File deploy-exe.ps1"
+    "exe": "powershell -ExecutionPolicy Bypass -File deploy-exe.ps1",
+    "android:sync": "cross-env BUILD_TARGET=android vite build && cap sync android",
+    "android:build": "cross-env BUILD_TARGET=android vite build && cap sync android && cd android && gradlew.bat assembleDebug"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
     "@tiptap/core": "^3.29.2",
     "@tiptap/extension-code-block-lowlight": "^3.29.2",
     "@tiptap/extension-image": "^3.29.2",
