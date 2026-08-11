@@ -36,6 +36,20 @@ export function getSlashCommands(): SlashCommandItem[] {
       action: (editor) => editor.chain().focus().toggleHeading({ level: 3 }).run(),
     },
     {
+      title: '标题 4',
+      description: '四级标题',
+      icon: 'H4',
+      keywords: 'h4 标题 四级',
+      action: (editor) => editor.chain().focus().toggleHeading({ level: 4 }).run(),
+    },
+    {
+      title: '标题 5',
+      description: '五级标题',
+      icon: 'H5',
+      keywords: 'h5 标题 五级',
+      action: (editor) => editor.chain().focus().toggleHeading({ level: 5 }).run(),
+    },
+    {
       title: '正文',
       description: '普通段落',
       icon: '¶',

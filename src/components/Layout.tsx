@@ -309,9 +309,9 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
       </aside>
 
       {/* 主内容区 */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-hidden flex flex-col">
         {/* 顶部栏 */}
-        <div className="glass sticky top-0 z-10 flex items-center gap-3 border-b border-[var(--color-border)] px-5 h-12">
+        <div className="glass sticky top-0 z-10 flex items-center gap-3 border-b border-[var(--color-border)] px-5 h-12 shrink-0">
           <button
             onClick={onOpenPalette}
             className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)] transition-colors"
@@ -365,7 +365,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </NavLink>
         </div>
 
-        <div key={location.pathname} className="px-5 py-6 animate-slide-up">
+        <div key={location.pathname} className="px-5 py-6 animate-slide-up flex-1 min-h-0 overflow-y-auto">
           <Outlet />
         </div>
       </main>

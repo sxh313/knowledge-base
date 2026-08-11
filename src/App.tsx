@@ -1,5 +1,5 @@
 import { BrowserRouter, HashRouter, Routes, Route } from 'react-router-dom';
-import { useEffect, useState, lazy, Suspense } from 'react';
+import { useEffect, useState, lazy, Suspense, useRef } from 'react';
 import { useSettingsStore } from './stores/settingsStore';
 import { useJournalStore } from './stores/journalStore';
 import { useThemeStore } from './stores/themeStore';
@@ -124,11 +124,14 @@ export default function App() {
     return () => media.removeEventListener('change', handler);
   }, [applySystemChange]);
 
-  // 构建搜索索引时做防抖，避免编辑过程中 entries 频繁变更导致反复重建（O(n)）
+  // 构建搜索索引：仅在初始加载时全量构建一次。
+  // 编辑/保存文档时由 persistJournalWithIndexes 做增量更新（updateSearchEntry），
+  // 无需每次 entries 变化都全量重建（O(n) 开销，文档多时会导致卡顿）。
+  const searchBuiltRef = useRef(false);
   useEffect(() => {
-    if (entries.length === 0) return;
-    const t = setTimeout(() => { buildSearchIndex(entries); }, 400);
-    return () => clearTimeout(t);
+    if (entries.length === 0 || searchBuiltRef.current) return;
+    searchBuiltRef.current = true;
+    buildSearchIndex(entries);
   }, [entries]);
 
   return (

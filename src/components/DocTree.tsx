@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ChevronDown, ChevronRight, FileText, FolderOpen, Plus, Hash,
@@ -36,7 +36,7 @@ interface DocTreeProps {
   onNavigate?: () => void;
 }
 
-export default function DocTree({ onNavigate }: DocTreeProps = {}) {
+function DocTree({ onNavigate }: DocTreeProps = {}) {
   const navigate = useNavigate();
   const { entries, setCurrent, currentEntry, remove, update, duplicate, togglePin } = useJournalStore();
   const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(new Set());
@@ -285,3 +285,6 @@ export default function DocTree({ onNavigate }: DocTreeProps = {}) {
     </div>
   );
 }
+
+// memo：避免父组件（如 JournalEditor）因 content 变化重渲染时，DocTree 也跟着重渲染
+export default memo(DocTree);

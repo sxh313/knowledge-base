@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Star, PanelLeft, PanelRight, Maximize, Download, FileCode, ChevronDown, History, Trash2 } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
@@ -28,6 +28,12 @@ export default function JournalEditor() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  // 传给右侧文档侧栏（大纲/反链/提及）的 content：防抖延迟更新，避免每次按键都触发侧栏重算
+  const [sidebarContent, setSidebarContent] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setSidebarContent(content), 400);
+    return () => clearTimeout(t);
+  }, [content]);
   const [mode, setMode] = useState<EditMode>(isMobile ? 'markdown' : 'rich');
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [showDocList, setShowDocList] = useState(false);
@@ -43,6 +49,10 @@ export default function JournalEditor() {
   });
   const [saving, setSaving] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  // 字数统计：useMemo 缓存，避免每次渲染都重复计算 content.replace
+  const charCount = useMemo(() => content.replace(/\s+/g, '').length, [content]);
+  // 稳定的导航回调：避免每次渲染都创建新引用，配合子组件 React.memo 减少重渲染
+  const handleNavigate = useCallback((targetId: string) => navigate(`/edit/${targetId}`), [navigate]);
   /** 选中→AI 操作：把 AI 处理结果通过 signal 注入回编辑器选区 */
   const [insertSignal, setInsertSignal] = useState<{ text: string; n: number } | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
@@ -165,7 +175,7 @@ export default function JournalEditor() {
   };
 
   // 选中→AI 操作（飞书式）：翻译/解释/润色，完成后把结果注入编辑器选区
-  const handleSelectionAI = async (action: 'translate' | 'explain' | 'polish', selectedText: string) => {
+  const handleSelectionAI = useCallback(async (action: 'translate' | 'explain' | 'polish', selectedText: string) => {
     if (!selectedText.trim()) return;
     const sysMap: Record<string, string> = {
       translate: '你是一位专业翻译。把以下文本翻译成英文（若原文是英文则翻译成中文），只输出译文，不要任何解释或前后缀。',
@@ -184,15 +194,15 @@ export default function JournalEditor() {
     } catch {
       /* 错误已由 store 处理，AIChatPanel 未打开时静默 */
     }
-  };
+  }, [callAI]);
 
   // 点击双向链接：跳转到目标文档
-  const handleWikilinkClick = (target: string) => {
+  const handleWikilinkClick = useCallback((target: string) => {
     const t = target.trim();
     const doc = entries.find(e => !e.deletedAt && (e.title || '无标题') === t);
     if (doc) { setCurrent(doc); navigate(`/edit/${doc.id}`); }
     else { window.alert(`未找到文档「${t}」，可能标题已更改或被删除`); }
-  };
+  }, [entries, navigate]);
 
   // 打开版本历史
   const openHistory = async () => {
@@ -395,7 +405,7 @@ export default function JournalEditor() {
                 </span>
               )}
               {currentEntry?.subject && <span className="tag-accent">{currentEntry.subject}</span>}
-              {content.trim() && <span key={content.replace(/\s+/g, '').length} className="animate-fade-in tabular-nums">· {content.replace(/\s+/g, '').length} 字</span>}
+              {content.trim() && <span key={charCount} className="animate-fade-in tabular-nums">· {charCount} 字</span>}
               {currentEntry?.summary && <span className="text-[var(--color-primary)]">· ✨ 已生成总结</span>}
             </div>
 
@@ -431,8 +441,8 @@ export default function JournalEditor() {
             journalId={currentEntry?.id}
             title={title}
             aliases={currentEntry?.aliases}
-            content={content}
-            onNavigate={(targetId) => navigate(`/edit/${targetId}`)}
+            content={sidebarContent}
+            onNavigate={handleNavigate}
           />
         )}
 
