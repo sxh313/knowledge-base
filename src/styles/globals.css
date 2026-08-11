@@ -321,17 +321,18 @@
   .prose-custom [data-hidden="true"] {
     display: none !important;
   }
-  /* 大纲自动编号：1 / 1.1 / 1.1.1 / 1.1.1.1 / 1.1.1.1.1（用 ::after 显示，避免与折叠箭头冲突） */
+  /* 大纲自动编号：每级标题独立编号（H1: 1/2/3…，H2: 1/2/3…，H3: 1/2/3…，以此类推）
+     —— 用 ::after 显示，避免与折叠箭头冲突 */
   .prose-custom h1.collapsible-heading { counter-reset: h2c h3c h4c h5c; counter-increment: h1c; }
   .prose-custom h2.collapsible-heading { counter-reset: h3c h4c h5c; counter-increment: h2c; }
   .prose-custom h3.collapsible-heading { counter-reset: h4c h5c; counter-increment: h3c; }
   .prose-custom h4.collapsible-heading { counter-reset: h5c; counter-increment: h4c; }
   .prose-custom h5.collapsible-heading { counter-increment: h5c; }
   .prose-custom h1.collapsible-heading::after { content: counter(h1c) ". "; }
-  .prose-custom h2.collapsible-heading::after { content: counter(h1c) "." counter(h2c) ". "; }
-  .prose-custom h3.collapsible-heading::after { content: counter(h1c) "." counter(h2c) "." counter(h3c) ". "; }
-  .prose-custom h4.collapsible-heading::after { content: counter(h1c) "." counter(h2c) "." counter(h3c) "." counter(h4c) ". "; }
-  .prose-custom h5.collapsible-heading::after { content: counter(h1c) "." counter(h2c) "." counter(h3c) "." counter(h4c) "." counter(h5c) ". "; }
+  .prose-custom h2.collapsible-heading::after { content: counter(h2c) ". "; }
+  .prose-custom h3.collapsible-heading::after { content: counter(h3c) ". "; }
+  .prose-custom h4.collapsible-heading::after { content: counter(h4c) ". "; }
+  .prose-custom h5.collapsible-heading::after { content: counter(h5c) ". "; }
   .prose-custom h1.collapsible-heading::after,
   .prose-custom h2.collapsible-heading::after,
   .prose-custom h3.collapsible-heading::after,
