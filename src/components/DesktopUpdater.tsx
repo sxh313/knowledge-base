@@ -52,6 +52,11 @@ export default function DesktopUpdater() {
             <RefreshCw className="h-4 w-4" /> 检查更新
           </button>
         )}
+        {state === 'not-available' && (
+          <button className="btn-secondary text-sm" onClick={handleCheck}>
+            <RefreshCw className="h-4 w-4" /> 重新检查
+          </button>
+        )}
       </div>
 
       {/* 状态展示 */}
@@ -90,7 +95,7 @@ export default function DesktopUpdater() {
 
       {state === 'not-available' && (
         <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
-          <CheckCircle2 className="h-4 w-4" /> {message}
+          <CheckCircle2 className="h-4 w-4" /> 没有新版本，当前已是最新版本
         </div>
       )}
 

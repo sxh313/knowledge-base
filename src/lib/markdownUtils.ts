@@ -17,12 +17,25 @@ const turndown = new TurndownService({
 });
 
 // 配置 turndown 规则
+// 待办清单：<ul data-type="taskList"><li data-checked="false"><label><input type="checkbox"><span></span></label><div><p>任务</p></div></li></ul>
+// → - [ ] 任务（GFM task list 语法，保证 round-trip 不丢失类型）
 turndown.addRule('taskList', {
-  filter: (node) => {
-    return node.nodeName === 'INPUT' && (node as HTMLInputElement).hasAttribute('type') && (node as HTMLInputElement).getAttribute('type') === 'checkbox';
-  },
-  replacement: (content, node) => {
-    return (node as HTMLInputElement).checked ? '[x] ' : '[ ] ';
+  filter: (node) =>
+    node.nodeName === 'UL' && (node as HTMLElement).getAttribute('data-type') === 'taskList',
+  replacement: (_content, node) => {
+    const items = Array.from((node as HTMLElement).children).filter(
+      (c) => c.nodeName === 'LI',
+    );
+    const lines = items.map((li) => {
+      const checkbox = li.querySelector('input[type="checkbox"]');
+      const checked = checkbox ? (checkbox as HTMLInputElement).checked : false;
+      // 去掉 label（checkbox 部分），只保留任务文本
+      const label = li.querySelector('label');
+      if (label) label.remove();
+      const text = turndown.turndown(li.innerHTML).trim();
+      return `- [${checked ? 'x' : ' '}] ${text}`;
+    });
+    return lines.join('\n') + '\n';
   },
 });
 
@@ -104,6 +117,27 @@ export function markdownToHtml(markdown: string): string {
     return `<span data-wikilink="${t}">${t}</span>`;
   });
 
+  // GFM task list → TipTap taskList
+  // marked 输出：<ul><li><input disabled type="checkbox"> 任务</li></ul>
+  // TipTap 需要：<ul data-type="taskList"><li data-type="taskItem" data-checked="false"><div><p>任务</p></div></li></ul>
+  html = html.replace(
+    /<ul>\s*<li>\s*<input\s+([^>]*?)\/?>\s*([\s\S]*?)<\/li>(\s*<li>\s*<input\s+([^>]*?)\/?>\s*([\s\S]*?)<\/li>)*\s*<\/ul>/gi,
+    (match) => {
+      // 仅当列表里至少有一个 checkbox 才转成 taskList
+      if (!/<input[^>]*type=["']?checkbox/i.test(match)) return match;
+      const items = Array.from(match.matchAll(/<li>\s*<input\s+([^>]*?)\/?>\s*([\s\S]*?)<\/li>/gi));
+      const lis = items
+        .map((m) => {
+          const attrs = m[1] || '';
+          const checked = /checked/i.test(attrs);
+          const inner = m[2] || '';
+          return `<li data-type="taskItem" data-checked="${checked}"><div><p>${inner.trim()}</p></div></li>`;
+        })
+        .join('\n');
+      return `<ul data-type="taskList">\n${lis}\n</ul>`;
+    },
+  );
+
   // 把 <blockquote><p>[!NOTE]</p>... 结构转成 callout div
   // 兼容 marked 输出：<blockquote>\n<p>[!NOTE]<br>... 或 <p>[!NOTE]</p>
   html = html.replace(
@@ -114,8 +148,10 @@ export function markdownToHtml(markdown: string): string {
     },
   );
   // 另一种形式：[!NOTE] 后面紧跟内容（同一 <p> 内）
+  // 注意：breaks:true 会让 "> [!NOTE]\n> 内容" 解析成 <p>[!NOTE]<br>内容</p>，
+  // 需去掉 [!NOTE] 后紧跟的 <br>，避免 round-trip 后多出空行
   html = html.replace(
-    /<blockquote>\s*<p>\[!(NOTE|TIP|WARNING|IMPORTANT|CAUTION|DANGER)\]\s*([\s\S]*?)<\/blockquote>/gi,
+    /<blockquote>\s*<p>\[!(NOTE|TIP|WARNING|IMPORTANT|CAUTION|DANGER)\]\s*(?:<br\s*\/?>\s*)?([\s\S]*?)<\/blockquote>/gi,
     (_m, typeRaw: string, rest: string) => {
       const variant = CALLOUT_TYPE_MAP[typeRaw.toUpperCase()] || 'note';
       return `<div data-type="callout" data-variant="${variant}"><p>${rest}</div>`;

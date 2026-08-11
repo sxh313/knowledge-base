@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useReducer, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, useCallback, useReducer, memo, type CSSProperties } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
@@ -15,7 +15,7 @@ import TableHeader from '@tiptap/extension-table-header';
 import {
   Bold, Italic, Strikethrough,
   Code, Link as LinkIcon, List, ListOrdered,
-  Quote, Heading1, Heading2, Heading3, Pilcrow, CodeXml, Minus, Image as ImageIcon,
+  Quote, Heading1, Heading2, Heading3, Heading4, Heading5, Pilcrow, CodeXml, Minus, Image as ImageIcon,
   Undo2, Redo2, ListChecks, ZoomIn, ZoomOut, Copy,
   Lightbulb, Languages, Sparkles, BookOpen, Search, PaintRoller,
 } from 'lucide-react';
@@ -25,6 +25,7 @@ import { useJournalStore } from '../stores/journalStore';
 import { getSlashCommands, type SlashCommandItem } from './tiptap/slashCommand';
 import { Callout } from './tiptap/callout';
 import { Wikilink } from './tiptap/wikilink';
+import { CollapsibleHeading } from './tiptap/collapsibleHeading';
 import SearchReplaceBar from './SearchReplaceBar';
 
 // 代码语法高亮：注册常用语言集合
@@ -71,13 +72,17 @@ interface RichTextEditorProps {
   journalId?: string;
 }
 
-export default function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, insertSignal, onWikilinkClick, journalId }: RichTextEditorProps) {
+function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, insertSignal, onWikilinkClick, journalId }: RichTextEditorProps) {
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
   // 撤销/重做可用性需要随编辑器事务更新而重渲染
   const [, force] = useReducer((x: number) => x + 1, 0);
-  const [fontScale, setFontScale] = useState(1);
+  // 编辑器字号缩放：持久化到 localStorage，退出再进入保持用户设置
+  const [fontScale, setFontScale] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('kb-editor-font-scale'));
+    return Number.isFinite(saved) && saved >= 0.7 && saved <= 1.6 ? saved : 1;
+  });
   const [showSearch, setShowSearch] = useState(false);
   // 格式刷：第一次点复制选区格式，第二次点应用到新选区
   const [storedMarks, setStoredMarks] = useState<{ type: string }[] | null>(null);
@@ -105,13 +110,16 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
   // 记录最后由编辑器 emit 出去的 markdown，用于区分「外部加载」与「自身输入」，
   // 避免输入时回流触发 setContent 把 TipTap 增量历史栈清空（撤销一次清空的 bug 根因）
   const lastEmittedRef = useRef(value);
+  // 合并 onUpdate 的 rAF 句柄：连续输入时只做一次 turndown 转换
+  const rafRef = useRef<number>(0);
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
+        heading: false,
         codeBlock: false,
       }),
+      CollapsibleHeading.configure({ levels: [1, 2, 3, 4, 5] }),
       Placeholder.configure({
         placeholder: placeholder || '输入 / 插入内容，或直接输入文字...',
       }),
@@ -142,12 +150,23 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       },
     },
     onUpdate: ({ editor }) => {
-      const md = htmlToMarkdown(editor.getHTML());
-      // 标记本次变化由编辑器自身产生：下方 effect 据此跳过 setContent，保留撤销/重做历史栈
-      lastEmittedRef.current = md;
-      onChange(md);
+      // 用 rAF 合并同一帧内的多次事务，避免连续快速输入时每次都做完整的 turndown 转换
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = 0;
+        if (editor.isDestroyed) return;
+        const md = htmlToMarkdown(editor.getHTML());
+        // 标记本次变化由编辑器自身产生：下方 effect 据此跳过 setContent，保留撤销/重做历史栈
+        lastEmittedRef.current = md;
+        onChange(md);
+      });
     },
   });
+
+  // 字号缩放持久化：每次变化写入 localStorage，退出再进入保持
+  useEffect(() => {
+    localStorage.setItem('kb-editor-font-scale', String(fontScale));
+  }, [fontScale]);
 
   // 外部内容变化时同步到编辑器（如加载已有文档）
   useEffect(() => {
@@ -192,11 +211,82 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
   // 解析正文里 attachment://<id> 图片为可渲染 dataUrl（content 保持引用，仅渲染层替换 src）
   useEffect(() => {
     if (!editor) return;
-    const run = () => { if (editor && !editor.isDestroyed) resolveAttachmentImages(editor.view.dom); };
+    const run = () => { if (editor && !editor.isDestroyed && editor.view) resolveAttachmentImages(editor.view.dom); };
     run();
     const raf = requestAnimationFrame(run);
     return () => cancelAnimationFrame(raf);
   }, [editor, value]);
+
+  // 折叠标题：把「已折叠标题之后、下一个同级或更高级标题之前」的内容标记为 data-hidden
+  // （纯展示行为，不写入 Markdown；编辑器内容变化时同步一次）
+  useEffect(() => {
+    if (!editor) return;
+    const syncCollapse = () => {
+      // 编辑器 view 可能尚未挂载（React StrictMode 双重调用 / 首次渲染），需防御
+      if (!editor.view || editor.isDestroyed) return;
+      const root = editor.view.dom;
+      if (!root) return;
+      const headings = Array.from(root.querySelectorAll<HTMLElement>('h1[data-collapsed="true"], h2[data-collapsed="true"], h3[data-collapsed="true"], h4[data-collapsed="true"], h5[data-collapsed="true"]'));
+      // 先清除所有 data-hidden，再按当前折叠状态重新标记
+      root.querySelectorAll<HTMLElement>('[data-hidden]').forEach((el) => el.removeAttribute('data-hidden'));
+      for (const h of headings) {
+        const level = parseInt(h.tagName.slice(1), 10);
+        let el = h.nextElementSibling;
+        while (el) {
+          const tag = el.tagName;
+          if (/^H[1-5]$/.test(tag)) {
+            const elLevel = parseInt(tag.slice(1), 10);
+            // 遇到同级或更高级标题则停止
+            if (elLevel <= level) break;
+          }
+          el.setAttribute('data-hidden', 'true');
+          el = el.nextElementSibling;
+        }
+      }
+    };
+    syncCollapse();
+    // editor.view 可能尚未挂载（React StrictMode 双重调用 / 首次渲染），需防御
+    if (!editor.view || editor.isDestroyed) return;
+    const observer = new MutationObserver(syncCollapse);
+    observer.observe(editor.view.dom, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-collapsed'] });
+    return () => observer.disconnect();
+  }, [editor, value]);
+
+  // 折叠标题：点击标题左侧箭头区域切换折叠状态
+  useEffect(() => {
+    if (!editor) return;
+    const dom = editor.view.dom;
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // 找到被点击的标题元素
+      const headingEl = target.closest<HTMLElement>('h1.collapsible-heading, h2.collapsible-heading, h3.collapsible-heading, h4.collapsible-heading, h5.collapsible-heading');
+      if (!headingEl) return;
+      // 仅当点击落在左侧箭头区域（约 1.1rem 宽）时切换折叠
+      const rect = headingEl.getBoundingClientRect();
+      const arrowWidth = 18; // px，与 CSS 中箭头区域宽度一致
+      if (e.clientX - rect.left > arrowWidth) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // 从 DOM 定位标题节点，再换算成 ProseMirror 位置
+      const view = editor.view;
+      const pos = view.posAtDOM(headingEl, 0);
+      if (pos == null) return;
+      const $pos = view.state.doc.resolve(pos);
+      let headingDepth = -1;
+      for (let d = $pos.depth; d > 0; d--) {
+        if ($pos.node(d).type.name === 'heading') { headingDepth = d; break; }
+      }
+      if (headingDepth < 0) return;
+      const headingNode = $pos.node(headingDepth);
+      const collapsed = !(headingNode.attrs as { collapsed?: boolean }).collapsed;
+      view.dispatch(view.state.tr.setNodeMarkup($pos.before(headingDepth), undefined, {
+        ...headingNode.attrs,
+        collapsed,
+      }));
+    };
+    dom.addEventListener('click', onClick);
+    return () => dom.removeEventListener('click', onClick);
+  }, [editor]);
 
   // 飞书式：粘贴（Ctrl+V 截图）/ 拖拽图片自动插入（DOM 级监听，HMR 友好）
   useEffect(() => {
@@ -313,13 +403,15 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
   }, [editor, wlOpen]);
 
   // 浮层打开时的键盘导航
+  // 用 document 捕获阶段监听：在 ProseMirror 处理 Enter 之前拦截并 preventDefault+stopPropagation，
+  // 否则回车会先触发 splitBlock 插入换行，导致“选中文档后回车不插入、反而插了个空行”的 bug。
   useEffect(() => {
     if (!wlOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowDown') { e.preventDefault(); setWlIndex(i => Math.min(i + 1, filteredDocs.length - 1)); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); setWlIndex(i => Math.max(i - 1, 0)); }
-      else if (e.key === 'Enter') { e.preventDefault(); const d = filteredDocs[wlIndex]; if (d) insertWl(d); }
-      else if (e.key === 'Escape') { e.preventDefault(); setWlOpen(false); }
+      if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setWlIndex(i => Math.min(i + 1, filteredDocs.length - 1)); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setWlIndex(i => Math.max(i - 1, 0)); }
+      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); const d = filteredDocs[wlIndex]; if (d) insertWl(d); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setWlOpen(false); }
     };
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
@@ -386,12 +478,20 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
   }, [editor]);
 
   // 监听斜杠输入和键盘导航
+  // 说明：必须用 document 捕获阶段（capture=true）监听，才能在 ProseMirror 处理 Enter/Arrow 之前
+  // 拦截并 preventDefault。若挂在 editor.view.dom 上（冒泡阶段），ProseMirror 的 splitBlock 会先
+  // 执行插入换行，导致“回车后命令不执行、反而插了个空行”的 bug。与双向链接浮层同一套可靠方案。
   useEffect(() => {
     if (!editor) return;
 
+    const editorEl = editor.view.dom;
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 输入 / 打开命令菜单
-      if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // 仅响应编辑器（含已渲染的斜杠菜单）内的按键，避免影响标题输入框等
+      const inEditor = editorEl.contains(e.target as Node);
+
+      // 输入 / 打开命令菜单（需在 / 被解析插入前判断，故用捕获阶段）
+      if (inEditor && e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         const { state } = editor;
         const { from } = state.selection;
         const textBefore = state.doc.textBetween(0, from, ' ') || '';
@@ -408,15 +508,20 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       if (slashOpen) {
         if (e.key === 'ArrowDown') {
           e.preventDefault();
+          e.stopPropagation();
           setSlashIndex(i => Math.min(i + 1, filteredCommands.length - 1));
         } else if (e.key === 'ArrowUp') {
           e.preventDefault();
+          e.stopPropagation();
           setSlashIndex(i => Math.max(i - 1, 0));
         } else if (e.key === 'Enter') {
           e.preventDefault();
+          e.stopPropagation();
           const cmd = filteredCommands[slashIndex];
           if (cmd) executeCommand(cmd);
         } else if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
           setSlashOpen(false);
         }
       }
@@ -434,12 +539,12 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
       }
     };
 
-    editor.view.dom.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keydown', handleKeyDown, true);
     editor.on('update', handleUpdate);
     editor.on('selectionUpdate', handleUpdate);
 
     return () => {
-      editor.view.dom.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keydown', handleKeyDown, true);
       editor.off('update', handleUpdate);
       editor.off('selectionUpdate', handleUpdate);
     };
@@ -456,6 +561,11 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [editor]);
+
+  // 组件卸载时清理未执行的 rAF
+  useEffect(() => {
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, []);
 
   if (!editor) return null;
 
@@ -503,6 +613,8 @@ export default function RichTextEditor({ value, onChange, placeholder, autoFocus
         <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={isActive('heading', { level: 1 })} title="标题 1"><Heading1 className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} active={isActive('heading', { level: 2 })} title="标题 2"><Heading2 className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} active={isActive('heading', { level: 3 })} title="标题 3"><Heading3 className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()} active={isActive('heading', { level: 4 })} title="标题 4"><Heading4 className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 5 }).run()} active={isActive('heading', { level: 5 })} title="标题 5"><Heading5 className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().setParagraph().run()} active={isActive('paragraph')} title="正文"><Pilcrow className="w-4 h-4" /></ToolbarBtn>
         <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
         <ToolbarBtn onClick={() => editor.chain().focus().toggleBold().run()} active={isActive('bold')} title="加粗"><Bold className="w-4 h-4" /></ToolbarBtn>
@@ -678,3 +790,7 @@ function ToolbarBtn({ children, onClick, active, disabled, title }: { children: 
     </button>
   );
 }
+
+// memo：onChange/onAIAction/onWikilinkClick 已由父组件 useCallback 稳定化，
+// 避免 title/侧栏等无关状态变化时编辑器整体重渲染
+export default memo(RichTextEditor);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, memo } from 'react';
 import { List, ChevronRight } from 'lucide-react';
 
 interface DocOutlineProps {
@@ -41,7 +41,7 @@ function parseHeadings(markdown: string): Heading[] {
   return headings;
 }
 
-export default function DocOutline({ content, onJump, embedded }: DocOutlineProps) {
+function DocOutline({ content, onJump, embedded }: DocOutlineProps) {
   const [activeId, setActiveId] = useState<string>('');
 
   const headings = useMemo(() => parseHeadings(content), [content]);
@@ -117,3 +117,6 @@ export default function DocOutline({ content, onJump, embedded }: DocOutlineProp
     </div>
   );
 }
+
+// memo：content 已由父组件防抖，避免输入时大纲频繁重算
+export default memo(DocOutline);

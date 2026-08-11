@@ -60,6 +60,13 @@ export default function KnowledgeGraph({
     return set;
   }, [centerId, edges]);
 
+  // 节点位置索引：Map 缓存，避免每条边都 O(n) find（原实现 O(n*m)）
+  const nodePosMap = useMemo(() => {
+    const map = new Map<string, { x: number; y: number }>();
+    for (const n of positioned) map.set(n.id, { x: n.x, y: n.y });
+    return map;
+  }, [positioned]);
+
   if (loading) {
     return <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-500" /></div>;
   }
@@ -77,8 +84,8 @@ export default function KnowledgeGraph({
     <div className="card p-4 overflow-auto">
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
         {edges.map(edge => {
-          const s = positioned.find(n => n.id === edge.sourceId);
-          const t = positioned.find(n => n.id === edge.targetId);
+          const s = nodePosMap.get(edge.sourceId);
+          const t = nodePosMap.get(edge.targetId);
           if (!s || !t) return null;
           const dimmed = focusSet && !(focusSet.has(edge.sourceId) && focusSet.has(edge.targetId));
           return (

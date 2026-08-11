@@ -107,18 +107,14 @@
 
   html {
     scroll-behavior: smooth;
-    /* 主题切换时的平滑过渡 */
-    transition: background-color 0.3s ease;
   }
 
   body {
     background: var(--color-bg-grad);
-    background-attachment: fixed;
     color: var(--color-text);
     font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    transition: background-color 0.3s ease, color 0.3s ease;
     min-height: 100vh;
   }
 
@@ -162,10 +158,11 @@
 @layer components {
   /* 主按钮：飞书式纯色蓝 */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white transition-all active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed;
     background-color: var(--color-primary);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-xs);
+    transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
   }
   .btn-primary:hover:not(:disabled) {
     background-color: var(--color-primary-hover);
@@ -174,12 +171,13 @@
 
   /* 次级按钮 */
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-all active:scale-[0.97];
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium active:scale-[0.97];
     background-color: var(--color-surface);
     color: var(--color-text);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-xs);
+    transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
   }
   .btn-secondary:hover {
     background-color: var(--color-surface-hover);
@@ -189,9 +187,10 @@
 
   /* Ghost 按钮 */
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium transition-all active:scale-[0.97];
+    @apply inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium active:scale-[0.97];
     color: var(--color-text-secondary);
     border-radius: var(--radius-md);
+    transition: background-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
   }
   .btn-ghost:hover {
     background-color: var(--color-surface-2);
@@ -255,11 +254,12 @@
     color: var(--color-text-secondary);
   }
 
-  /* 玻璃态：用于工具栏/侧栏 —— 飞书式轻量毛玻璃 */
+  /* 玻璃态：用于工具栏/侧栏 —— 飞书式轻量毛玻璃
+     注意：backdrop-filter 在滚动时非常消耗 GPU，blur 值不宜过大 */
   .glass {
-    background-color: color-mix(in srgb, var(--color-surface) 92%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background-color: color-mix(in srgb, var(--color-surface) 94%, transparent);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
   }
 
   /* 分隔线 */
@@ -280,6 +280,66 @@
     @apply prose-pre:bg-[var(--color-surface-2)] prose-pre:border prose-pre:border-[var(--color-border)];
     @apply prose-blockquote:border-l-[var(--color-primary)] prose-blockquote:bg-[var(--color-primary-light)] prose-blockquote:py-0.5 prose-blockquote:rounded-r-lg;
     @apply prose-img:rounded-lg;
+  }
+
+  /* ─── 可折叠标题 + 大纲自动编号（H1-H5） ─── */
+  .prose-custom {
+    counter-reset: h1c h2c h3c h4c h5c;
+  }
+  .prose-custom .collapsible-heading {
+    position: relative;
+    padding-left: 1.1rem;
+    cursor: default;
+  }
+  /* 折叠箭头（::before），点击切换折叠 */
+  .prose-custom .collapsible-heading::before {
+    content: "▾";
+    position: absolute;
+    left: 0;
+    top: 0.35em;
+    width: 1rem;
+    height: 1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7em;
+    line-height: 1;
+    color: var(--color-text-tertiary);
+    cursor: pointer;
+    border-radius: 0.25rem;
+    user-select: none;
+    transition: color 0.15s ease, background-color 0.15s ease;
+  }
+  .prose-custom .collapsible-heading:hover::before {
+    color: var(--color-primary);
+    background-color: var(--color-surface-2);
+  }
+  .prose-custom .collapsible-heading[data-collapsed="true"]::before {
+    content: "▸";
+  }
+  /* 折叠时隐藏内容（data-hidden 由编辑器 DOM 同步标记） */
+  .prose-custom [data-hidden="true"] {
+    display: none !important;
+  }
+  /* 大纲自动编号：1 / 1.1 / 1.1.1 / 1.1.1.1 / 1.1.1.1.1（用 ::after 显示，避免与折叠箭头冲突） */
+  .prose-custom h1.collapsible-heading { counter-reset: h2c h3c h4c h5c; counter-increment: h1c; }
+  .prose-custom h2.collapsible-heading { counter-reset: h3c h4c h5c; counter-increment: h2c; }
+  .prose-custom h3.collapsible-heading { counter-reset: h4c h5c; counter-increment: h3c; }
+  .prose-custom h4.collapsible-heading { counter-reset: h5c; counter-increment: h4c; }
+  .prose-custom h5.collapsible-heading { counter-increment: h5c; }
+  .prose-custom h1.collapsible-heading::after { content: counter(h1c) ". "; }
+  .prose-custom h2.collapsible-heading::after { content: counter(h1c) "." counter(h2c) ". "; }
+  .prose-custom h3.collapsible-heading::after { content: counter(h1c) "." counter(h2c) "." counter(h3c) ". "; }
+  .prose-custom h4.collapsible-heading::after { content: counter(h1c) "." counter(h2c) "." counter(h3c) "." counter(h4c) ". "; }
+  .prose-custom h5.collapsible-heading::after { content: counter(h1c) "." counter(h2c) "." counter(h3c) "." counter(h4c) "." counter(h5c) ". "; }
+  .prose-custom h1.collapsible-heading::after,
+  .prose-custom h2.collapsible-heading::after,
+  .prose-custom h3.collapsible-heading::after,
+  .prose-custom h4.collapsible-heading::after,
+  .prose-custom h5.collapsible-heading::after {
+    color: var(--color-text-tertiary);
+    font-weight: 500;
+    margin-right: 0.15rem;
   }
 
   /* 待办清单（TipTap task-list）：飞书/Notion 式可勾选 */
@@ -410,7 +470,7 @@
   .prose-custom p:first-child { margin-top: 0 !important; }
   .prose-custom p:last-child { margin-bottom: 0 !important; }
   .prose-custom li { line-height: 1.5 !important; }
-  .prose-custom h1, .prose-custom h2, .prose-custom h3 { line-height: 1.5 !important; }
+  .prose-custom h1, .prose-custom h2, .prose-custom h3, .prose-custom h4, .prose-custom h5 { line-height: 1.5 !important; }
   .prose-custom blockquote { line-height: 1.5 !important; }
 
   /* callout 内段落：行距 1.5 + 段间 0.5 字（与正文统一） */
@@ -446,7 +506,7 @@
     animation: fadeIn 0.3s ease-out both;
   }
   .animate-slide-up {
-    animation: slideUp 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: slideUp 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
   .animate-scale-in {
     animation: scaleIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -473,19 +533,19 @@
 
   /* 列表依次进入：给容器加 .stagger，子元素按序淡入上移（更“大方”的入场感） */
   .stagger > * {
-    animation: slideUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: slideUp 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
-  .stagger > *:nth-child(1)    { animation-delay: 0.02s; }
-  .stagger > *:nth-child(2)    { animation-delay: 0.06s; }
-  .stagger > *:nth-child(3)    { animation-delay: 0.10s; }
-  .stagger > *:nth-child(4)    { animation-delay: 0.14s; }
-  .stagger > *:nth-child(5)    { animation-delay: 0.18s; }
-  .stagger > *:nth-child(6)    { animation-delay: 0.22s; }
-  .stagger > *:nth-child(7)    { animation-delay: 0.26s; }
-  .stagger > *:nth-child(8)    { animation-delay: 0.30s; }
-  .stagger > *:nth-child(9)    { animation-delay: 0.34s; }
-  .stagger > *:nth-child(10)   { animation-delay: 0.38s; }
-  .stagger > *:nth-child(n+11) { animation-delay: 0.42s; }
+  .stagger > *:nth-child(1)    { animation-delay: 0.01s; }
+  .stagger > *:nth-child(2)    { animation-delay: 0.03s; }
+  .stagger > *:nth-child(3)    { animation-delay: 0.05s; }
+  .stagger > *:nth-child(4)    { animation-delay: 0.07s; }
+  .stagger > *:nth-child(5)    { animation-delay: 0.09s; }
+  .stagger > *:nth-child(6)    { animation-delay: 0.11s; }
+  .stagger > *:nth-child(7)    { animation-delay: 0.13s; }
+  .stagger > *:nth-child(8)    { animation-delay: 0.15s; }
+  .stagger > *:nth-child(9)    { animation-delay: 0.17s; }
+  .stagger > *:nth-child(10)   { animation-delay: 0.19s; }
+  .stagger > *:nth-child(n+11) { animation-delay: 0.21s; }
 
   /* 微交互：悬停轻微上浮（统一缓动） */
   .lift {

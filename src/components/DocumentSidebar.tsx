@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { List, Link2, FileText, AlertCircle, ArrowUpRight } from 'lucide-react';
 import DocOutline from './DocOutline';
 import { useJournalStore } from '../stores/journalStore';
@@ -55,7 +55,7 @@ function findUnlinkedMention(content: string, names: string[]): string | null {
  *   只展示候选，用户点击"转为 [[双链]]"后才会改写目标文档。
  * - 失效链接：当前文档中指向不存在目标的 [[链接]]（broken=true），可一键创建目标文档。
  */
-export default function DocumentSidebar({ journalId, title, aliases, content, onNavigate }: DocumentSidebarProps) {
+function DocumentSidebar({ journalId, title, aliases, content, onNavigate }: DocumentSidebarProps) {
   const { entries } = useJournalStore();
   const [tab, setTab] = useState<Tab>('outline');
   const [backlinks, setBacklinks] = useState<BacklinkInfo[]>([]);
@@ -253,3 +253,6 @@ export default function DocumentSidebar({ journalId, title, aliases, content, on
     </div>
   );
 }
+
+// memo：content 已由父组件防抖，配合稳定 onNavigate 引用，避免输入时侧栏频繁重渲染
+export default memo(DocumentSidebar);
