@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Star, PanelLeft, PanelRight, Maximize, Download, FileCode, ChevronDown, History, Trash2 } from 'lucide-react';
+import { ArrowLeft, Star, PanelLeft, PanelRight, Maximize, Download, FileCode, ChevronDown, History, Trash2 } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
 import { useViewModeStore } from '../stores/viewModeStore';
@@ -258,8 +258,10 @@ export default function JournalEditor() {
   return (
     <div className="flex flex-col h-full animate-fade-in">
       {/* 工具栏 */}
-      <div className="glass flex items-center gap-2 px-4 py-2.5 border-b border-[var(--color-border)] flex-wrap">
-        <button className="btn-ghost text-sm" onClick={() => navigate('/')} title="返回">← 返回</button>
+      <div className="glass flex items-center gap-2 px-4 py-2 border-b border-[var(--color-border)] flex-wrap">
+        <button className="btn-ghost p-1.5" onClick={() => navigate('/')} title="返回">
+          <ArrowLeft className="h-4 w-4" />
+        </button>
         <button className={`btn-ghost p-1.5 ${showDocList ? 'text-[var(--color-primary)] bg-[var(--color-primary-light)]' : ''}`} onClick={() => setShowDocList(s => !s)} title="显示/隐藏文档列表">
           <PanelLeft className="h-4 w-4" />
         </button>
@@ -275,7 +277,7 @@ export default function JournalEditor() {
         </button>
 
         {/* 编辑模式切换 */}
-        <div className="flex items-center gap-0.5 ml-2 rounded-lg border border-[var(--color-border)] p-0.5">
+        <div className="flex items-center gap-0.5 ml-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-0.5 shadow-xs">
           <button
             className={`px-2.5 py-1 text-xs rounded-md transition-colors ${mode === 'rich' ? 'bg-[var(--color-primary)] text-white' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'}`}
             onClick={() => setMode('rich')}
@@ -387,10 +389,10 @@ export default function JournalEditor() {
           </div>
         )}
         <div className="flex-1 overflow-y-auto">
-          <div className="py-5">
+          <div className="mx-auto w-full max-w-[920px] px-6 py-7">
             {/* 标题 */}
             <input
-              className="w-full text-3xl sm:text-4xl font-bold bg-transparent border-none outline-none placeholder:text-[var(--color-text-tertiary)] tracking-tight leading-tight"
+              className="w-full bg-transparent border-none outline-none text-[2rem] sm:text-[2.5rem] font-bold placeholder:text-[var(--color-text-tertiary)] tracking-normal leading-[1.18]"
               placeholder="无标题"
               value={title}
               onChange={e => setTitle(e.target.value)}
@@ -398,7 +400,7 @@ export default function JournalEditor() {
             />
 
             {/* 元信息行（飞书式轻量信息条） */}
-            <div className="mt-2 flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] flex-wrap">
+            <div className="mt-3 flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] flex-wrap">
               {currentEntry?.createdAt && (
                 <span>
                   {new Date(currentEntry.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
@@ -409,7 +411,7 @@ export default function JournalEditor() {
               {currentEntry?.summary && <span className="text-[var(--color-primary)]">· ✨ 已生成总结</span>}
             </div>
 
-            <div className="divider my-1" />
+            <div className="divider my-4" />
 
             {/* 编辑器 */}
             {mode === 'rich' ? (
