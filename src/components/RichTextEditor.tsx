@@ -138,7 +138,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
     autofocus: autoFocus ? 'end' : false,
     editorProps: {
       attributes: {
-        class: 'prose-custom max-w-none focus:outline-none min-h-[400px] p-3 border border-[var(--color-border)] rounded-lg',
+        class: 'prose-custom max-w-none focus:outline-none min-h-[58vh] px-1 py-3',
       },
       handleDOMEvents: {
         dragstart: (view: any, event: DragEvent) => {
@@ -654,8 +654,16 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
 
   const isActive = (name: string, attrs?: Record<string, unknown>) => editor.isActive(name, attrs);
 
+  const headingButtons = [
+    { level: 1 as const, icon: Heading1, title: '标题 1' },
+    { level: 2 as const, icon: Heading2, title: '标题 2' },
+    { level: 3 as const, icon: Heading3, title: '标题 3' },
+    { level: 4 as const, icon: Heading4, title: '标题 4' },
+    { level: 5 as const, icon: Heading5, title: '标题 5' },
+  ];
+
   return (
-    <div className="relative" style={{ ['--editor-fs']: `${0.95 * fontScale}rem` } as CSSProperties}>
+    <div className="relative" style={{ ['--editor-fs']: `${1 * fontScale}rem` } as CSSProperties}>
       {/* 浮动工具栏（选中文字时） */}
       {editor && (
       <BubbleMenu editor={editor}>
@@ -689,15 +697,20 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
       )}
 
       {/* 固定工具栏 */}
-      <div className="flex items-center gap-0.5 px-1 py-1.5 border-b border-[var(--color-border)] mb-2 animate-slide-down overflow-x-auto flex-nowrap md:flex-wrap md:overflow-visible">
+      <div className="sticky top-0 z-20 -mx-2 mb-4 flex items-center gap-1 overflow-x-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]/95 px-2 py-1.5 shadow-sm backdrop-blur animate-slide-down flex-nowrap">
         <ToolbarBtn onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title="撤销 (Ctrl+Z)"><Undo2 className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title="前进 (Ctrl+Y)"><Redo2 className="w-4 h-4" /></ToolbarBtn>
         <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} active={isActive('heading', { level: 1 })} title="标题 1"><Heading1 className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} active={isActive('heading', { level: 2 })} title="标题 2"><Heading2 className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} active={isActive('heading', { level: 3 })} title="标题 3"><Heading3 className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()} active={isActive('heading', { level: 4 })} title="标题 4"><Heading4 className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 5 }).run()} active={isActive('heading', { level: 5 })} title="标题 5"><Heading5 className="w-4 h-4" /></ToolbarBtn>
+        {headingButtons.map(({ level, icon: Icon, title }) => (
+          <ToolbarBtn
+            key={level}
+            onClick={() => editor.chain().focus().toggleHeading({ level }).run()}
+            active={isActive('heading', { level })}
+            title={title}
+          >
+            <Icon className="w-4 h-4" />
+          </ToolbarBtn>
+        ))}
         <ToolbarBtn onClick={() => editor.chain().focus().setParagraph().run()} active={isActive('paragraph')} title="正文"><Pilcrow className="w-4 h-4" /></ToolbarBtn>
         <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
         <ToolbarBtn onClick={() => editor.chain().focus().toggleBold().run()} active={isActive('bold')} title="加粗"><Bold className="w-4 h-4" /></ToolbarBtn>
@@ -861,12 +874,12 @@ function ToolbarBtn({ children, onClick, active, disabled, title }: { children: 
       title={title}
       type="button"
       disabled={disabled}
-      className={`p-1.5 rounded-md transition-all duration-150 active:scale-90 ${
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-all duration-150 active:scale-95 ${
         disabled
           ? 'opacity-30 cursor-not-allowed text-[var(--color-text-tertiary)]'
           : active
-            ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)]'
-            : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'
+            ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-primary)_18%,transparent)]'
+            : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
       }`}
     >
       {children}

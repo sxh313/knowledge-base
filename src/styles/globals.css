@@ -17,24 +17,24 @@
 @layer base {
   :root {
     /* 背景：飞书式干净浅灰白 */
-    --color-bg: #f5f6f7;
-    --color-bg-grad: linear-gradient(180deg, #f5f6f7 0%, #f0f1f3 100%);
+    --color-bg: #f6f7f9;
+    --color-bg-grad: linear-gradient(180deg, #f8f9fb 0%, #f1f3f6 100%);
     /* 表面：纯白卡片 */
     --color-surface: #ffffff;
-    --color-surface-hover: #f7f8f9;
+    --color-surface-hover: #f8fafc;
     /* 次级表面：稍暗用于嵌套区域 */
-    --color-surface-2: #f1f2f4;
+    --color-surface-2: #f2f4f7;
     /* 边框 */
-    --color-border: #e4e6eb;
-    --color-border-strong: #d0d3da;
+    --color-border: #e6e9ef;
+    --color-border-strong: #cfd5df;
     /* 文字 */
     --color-text: #1f2329;
     --color-text-secondary: #646a73;
     --color-text-tertiary: #8f959e;
     /* 主色：飞书蓝 */
-    --color-primary: #3370ff;
-    --color-primary-hover: #2468f6;
-    --color-primary-light: #eaf1ff;
+    --color-primary: #2f6bff;
+    --color-primary-hover: #245cf2;
+    --color-primary-light: #edf3ff;
     /* 强调色：温暖琥珀（用于置顶星标） */
     --color-accent: #f5a623;
     --color-accent-hover: #e09a1c;
@@ -48,7 +48,7 @@
     --color-info-light: #eaf1ff;
 
     /* 阴影系统：更轻、更平整（飞书风） */
-    --shadow-xs: 0 1px 2px 0 rgba(31,35,41,0.04);
+    --shadow-xs: 0 1px 2px 0 rgba(31,35,41,0.035);
     --shadow-sm: 0 1px 3px 0 rgba(31,35,41,0.06), 0 1px 2px -1px rgba(31,35,41,0.04);
     --shadow-md: 0 4px 10px -2px rgba(31,35,41,0.08), 0 2px 4px -2px rgba(31,35,41,0.05);
     --shadow-lg: 0 10px 24px -6px rgba(31,35,41,0.1), 0 4px 8px -4px rgba(31,35,41,0.06);
@@ -59,14 +59,14 @@
     /* 圆角 */
     --radius-sm: 6px;
     --radius-md: 8px;
-    --radius-lg: 12px;
-    --radius-xl: 16px;
+    --radius-lg: 10px;
+    --radius-xl: 14px;
   }
 
   .dark {
     /* 背景：深邃午夜蓝黑 */
-    --color-bg: #17181c;
-    --color-bg-grad: linear-gradient(180deg, #17181c 0%, #1c1e23 100%);
+    --color-bg: #17191d;
+    --color-bg-grad: linear-gradient(180deg, #17191d 0%, #1d2026 100%);
     /* 表面 */
     --color-surface: #1f2126;
     --color-surface-hover: #24262c;
@@ -112,10 +112,12 @@
   body {
     background: var(--color-bg-grad);
     color: var(--color-text);
-    font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+    font-family: Inter, "Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     min-height: 100vh;
+    font-size: 15px;
+    letter-spacing: 0;
   }
 
   /* 滚动条 — 更精致 */
@@ -215,12 +217,12 @@
     background-color: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
-    padding: 1.25rem;
+    padding: 1rem;
     box-shadow: var(--shadow-xs);
     transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
   }
   .card-hoverable:hover {
-    transform: translateY(-3px);
+    transform: translateY(-2px);
     box-shadow: var(--shadow-card-hover);
     border-color: var(--color-primary-light);
   }
@@ -284,9 +286,10 @@
   /* Prose 排版 */
   .prose-custom {
     @apply prose prose-sm max-w-none;
-    font-size: var(--editor-fs, 0.95rem);
+    font-size: var(--editor-fs, 1rem);
+    line-height: 1.75;
     @apply prose-headings:text-[var(--color-text)] prose-headings:font-semibold;
-    @apply prose-p:text-[var(--color-text)] prose-p:leading-[1.5];
+    @apply prose-p:text-[var(--color-text)];
     @apply prose-a:text-[var(--color-primary)] prose-a:no-underline hover:prose-a:underline;
     @apply prose-strong:text-[var(--color-text)];
     @apply prose-code:text-[var(--color-primary)] prose-code:bg-[var(--color-surface-2)] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:before:content-[''] prose-code:after:content-[''];
@@ -301,15 +304,17 @@
   }
   .prose-custom .collapsible-heading {
     position: relative;
-    padding-left: 1.25rem;
+    padding-left: 1.35rem;
     cursor: default;
+    letter-spacing: 0;
+    scroll-margin-top: 5rem;
   }
   /* 折叠箭头（::after），点击切换折叠 */
   .prose-custom .collapsible-heading::after {
     content: "▾";
     position: absolute;
     left: 0;
-    top: 0.35em;
+    top: 0.45em;
     width: 1rem;
     height: 1rem;
     display: inline-flex;
@@ -334,29 +339,26 @@
   .prose-custom [data-hidden="true"] {
     display: none !important;
   }
-  /* 大纲自动编号：每级标题独立编号（H1: 1/2/3…，H2: 1/2/3…，H3: 1/2/3…，以此类推）
-     —— 用 ::before 显示在标题文字前面，折叠箭头用 ::after 显示在左侧，互不冲突 */
-  .prose-custom h1.collapsible-heading { counter-reset: h2c h3c h4c h5c; counter-increment: h1c; }
-  .prose-custom h2.collapsible-heading { counter-reset: h3c h4c h5c; counter-increment: h2c; }
-  .prose-custom h3.collapsible-heading { counter-reset: h4c h5c; counter-increment: h3c; }
-  .prose-custom h4.collapsible-heading { counter-reset: h5c; counter-increment: h4c; }
-  .prose-custom h5.collapsible-heading { counter-increment: h5c; }
-  .prose-custom h1.collapsible-heading::before { content: counter(h1c) ". "; }
-  .prose-custom h2.collapsible-heading::before { content: counter(h2c) ". "; }
-  .prose-custom h3.collapsible-heading::before { content: counter(h3c) ". "; }
-  .prose-custom h4.collapsible-heading::before { content: counter(h4c) ". "; }
-  .prose-custom h5.collapsible-heading::before { content: counter(h5c) ". "; }
-  .prose-custom h1.collapsible-heading::before,
-  .prose-custom h2.collapsible-heading::before,
-  .prose-custom h3.collapsible-heading::before,
-  .prose-custom h4.collapsible-heading::before,
-  .prose-custom h5.collapsible-heading::before {
-    color: var(--color-text-tertiary);
-    font-weight: 500;
-    margin-right: 0.35rem;
-    /* 编号是纯展示内容，禁止选中/复制，避免复制标题时把编号带进去 */
-    user-select: none;
-    -webkit-user-select: none;
+  .prose-custom h1,
+  .prose-custom h2,
+  .prose-custom h3,
+  .prose-custom h4,
+  .prose-custom h5 {
+    line-height: 1.35 !important;
+    margin-top: 1.35em !important;
+    margin-bottom: 0.55em !important;
+  }
+  .prose-custom h1 { font-size: 1.75em !important; font-weight: 750; }
+  .prose-custom h2 { font-size: 1.45em !important; font-weight: 700; }
+  .prose-custom h3 { font-size: 1.22em !important; font-weight: 650; }
+  .prose-custom h4 { font-size: 1.08em !important; font-weight: 650; color: var(--color-text-secondary); }
+  .prose-custom h5 { font-size: 1em !important; font-weight: 650; color: var(--color-text-secondary); }
+  .prose-custom h1:first-child,
+  .prose-custom h2:first-child,
+  .prose-custom h3:first-child,
+  .prose-custom h4:first-child,
+  .prose-custom h5:first-child {
+    margin-top: 0 !important;
   }
 
   /* 待办清单（TipTap task-list）：飞书/Notion 式可勾选 */
@@ -443,10 +445,11 @@
 
   /* Callout 提示框（GFM alerts）：飞书/Notion 式彩色块 */
   .prose-custom div[data-type="callout"] {
-    margin: 0.75rem 0;
-    padding: 0.75rem 1rem;
+    margin: 0.9rem 0;
+    padding: 0.75rem 0.9rem;
     border-radius: var(--radius-md);
-    border-left: 4px solid var(--callout-color, var(--color-primary));
+    border: 1px solid color-mix(in srgb, var(--callout-color, var(--color-primary)) 22%, transparent);
+    border-left: 3px solid var(--callout-color, var(--color-primary));
     background: var(--callout-bg, var(--color-primary-light));
     position: relative;
   }
@@ -480,15 +483,14 @@
   }
   /* 正文段落：行距 1.5（0.5 字间距）+ 段间距 0.5 字，直接 CSS 强制覆盖 prose-sm 默认 */
   .prose-custom p {
-    line-height: 1.5 !important;
-    margin-top: 0.5em !important;
-    margin-bottom: 0.5em !important;
+    line-height: 1.75 !important;
+    margin-top: 0.42em !important;
+    margin-bottom: 0.42em !important;
   }
   .prose-custom p:first-child { margin-top: 0 !important; }
   .prose-custom p:last-child { margin-bottom: 0 !important; }
-  .prose-custom li { line-height: 1.5 !important; }
-  .prose-custom h1, .prose-custom h2, .prose-custom h3, .prose-custom h4, .prose-custom h5 { line-height: 1.5 !important; }
-  .prose-custom blockquote { line-height: 1.5 !important; }
+  .prose-custom li { line-height: 1.7 !important; }
+  .prose-custom blockquote { line-height: 1.7 !important; }
 
   /* callout 内段落：行距 1.5 + 段间 0.5 字（与正文统一） */
   .prose-custom div[data-type="callout"] p {

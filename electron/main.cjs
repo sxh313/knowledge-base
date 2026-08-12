@@ -46,6 +46,10 @@ let tray = null;
 // 是否正在真正退出(由托盘菜单"退出"触发);为 true 时关闭窗口直接退出而非最小化到托盘
 let isQuitting = false;
 
+app.on('before-quit', () => {
+  isQuitting = true;
+});
+
 // ─── 系统托盘 ───
 // 关闭窗口时最小化到托盘后台运行;托盘提供"显示/隐藏"与"退出"菜单
 function createTray() {
@@ -91,7 +95,7 @@ function createTray() {
 // ─── 自动更新(electron-updater) ───
 // 配置 GitHub Releases 作为更新源;桌面渲染进程通过 IPC 触发检查/下载/安装
 function setupAutoUpdater() {
-  autoUpdater.autoDownload = false; // 由用户点击后再下载
+  autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
   // 转发更新状态到渲染进程
@@ -106,18 +110,25 @@ function setupAutoUpdater() {
   autoUpdater.on('update-not-available', () => send('status', { status: 'not-available' }));
   autoUpdater.on('error', (err) => send('status', { status: 'error', message: err ? err.message : '未知错误' }));
   autoUpdater.on('download-progress', (p) => send('progress', { percent: p.percent, transferred: p.transferred, total: p.total }));
-  autoUpdater.on('update-downloaded', (info) => send('status', { status: 'downloaded', version: info.version, info }));
+  autoUpdater.on('update-downloaded', (info) => {
+    send('status', { status: 'installing', version: info.version, info });
+    setTimeout(() => {
+      isQuitting = true;
+      autoUpdater.quitAndInstall(false, true);
+    }, 1200);
+  });
 
   // IPC:检查更新
   ipcMain.handle('update:check', () => {
     autoUpdater.checkForUpdates().catch(() => {});
   });
-  // IPC:下载更新(下载完成后提示重启安装)
+  // IPC:下载更新(保留给旧渲染进程兼容；新版本检测到更新会自动下载并安装)
   ipcMain.handle('update:download', () => {
     autoUpdater.downloadUpdate().catch(() => {});
   });
   // IPC:退出并安装
   ipcMain.handle('update:install', () => {
+    isQuitting = true;
     autoUpdater.quitAndInstall();
   });
 }
@@ -195,6 +206,11 @@ app.whenReady().then(() => {
   }
   createWindow();
   createTray();
+
+  if (app.isPackaged) {
+    autoUpdater.checkForUpdates().catch(() => {});
+    setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 60 * 60 * 1000);
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

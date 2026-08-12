@@ -44,12 +44,12 @@ turndown.addRule('taskList', {
 // HTML:    <div data-type="callout" data-variant="note">...</div>
 // 类型映射：IMPORTANT → danger（红色危险块），WARNING → warning（黄色）
 const CALLOUT_TYPE_MAP: Record<string, string> = {
-  note: 'note',
-  tip: 'tip',
-  warning: 'warning',
-  important: 'danger',
-  caution: 'danger',
-  danger: 'danger',
+  NOTE: 'note',
+  TIP: 'tip',
+  WARNING: 'warning',
+  IMPORTANT: 'danger',
+  CAUTION: 'danger',
+  DANGER: 'danger',
 };
 const CALLOUT_REVERSE_MAP: Record<string, string> = {
   note: 'NOTE',
