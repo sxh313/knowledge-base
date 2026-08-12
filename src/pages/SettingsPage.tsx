@@ -27,7 +27,7 @@ export default function SettingsPage() {
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
   const [refreshMsg, setRefreshMsg] = useState<Record<string, string>>({});
   const [manualModel, setManualModel] = useState<Record<string, string>>({});
-  const { doSync, status: syncStatus, pullOnly } = useSyncStore();
+  const { doSync, status: syncStatus, pullOnly, message: syncErrorMessage } = useSyncStore();
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
@@ -465,7 +465,12 @@ export default function SettingsPage() {
                 )}
               </div>
               {syncMsg && <p className="text-xs text-gray-500">{syncMsg}</p>}
-              {syncStatus === 'error' && <p className="text-xs text-red-500">同步失败，请检查配置与网络</p>}
+              {syncStatus === 'success' && <p className="text-xs text-green-500">同步成功</p>}
+              {syncStatus === 'error' && (
+                <p className="text-xs text-red-500">
+                  同步失败：{syncErrorMessage || '请检查配置与网络'}
+                </p>
+              )}
               <SyncConflicts refreshKey={settings.sync?.lastSyncAt ?? 0} />
               <details className="text-xs text-gray-400">
                 <summary className="cursor-pointer">如何获取 Token 与配置？</summary>

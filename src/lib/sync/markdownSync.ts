@@ -101,8 +101,20 @@ async function gh<T>(cfg: SyncConfig, method: string, path: string, body?: unkno
 }
 
 async function getBranchSha(cfg: SyncConfig): Promise<string> {
-  const r = await gh<{ object: { sha: string } }>(cfg, 'GET', `/git/ref/heads/${encodeURIComponent(cfg.branch)}`);
-  return r.object.sha;
+  // GitHub API 有最终一致性：刚推送完 data.json 后立即读取分支引用可能暂时 404，
+  // 重试几次避免间歇性失败（不影响主同步，但会留下 404 控制台报错）
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const r = await gh<{ object: { sha: string } }>(cfg, 'GET', `/git/ref/heads/${encodeURIComponent(cfg.branch)}`);
+      return r.object.sha;
+    } catch (e) {
+      const msg = (e as Error).message;
+      // 仅对 404（分支引用暂时不可见）重试，其它错误直接抛出
+      if (!msg.includes('404') || attempt === 2) throw e;
+      await new Promise((res) => setTimeout(res, 500 * (attempt + 1)));
+    }
+  }
+  throw new Error('无法获取分支引用');
 }
 async function getCommitTreeSha(cfg: SyncConfig, commitSha: string): Promise<string> {
   const r = await gh<{ tree: { sha: string } }>(cfg, 'GET', `/git/commits/${commitSha}`);
@@ -228,7 +240,12 @@ export async function pullJournalsFromMarkdown(cfg: SyncConfig): Promise<(Partia
   const out: (Partial<JournalEntry> & { id: string })[] = [];
   for (const e of entries) {
     const blob = await gh<{ content: string }>(cfg, 'GET', `/git/blobs/${e.sha}`);
-    const md = decodeURIComponent(escape(atob((blob.content || '').replace(/\s/g, ''))));
+    let md = decodeURIComponent(escape(atob((blob.content || '').replace(/\s/g, ''))));
+    // 容错：历史遗留的「双重 base64 编码」数据（解码一次后仍是 base64 字符串，以 eyJ 开头）。
+    // 检测到则再解码一次，避免 frontmatter 解析失败。
+    if (md.startsWith('eyJ') && !md.startsWith('---')) {
+      try { md = decodeURIComponent(escape(atob(md.replace(/\s/g, '')))); } catch { /* 保持原样 */ }
+    }
     const parsed = parseJournalMarkdown(md);
     if (parsed.id) out.push({ ...parsed, id: parsed.id } as Partial<JournalEntry> & { id: string });
   }

@@ -50,17 +50,18 @@ function DocOutline({ content, onJump, embedded }: DocOutlineProps) {
     setActiveId(h.id);
     onJump?.(h.id);
 
-    // 尝试滚动到标题元素
+    // 尝试滚动到标题元素（编辑器已为标题设置与 h.id 一致的 id）
     const el = document.getElementById(h.id);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } else {
-      // 如果找不到 ID 元素（markdown 预览模式），尝试用文本匹配
+      // 如果找不到 ID 元素（markdown 预览模式），尝试用文本精确匹配
       const preview = document.querySelector('.prose-custom');
       if (preview) {
         const allHeaders = preview.querySelectorAll('h1, h2, h3, h4, h5, h6');
         for (const header of allHeaders) {
-          if (header.textContent?.includes(h.text)) {
+          // 精确匹配标题文本（忽略首尾空白），避免 includes 部分匹配到错误标题
+          if ((header.textContent?.trim() ?? '') === h.text) {
             header.scrollIntoView({ behavior: 'smooth', block: 'start' });
             break;
           }

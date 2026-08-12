@@ -343,7 +343,9 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
               {syncStatus === 'syncing'
                 ? <Loader2 className="h-4 w-4 animate-spin text-[var(--color-primary)]" />
                 : <Cloud className={`h-4 w-4 ${syncStatus === 'error' ? 'text-[var(--color-danger)]' : syncStatus === 'success' ? 'text-[var(--color-success)]' : ''}`} />}
-              <span className="hidden md:inline">{syncStatus === 'syncing' ? '同步中' : '同步'}</span>
+              <span className={`hidden md:inline ${syncStatus === 'error' ? 'text-[var(--color-danger)]' : syncStatus === 'success' ? 'text-[var(--color-success)]' : ''}`}>
+                {syncStatus === 'syncing' ? '同步中' : syncStatus === 'success' ? '同步成功' : syncStatus === 'error' ? '同步失败' : '同步'}
+              </span>
             </button>
           )}
           <button
