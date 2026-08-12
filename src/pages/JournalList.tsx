@@ -11,7 +11,7 @@ import TemplatePicker from '../components/TemplatePicker';
 
 export default function JournalList() {
   const navigate = useNavigate();
-  const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedTag, selectedSubject, setSelectedSubject, togglePin, duplicate, remove, update, sortBy, setSortBy, create, createTodayNote } = useJournalStore();
+  const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedTag, selectedSubject, setSelectedSubject, togglePin, duplicate, remove, removeMany, update, sortBy, setSortBy, create, createTodayNote } = useJournalStore();
   const { hasAnyProviderConfigured } = useSettingsStore();
   const { isMobile } = useViewModeStore();
   // 右键菜单：主菜单 + “移动到”分类子菜单
@@ -22,6 +22,9 @@ export default function JournalList() {
   const [dragging, setDragging] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
+  // 多选删除：selectMode 开启后显示复选框，可批量删除
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // 手动拖拽排序
   const dragIdRef = useRef<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -83,6 +86,34 @@ export default function JournalList() {
     const { entry } = await createTodayNote();
     navigate(`/edit/${entry.id}`);
   };
+
+  // 多选：切换单个选中 / 全选 / 取消全选 / 批量删除
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      const all = getFilteredEntries().map((f) => f.id);
+      const allSelected = all.length > 0 && all.every((id) => prev.has(id));
+      return allSelected ? new Set<string>() : new Set(all);
+    });
+  }, [getFilteredEntries]);
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, []);
+  const handleDeleteSelected = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    const n = selectedIds.size;
+    if (!window.confirm(`确定删除选中的 ${n} 篇文档？\n（移到回收站，可在回收站恢复）`)) return;
+    await removeMany(Array.from(selectedIds));
+    exitSelectMode();
+  }, [selectedIds, removeMany, exitSelectMode]);
 
   // 拖拽调整目录树宽度（基于起始位置 + 增量，避免依赖主侧栏宽度）
   const startDocTreeResize = useCallback((e: React.MouseEvent) => {
@@ -215,23 +246,47 @@ export default function JournalList() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={handleToday} title="一键创建/打开今天的每日总结">
-              <CalendarDays className="h-4 w-4" />
-              今日笔记
-            </button>
-            <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={() => setShowTemplates(true)} title="从模板新建文档">
-              <LayoutTemplate className="h-4 w-4" />
-              模板
-            </button>
-            <select value={sortBy} onChange={e => setSortBy(e.target.value as 'created' | 'updated' | 'title' | 'manual')} className="input-field text-xs w-auto" title="排序方式">
-              <option value="created">创建时间</option>
-              <option value="updated">修改时间</option>
-              <option value="title">标题</option>
-              <option value="manual">↕ 手动排序</option>
-            </select>
-            <button className="btn-primary text-sm" onClick={() => { setCurrent(null); navigate('/edit/new'); }}>
-              新建文档
-            </button>
+            {selectMode ? (
+              <>
+                <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={toggleSelectAll} title="全选/取消全选">
+                  <span className="text-xs">{selectedIds.size > 0 && selectedIds.size === filtered.length ? '取消全选' : '全选'}</span>
+                </button>
+                <button
+                  className="btn-danger text-sm flex items-center gap-1.5"
+                  onClick={handleDeleteSelected}
+                  disabled={selectedIds.size === 0}
+                  title="删除选中的文档"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  删除选中{selectedIds.size > 0 ? `（${selectedIds.size}）` : ''}
+                </button>
+                <button className="btn-ghost text-sm" onClick={exitSelectMode} title="退出多选">取消</button>
+              </>
+            ) : (
+              <>
+                <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={() => setSelectMode(true)} title="进入多选模式，可批量删除">
+                  <Trash2 className="h-4 w-4" />
+                  多选
+                </button>
+                <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={handleToday} title="一键创建/打开今天的每日总结">
+                  <CalendarDays className="h-4 w-4" />
+                  今日笔记
+                </button>
+                <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={() => setShowTemplates(true)} title="从模板新建文档">
+                  <LayoutTemplate className="h-4 w-4" />
+                  模板
+                </button>
+                <select value={sortBy} onChange={e => setSortBy(e.target.value as 'created' | 'updated' | 'title' | 'manual')} className="input-field text-xs w-auto" title="排序方式">
+                  <option value="created">创建时间</option>
+                  <option value="updated">修改时间</option>
+                  <option value="title">标题</option>
+                  <option value="manual">↕ 手动排序</option>
+                </select>
+                <button className="btn-primary text-sm" onClick={() => { setCurrent(null); navigate('/edit/new'); }}>
+                  新建文档
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -337,8 +392,8 @@ export default function JournalList() {
           ) : (
             filtered.map(entry => (
               <article key={entry.id}
-                className={`card card-hoverable cursor-pointer ${dragOverId === entry.id ? 'ring-2 ring-[var(--color-primary)]/40 border-[var(--color-primary)]' : ''}`}
-                draggable
+                className={`card card-hoverable cursor-pointer cv-auto ${dragOverId === entry.id ? 'ring-2 ring-[var(--color-primary)]/40 border-[var(--color-primary)]' : ''} ${selectMode && selectedIds.has(entry.id) ? 'ring-2 ring-[var(--color-primary)]/50 border-[var(--color-primary)]' : ''}`}
+                draggable={!selectMode}
                 onDragStart={(e) => { dragIdRef.current = entry.id; e.dataTransfer.effectAllowed = 'move'; }}
                 onDragOver={(e) => { e.preventDefault(); if (dragOverId !== entry.id) setDragOverId(entry.id); }}
                 onDragLeave={() => { if (dragOverId === entry.id) setDragOverId(null); }}
@@ -349,9 +404,23 @@ export default function JournalList() {
                   dragIdRef.current = null;
                   if (from) reorderDocs(from, entry.id);
                 }}
-                onClick={() => { setCurrent(entry); navigate(`/edit/${entry.id}`); }}
+                onClick={() => {
+                  if (selectMode) { toggleSelect(entry.id); return; }
+                  setCurrent(entry); navigate(`/edit/${entry.id}`);
+                }}
                 onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, entry }); }}>
                 <div className="flex items-start justify-between gap-4">
+                  {selectMode && (
+                    <div className="flex items-center pt-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(entry.id)}
+                        onChange={() => toggleSelect(entry.id)}
+                        className="h-4 w-4 accent-[var(--color-primary)] cursor-pointer"
+                        title="选择此文档"
+                      />
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-[var(--color-text)] truncate flex items-center gap-1.5">
                       {entry.pinned && <Star className="h-3.5 w-3.5 flex-shrink-0 text-[var(--color-accent)] fill-[var(--color-accent)]" />}

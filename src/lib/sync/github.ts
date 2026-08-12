@@ -10,12 +10,33 @@ import { pushJournalsAsMarkdown, pushConversationsAsMarkdown } from './markdownS
 
 const API = 'https://api.github.com';
 
+// 模块级同步锁：防止 syncNow / pullFromCloud 被并发调用（自动同步 + 手动同步同时触发时，
+// 后到的请求直接跳过，避免 Git Data API 分支引用竞态导致 404 / 覆盖丢失）
+let syncLock = false;
+async function withSyncLock<T>(fn: () => Promise<T>): Promise<T | null> {
+  if (syncLock) return null; // 已有同步在进行，跳过本次
+  syncLock = true;
+  try {
+    return await fn();
+  } finally {
+    syncLock = false;
+  }
+}
+
 // UTF-8 安全的 base64 编解码（GitHub Contents API 要求 base64）
 function b64encode(str: string): string {
   return btoa(unescape(encodeURIComponent(str)));
 }
 function b64decode(b64: string): string {
-  return decodeURIComponent(escape(atob(b64.replace(/\s/g, ''))));
+  let s = decodeURIComponent(escape(atob(b64.replace(/\s/g, ''))));
+  // 容错：历史遗留的「双重 base64 编码」数据（文件内容本身是 base64 字符串，以 {"version 的
+  // base64 前缀 eyJ2ZXJzaW9u 开头）。检测到则再解码一次，避免 JSON.parse 失败导致同步中断。
+  if (s.startsWith('eyJ2ZXJzaW9u')) {
+    try {
+      s = decodeURIComponent(escape(atob(s.replace(/\s/g, ''))));
+    } catch { /* 非双重编码，保持原样 */ }
+  }
+  return s;
 }
 
 export interface FullData {
@@ -227,22 +248,36 @@ async function ghGet(cfg: SyncConfig): Promise<RemoteFile | null> {
 
 async function ghPut(cfg: SyncConfig, content: string, sha?: string): Promise<string> {
   const url = `${API}/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.path}`;
-  const res = await fetch(url, {
-    method: 'PUT',
-    headers: { ...authHeaders(cfg.token), 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message: `chore(sync): ${new Date().toISOString()}`,
-      content: b64encode(content),
-      branch: cfg.branch,
-      ...(sha ? { sha } : {}),
-    }),
-  });
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    throw new Error(`GitHub PUT 失败: HTTP ${res.status} ${t.slice(0, 160)}`);
+  // 409 = SHA 冲突（远端在本次拉取后被其他设备/进程修改）。自动重试：重新拉取最新 sha 再推送，
+  // 避免因 GitHub 最终一致性或并发同步导致的间歇性失败。
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let currentSha = sha;
+    if (attempt > 0) {
+      const latest = await ghGet(cfg);
+      currentSha = latest?.sha;
+    }
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { ...authHeaders(cfg.token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: `chore(sync): ${new Date().toISOString()}`,
+        content: b64encode(content),
+        branch: cfg.branch,
+        ...(currentSha ? { sha: currentSha } : {}),
+      }),
+    });
+    if (res.status === 409 && attempt < 2) {
+      await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+      continue; // 重试
+    }
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      throw new Error(`GitHub PUT 失败: HTTP ${res.status} ${t.slice(0, 160)}`);
+    }
+    const json = await res.json();
+    return json?.content?.sha as string;
   }
-  const json = await res.json();
-  return json?.content?.sha as string;
+  throw new Error('GitHub PUT 失败: 多次重试后仍冲突');
 }
 
 export interface SyncResult {
@@ -257,42 +292,44 @@ export interface SyncResult {
  * 完整同步流程：拉取远端 → 与本地合并（取较新）→ 写回本地 → 推送合并结果
  */
 export async function syncNow(cfg: SyncConfig): Promise<SyncResult> {
-  const local = await collectAllData();
-  const remote = await ghGet(cfg);
-  const baseline = cfg.baselineHashes ?? {};
+  return withSyncLock(async () => {
+    const local = await collectAllData();
+    const remote = await ghGet(cfg);
+    const baseline = cfg.baselineHashes ?? {};
 
-  let merged = local;
-  let pulled = 0;
-  let conflicts = 0;
+    let merged = local;
+    let pulled = 0;
+    let conflicts = 0;
 
-  if (remote?.content) {
-    const remoteData = JSON.parse(b64decode(remote.content)) as FullData;
-    // 三方冲突检测（本地与远端相对基线都改变且不同）
-    const conflictedIds = detectConflictedIds(local.journals, remoteData.journals, baseline);
-    conflicts = await recordConflicts(local.journals, remoteData.journals, conflictedIds);
-    // 合并：冲突文档保留本地，其余按「较新」
-    merged = keepLocalForConflicts(mergeData(local, remoteData), local, conflictedIds);
-    await writeAllData(merged);
-    // 同步完成后本地重建派生索引（双链/分块/搜索），派生数据不参与同步
-    await rebuildDocumentIndexes();
-    pulled =
-      remoteData.journals.length +
-      remoteData.cards.length +
-      remoteData.notes.length;
-  }
+    if (remote?.content) {
+      const remoteData = JSON.parse(b64decode(remote.content)) as FullData;
+      // 三方冲突检测（本地与远端相对基线都改变且不同）
+      const conflictedIds = detectConflictedIds(local.journals, remoteData.journals, baseline);
+      conflicts = await recordConflicts(local.journals, remoteData.journals, conflictedIds);
+      // 合并：冲突文档保留本地，其余按「较新」
+      merged = keepLocalForConflicts(mergeData(local, remoteData), local, conflictedIds);
+      await writeAllData(merged);
+      // 同步完成后本地重建派生索引（双链/分块/搜索），派生数据不参与同步
+      await rebuildDocumentIndexes();
+      pulled =
+        remoteData.journals.length +
+        remoteData.cards.length +
+        remoteData.notes.length;
+    }
 
-  const json = JSON.stringify(merged);
-  // GitHub 单文件硬上限 100MB，留余量用 95MB 提前拦截，避免推送失败
-  const byteSize = new Blob([json]).size;
-  const MAX_BYTES = 95 * 1024 * 1024; // 95MB（预留余量）
-  if (byteSize > MAX_BYTES) {
-    throw new Error(`数据体积 ${(byteSize / 1024 / 1024).toFixed(1)}MB 超过 95MB 上限，已阻止上传。请在设置中清理旧数据（如 AI 对话历史）后再试。`);
-  }
-  const sha = await ghPut(cfg, json, remote?.sha);
-  // 自动推送文档 + AI 对话为 Markdown（每篇/每条一个文件到 docs/ 和 conversations/）
-  try { await pushJournalsAsMarkdown(cfg); } catch { /* ignore */ }
-  try { await pushConversationsAsMarkdown(cfg); } catch { /* ignore */ }
-  return { sha, pulled, pushed: true, conflicts, baselineHashes: buildBaseline(merged.journals) };
+    const json = JSON.stringify(merged);
+    // GitHub 单文件硬上限 100MB，留余量用 95MB 提前拦截，避免推送失败
+    const byteSize = new Blob([json]).size;
+    const MAX_BYTES = 95 * 1024 * 1024; // 95MB（预留余量）
+    if (byteSize > MAX_BYTES) {
+      throw new Error(`数据体积 ${(byteSize / 1024 / 1024).toFixed(1)}MB 超过 95MB 上限，已阻止上传。请在设置中清理旧数据（如 AI 对话历史）后再试。`);
+    }
+    const sha = await ghPut(cfg, json, remote?.sha);
+    // 自动推送文档 + AI 对话为 Markdown（每篇/每条一个文件到 docs/ 和 conversations/）
+    try { await pushJournalsAsMarkdown(cfg); } catch { /* ignore */ }
+    try { await pushConversationsAsMarkdown(cfg); } catch { /* ignore */ }
+    return { sha, pulled, pushed: true, conflicts, baselineHashes: buildBaseline(merged.journals) };
+  }) as Promise<SyncResult>;
 }
 
 /**
@@ -300,21 +337,23 @@ export async function syncNow(cfg: SyncConfig): Promise<SyncResult> {
  * 不推送（不会把本地改动上传）。适合“把云端最新数据取到本设备”。
  */
 export async function pullFromCloud(cfg: SyncConfig): Promise<{ pulled: number; conflicts: number }> {
-  const local = await collectAllData();
-  const remote = await ghGet(cfg);
-  const baseline = cfg.baselineHashes ?? {};
-  let pulled = 0;
-  let conflicts = 0;
-  if (remote?.content) {
-    const remoteData = JSON.parse(b64decode(remote.content)) as FullData;
-    const conflictedIds = detectConflictedIds(local.journals, remoteData.journals, baseline);
-    conflicts = await recordConflicts(local.journals, remoteData.journals, conflictedIds);
-    const merged = keepLocalForConflicts(mergeData(local, remoteData), local, conflictedIds);
-    await writeAllData(merged);
-    await rebuildDocumentIndexes();
-    pulled = remoteData.journals.length + remoteData.cards.length + remoteData.notes.length;
-  }
-  return { pulled, conflicts };
+  return withSyncLock(async () => {
+    const local = await collectAllData();
+    const remote = await ghGet(cfg);
+    const baseline = cfg.baselineHashes ?? {};
+    let pulled = 0;
+    let conflicts = 0;
+    if (remote?.content) {
+      const remoteData = JSON.parse(b64decode(remote.content)) as FullData;
+      const conflictedIds = detectConflictedIds(local.journals, remoteData.journals, baseline);
+      conflicts = await recordConflicts(local.journals, remoteData.journals, conflictedIds);
+      const merged = keepLocalForConflicts(mergeData(local, remoteData), local, conflictedIds);
+      await writeAllData(merged);
+      await rebuildDocumentIndexes();
+      pulled = remoteData.journals.length + remoteData.cards.length + remoteData.notes.length;
+    }
+    return { pulled, conflicts };
+  }) as Promise<{ pulled: number; conflicts: number }>;
 }
 
 /** 测试连接：验证 token + 仓库可访问 */

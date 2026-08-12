@@ -197,6 +197,19 @@
     color: var(--color-text);
   }
 
+  /* 危险按钮：删除等破坏性操作 */
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed;
+    background-color: var(--color-danger);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-xs);
+    transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+  }
+  .btn-danger:hover:not(:disabled) {
+    filter: brightness(1.1);
+    box-shadow: var(--shadow-sm);
+  }
+
   /* 卡片：飞书式平整浅边框 */
   .card {
     background-color: var(--color-surface);
@@ -288,11 +301,11 @@
   }
   .prose-custom .collapsible-heading {
     position: relative;
-    padding-left: 1.1rem;
+    padding-left: 1.25rem;
     cursor: default;
   }
-  /* 折叠箭头（::before），点击切换折叠 */
-  .prose-custom .collapsible-heading::before {
+  /* 折叠箭头（::after），点击切换折叠 */
+  .prose-custom .collapsible-heading::after {
     content: "▾";
     position: absolute;
     left: 0;
@@ -310,11 +323,11 @@
     user-select: none;
     transition: color 0.15s ease, background-color 0.15s ease;
   }
-  .prose-custom .collapsible-heading:hover::before {
+  .prose-custom .collapsible-heading:hover::after {
     color: var(--color-primary);
     background-color: var(--color-surface-2);
   }
-  .prose-custom .collapsible-heading[data-collapsed="true"]::before {
+  .prose-custom .collapsible-heading[data-collapsed="true"]::after {
     content: "▸";
   }
   /* 折叠时隐藏内容（data-hidden 由编辑器 DOM 同步标记） */
@@ -322,25 +335,28 @@
     display: none !important;
   }
   /* 大纲自动编号：每级标题独立编号（H1: 1/2/3…，H2: 1/2/3…，H3: 1/2/3…，以此类推）
-     —— 用 ::after 显示，避免与折叠箭头冲突 */
+     —— 用 ::before 显示在标题文字前面，折叠箭头用 ::after 显示在左侧，互不冲突 */
   .prose-custom h1.collapsible-heading { counter-reset: h2c h3c h4c h5c; counter-increment: h1c; }
   .prose-custom h2.collapsible-heading { counter-reset: h3c h4c h5c; counter-increment: h2c; }
   .prose-custom h3.collapsible-heading { counter-reset: h4c h5c; counter-increment: h3c; }
   .prose-custom h4.collapsible-heading { counter-reset: h5c; counter-increment: h4c; }
   .prose-custom h5.collapsible-heading { counter-increment: h5c; }
-  .prose-custom h1.collapsible-heading::after { content: counter(h1c) ". "; }
-  .prose-custom h2.collapsible-heading::after { content: counter(h2c) ". "; }
-  .prose-custom h3.collapsible-heading::after { content: counter(h3c) ". "; }
-  .prose-custom h4.collapsible-heading::after { content: counter(h4c) ". "; }
-  .prose-custom h5.collapsible-heading::after { content: counter(h5c) ". "; }
-  .prose-custom h1.collapsible-heading::after,
-  .prose-custom h2.collapsible-heading::after,
-  .prose-custom h3.collapsible-heading::after,
-  .prose-custom h4.collapsible-heading::after,
-  .prose-custom h5.collapsible-heading::after {
+  .prose-custom h1.collapsible-heading::before { content: counter(h1c) ". "; }
+  .prose-custom h2.collapsible-heading::before { content: counter(h2c) ". "; }
+  .prose-custom h3.collapsible-heading::before { content: counter(h3c) ". "; }
+  .prose-custom h4.collapsible-heading::before { content: counter(h4c) ". "; }
+  .prose-custom h5.collapsible-heading::before { content: counter(h5c) ". "; }
+  .prose-custom h1.collapsible-heading::before,
+  .prose-custom h2.collapsible-heading::before,
+  .prose-custom h3.collapsible-heading::before,
+  .prose-custom h4.collapsible-heading::before,
+  .prose-custom h5.collapsible-heading::before {
     color: var(--color-text-tertiary);
     font-weight: 500;
-    margin-right: 0.15rem;
+    margin-right: 0.35rem;
+    /* 编号是纯展示内容，禁止选中/复制，避免复制标题时把编号带进去 */
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   /* 待办清单（TipTap task-list）：飞书/Notion 式可勾选 */

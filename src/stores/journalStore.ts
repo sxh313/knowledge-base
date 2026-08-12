@@ -20,6 +20,8 @@ interface JournalStore {
   create: (data: Omit<JournalEntry, 'id' | 'createdAt' | 'updatedAt'>) => Promise<JournalEntry>;
   update: (id: string, data: Partial<JournalEntry>) => Promise<void>;
   remove: (id: string) => Promise<void>;
+  /** 批量删除（移到回收站）：一次删除多个文档 */
+  removeMany: (ids: string[]) => Promise<void>;
   togglePin: (id: string) => Promise<void>;
   duplicate: (id: string) => Promise<void>;
   /** 一键创建/打开今日笔记（每日总结），返回 entry 与是否新建 */
@@ -99,6 +101,18 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
     set((state) => ({
       entries: state.entries.filter((e) => e.id !== id),
       currentEntry: state.currentEntry?.id === id ? null : state.currentEntry,
+    }));
+  },
+
+  removeMany: async (ids) => {
+    if (!ids.length) return;
+    const idSet = new Set(ids);
+    for (const id of ids) {
+      await deleteJournal(id);
+    }
+    set((state) => ({
+      entries: state.entries.filter((e) => !idSet.has(e.id)),
+      currentEntry: state.currentEntry && idSet.has(state.currentEntry.id) ? null : state.currentEntry,
     }));
   },
 

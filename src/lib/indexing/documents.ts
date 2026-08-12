@@ -179,19 +179,33 @@ export async function prepareJournalEntry(entry: JournalEntry): Promise<JournalE
 
 export async function persistJournalWithIndexes(entry: JournalEntry): Promise<JournalEntry> {
   const prepared = await prepareJournalEntry(entry);
-  const allEntries = await db.journals.toArray();
-  const entriesForResolution = [...allEntries.filter((item) => item.id !== prepared.id), prepared];
-  const links = buildDocumentLinks(prepared, entriesForResolution);
+  const existing = await db.journals.get(prepared.id);
+  // 标题/别名是否变化：决定是否需要重建链接（[[链接]] 只依赖标题与别名）。
+  // 编辑内容时标题/别名不变 → 跳过全表扫描与链接重建，只更新正文与分块，大幅降低自动保存开销。
+  const titleChanged =
+    !existing ||
+    existing.title !== prepared.title ||
+    JSON.stringify(existing.aliases ?? []) !== JSON.stringify(prepared.aliases ?? []);
+
   const chunks = buildDocumentChunks(prepared);
 
-  await db.transaction('rw', db.journals, db.documentLinks, db.documentChunks, async () => {
+  await db.transaction('rw', db.journals, db.documentChunks, async () => {
     await db.journals.put(prepared);
-    await db.documentLinks.where('sourceId').equals(prepared.id).delete();
     await db.documentChunks.where('journalId').equals(prepared.id).delete();
-    if (links.length) await db.documentLinks.bulkPut(links);
     if (chunks.length) await db.documentChunks.bulkPut(chunks);
   });
-  await rebuildBrokenLinkSources();
+
+  if (titleChanged) {
+    // 标题/别名变化：重建当前文档的链接，并刷新其他文档中原本失效的 [[链接]]
+    const allEntries = await db.journals.toArray();
+    const entriesForResolution = [...allEntries.filter((item) => item.id !== prepared.id), prepared];
+    const links = buildDocumentLinks(prepared, entriesForResolution);
+    await db.transaction('rw', db.documentLinks, async () => {
+      await db.documentLinks.where('sourceId').equals(prepared.id).delete();
+      if (links.length) await db.documentLinks.bulkPut(links);
+    });
+    await rebuildBrokenLinkSources();
+  }
   // 搜索索引增量更新（仅更新当前文档，避免每次自动保存都全表 rebuild 的开销）
   updateSearchEntry(prepared);
   return prepared;

@@ -32,6 +32,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
     set({ status: 'syncing', message: null });
     try {
       const result = await syncNow(cfg);
+      if (!result) return false; // 已有同步在进行，本次跳过
       const now = Date.now();
       await updateSettings({ sync: { ...cfg, lastSyncAt: now, lastSyncSha: result.sha, baselineHashes: result.baselineHashes } });
       await useSettingsStore.getState().load();

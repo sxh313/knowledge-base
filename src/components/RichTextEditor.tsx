@@ -252,6 +252,88 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
     return () => observer.disconnect();
   }, [editor, value]);
 
+  // 折叠状态下输入内容自动展开：
+  // 当光标落在被折叠隐藏（data-hidden）的内容里并发生内容变化（输入/回车/粘贴）时，
+  // 自动展开包含该内容的折叠标题，避免新内容被隐藏看不到。
+  useEffect(() => {
+    if (!editor) return;
+    const onTransaction = ({ transaction }: { transaction: any }) => {
+      if (!transaction.docChanged) return;
+      const view = editor.view;
+      if (!view || editor.isDestroyed) return;
+      const root = view.dom;
+      // 光标所在 DOM 元素（可能是文本节点，取其父元素）
+      const domAtPos = view.domAtPos(editor.state.selection.from);
+      let el: HTMLElement | null = domAtPos.node instanceof Text ? domAtPos.node.parentElement : (domAtPos.node as HTMLElement);
+      // 向上查找是否位于 data-hidden 折叠区域内
+      let hiddenEl: HTMLElement | null = null;
+      while (el && el !== root) {
+        if (el.getAttribute && el.getAttribute('data-hidden') === 'true') { hiddenEl = el; break; }
+        el = el.parentElement;
+      }
+      if (!hiddenEl) return;
+      // 找到 hiddenEl 之前（文档顺序）的所有折叠标题，全部展开
+      // （处理嵌套折叠：若 H1 折叠且其内 H2 也折叠，需同时展开，否则内容仍被外层隐藏）
+      const headings = Array.from(root.querySelectorAll<HTMLElement>('h1[data-collapsed="true"], h2[data-collapsed="true"], h3[data-collapsed="true"], h4[data-collapsed="true"], h5[data-collapsed="true"]'));
+      const targets: HTMLElement[] = [];
+      for (const h of headings) {
+        // h 在 hiddenEl 之前（DOCUMENT_POSITION_PRECEDING = 2）
+        if (h.compareDocumentPosition(hiddenEl) & Node.DOCUMENT_POSITION_PRECEDING) {
+          targets.push(h);
+        }
+      }
+      if (targets.length === 0) return;
+      // 展开所有相关折叠标题（从内到外），用单个事务累积，避免多次 dispatch 触发递归
+      let tr = view.state.tr;
+      let changed = false;
+      for (const target of targets) {
+        const pos = view.posAtDOM(target, 0);
+        if (pos == null) continue;
+        const $pos = editor.state.doc.resolve(pos);
+        let headingDepth = -1;
+        for (let d = $pos.depth; d > 0; d--) {
+          if ($pos.node(d).type.name === 'heading') { headingDepth = d; break; }
+        }
+        if (headingDepth < 0) continue;
+        const headingNode = $pos.node(headingDepth);
+        tr = tr.setNodeMarkup($pos.before(headingDepth), undefined, {
+          ...headingNode.attrs,
+          collapsed: false,
+        });
+        changed = true;
+      }
+      if (changed) view.dispatch(tr);
+    };
+    editor.on('transaction', onTransaction);
+    return () => { editor.off('transaction', onTransaction); };
+  }, [editor]);
+
+  // 给编辑器标题设置 id（与 DocOutline.parseHeadings 的 id 生成逻辑一致），
+  // 让侧栏大纲点击能精确定位到标题（否则 getElementById 永远找不到，只能靠文本匹配）。
+  // id 是纯 DOM 展示属性，不写入 Markdown。
+  useEffect(() => {
+    if (!editor) return;
+    const syncHeadingIds = () => {
+      if (!editor.view || editor.isDestroyed) return;
+      const root = editor.view.dom;
+      if (!root) return;
+      const headings = Array.from(root.querySelectorAll<HTMLElement>('h1.collapsible-heading, h2.collapsible-heading, h3.collapsible-heading, h4.collapsible-heading, h5.collapsible-heading'));
+      for (const h of headings) {
+        // textContent 不含 ::before 编号，只含标题文字
+        const text = (h.textContent || '').trim();
+        const id = text.toLowerCase()
+          .replace(/[^一-龥a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '');
+        if (id) h.id = id;
+      }
+    };
+    syncHeadingIds();
+    if (!editor.view || editor.isDestroyed) return;
+    const observer = new MutationObserver(syncHeadingIds);
+    observer.observe(editor.view.dom, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, [editor]);
+
   // 折叠标题：点击标题左侧箭头区域切换折叠状态
   useEffect(() => {
     if (!editor) return;
@@ -261,9 +343,10 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
       // 找到被点击的标题元素
       const headingEl = target.closest<HTMLElement>('h1.collapsible-heading, h2.collapsible-heading, h3.collapsible-heading, h4.collapsible-heading, h5.collapsible-heading');
       if (!headingEl) return;
-      // 仅当点击落在左侧箭头区域（约 1.1rem 宽）时切换折叠
+      // 仅当点击落在左侧箭头区域（约 1rem 宽）时切换折叠；
+      // 文字/编号从 padding-left(1.25rem) 之后开始，点击文字开头可正常放置光标
       const rect = headingEl.getBoundingClientRect();
-      const arrowWidth = 18; // px，与 CSS 中箭头区域宽度一致
+      const arrowWidth = 16; // px，与 CSS 中箭头宽度(1rem)一致
       if (e.clientX - rect.left > arrowWidth) return;
       e.preventDefault();
       e.stopPropagation();

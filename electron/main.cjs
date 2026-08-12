@@ -1,11 +1,14 @@
 // Electron 主进程:把 Vite 构建产物(dist/)包装为桌面应用
 // 桌面端使用 HashRouter + loadFile,避免 file:// 协议下的路由问题
-const { app, BrowserWindow, shell, Menu, protocol, net, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, Menu, protocol, net, ipcMain, Tray, nativeImage } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { autoUpdater } = require('electron-updater');
 
 const DIST_DIR = path.join(__dirname, '..', 'dist');
+
+// 系统托盘图标路径(build/icon.png 已随 files 打包进 asar)
+const TRAY_ICON_PATH = path.join(__dirname, '..', 'build', 'icon.png');
 
 // 把 app:// 注册为标准 + 安全协议,使其拥有独立 origin(app://),
 // 否则 Chromium 会把 origin 视为 null,导致 ES module/CSS 被 CORS 阻止而白屏。
@@ -39,6 +42,51 @@ if (!gotLock) {
 }
 
 let mainWindow = null;
+let tray = null;
+// 是否正在真正退出(由托盘菜单"退出"触发);为 true 时关闭窗口直接退出而非最小化到托盘
+let isQuitting = false;
+
+// ─── 系统托盘 ───
+// 关闭窗口时最小化到托盘后台运行;托盘提供"显示/隐藏"与"退出"菜单
+function createTray() {
+  const icon = nativeImage.createFromPath(TRAY_ICON_PATH);
+  // Windows 托盘建议 16x16;若原图过大则缩放,避免模糊/占位过大
+  const trayIcon = icon.isEmpty() ? icon : icon.resize({ width: 16, height: 16 });
+  tray = new Tray(trayIcon);
+  tray.setToolTip('知识库');
+
+  const toggleWindow = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow();
+      return;
+    }
+    if (mainWindow.isVisible()) {
+      mainWindow.hide();
+    } else {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  };
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: '显示 / 隐藏',
+      click: toggleWindow,
+    },
+    { type: 'separator' },
+    {
+      label: '退出',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+  tray.setContextMenu(contextMenu);
+
+  // 单击托盘图标:显示/隐藏窗口
+  tray.on('click', toggleWindow);
+}
 
 // ─── 自动更新(electron-updater) ───
 // 配置 GitHub Releases 作为更新源;桌面渲染进程通过 IPC 触发检查/下载/安装
@@ -95,6 +143,14 @@ function createWindow() {
   // 首次绘制完成后再显示,避免白屏闪烁
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
+  // 关闭窗口时最小化到托盘(而非退出);仅当用户从托盘菜单选择"退出"时才真正关闭
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
+
   // 外部 http(s) 链接在系统默认浏览器打开,不走应用内导航
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) {
@@ -138,12 +194,15 @@ app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
   }
   createWindow();
+  createTray();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
+// 窗口全部关闭时不退出:应用驻留系统托盘后台运行
+// (关闭窗口已被拦截为隐藏,此处兜底;真正退出走托盘菜单"退出")
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  // 保留在托盘,不退出
 });

@@ -107,7 +107,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
   const renderDocRow = (doc: JournalEntry, indent = false) => (
     <div
       key={doc.id}
-      className={`group flex items-center gap-1 w-full rounded-md transition-colors ${
+      className={`group flex items-center gap-1 w-full rounded-md transition-colors cv-auto ${
         isActive(doc.id)
           ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)]'
           : 'hover:bg-[var(--color-surface-2)] text-[var(--color-text-secondary)]'
