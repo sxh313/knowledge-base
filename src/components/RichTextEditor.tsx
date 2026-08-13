@@ -112,6 +112,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
   const lastEmittedRef = useRef(value);
   // 合并 onUpdate 的 rAF 句柄：连续输入时只做一次 turndown 转换
   const rafRef = useRef<number>(0);
+  const collapseRafRef = useRef<number>(0);
 
   const editor = useEditor({
     extensions: [
@@ -217,17 +218,18 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
     return () => cancelAnimationFrame(raf);
   }, [editor, value]);
 
-  // 折叠标题：把「已折叠标题之后、下一个同级或更高级标题之前」的内容标记为 data-hidden
-  // （纯展示行为，不写入 Markdown；编辑器内容变化时同步一次）
+  // 折叠标题：把「已折叠标题之后、下一个同级或更高级标题之前」的内容标记为 data-hidden。
+  // 仅在存在折叠/隐藏状态时扫描 DOM，避免点击 H1-H5 时长文档全篇重算导致卡顿。
   useEffect(() => {
     if (!editor) return;
     const syncCollapse = () => {
-      // 编辑器 view 可能尚未挂载（React StrictMode 双重调用 / 首次渲染），需防御
       if (!editor.view || editor.isDestroyed) return;
       const root = editor.view.dom;
       if (!root) return;
+      if (!root.querySelector('[data-hidden="true"], h1[data-collapsed="true"], h2[data-collapsed="true"], h3[data-collapsed="true"], h4[data-collapsed="true"], h5[data-collapsed="true"]')) {
+        return;
+      }
       const headings = Array.from(root.querySelectorAll<HTMLElement>('h1[data-collapsed="true"], h2[data-collapsed="true"], h3[data-collapsed="true"], h4[data-collapsed="true"], h5[data-collapsed="true"]'));
-      // 先清除所有 data-hidden，再按当前折叠状态重新标记
       root.querySelectorAll<HTMLElement>('[data-hidden]').forEach((el) => el.removeAttribute('data-hidden'));
       for (const h of headings) {
         const level = parseInt(h.tagName.slice(1), 10);
@@ -244,13 +246,21 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
         }
       }
     };
+    const scheduleSyncCollapse = () => {
+      if (collapseRafRef.current) cancelAnimationFrame(collapseRafRef.current);
+      collapseRafRef.current = requestAnimationFrame(() => {
+        collapseRafRef.current = 0;
+        syncCollapse();
+      });
+    };
     syncCollapse();
-    // editor.view 可能尚未挂载（React StrictMode 双重调用 / 首次渲染），需防御
-    if (!editor.view || editor.isDestroyed) return;
-    const observer = new MutationObserver(syncCollapse);
-    observer.observe(editor.view.dom, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-collapsed'] });
-    return () => observer.disconnect();
-  }, [editor, value]);
+    // update 已覆盖文档内容变化；避免同一笔事务同时触发 update/transaction 两次扫描。
+    editor.on('update', scheduleSyncCollapse);
+    return () => {
+      editor.off('update', scheduleSyncCollapse);
+      if (collapseRafRef.current) cancelAnimationFrame(collapseRafRef.current);
+    };
+  }, [editor]);
 
   // 折叠状态下输入内容自动展开：
   // 当光标落在被折叠隐藏（data-hidden）的内容里并发生内容变化（输入/回车/粘贴）时，
@@ -306,32 +316,6 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
     };
     editor.on('transaction', onTransaction);
     return () => { editor.off('transaction', onTransaction); };
-  }, [editor]);
-
-  // 给编辑器标题设置 id（与 DocOutline.parseHeadings 的 id 生成逻辑一致），
-  // 让侧栏大纲点击能精确定位到标题（否则 getElementById 永远找不到，只能靠文本匹配）。
-  // id 是纯 DOM 展示属性，不写入 Markdown。
-  useEffect(() => {
-    if (!editor) return;
-    const syncHeadingIds = () => {
-      if (!editor.view || editor.isDestroyed) return;
-      const root = editor.view.dom;
-      if (!root) return;
-      const headings = Array.from(root.querySelectorAll<HTMLElement>('h1.collapsible-heading, h2.collapsible-heading, h3.collapsible-heading, h4.collapsible-heading, h5.collapsible-heading'));
-      for (const h of headings) {
-        // textContent 不含 ::before 编号，只含标题文字
-        const text = (h.textContent || '').trim();
-        const id = text.toLowerCase()
-          .replace(/[^一-龥a-z0-9]+/g, '-')
-          .replace(/^-|-$/g, '');
-        if (id) h.id = id;
-      }
-    };
-    syncHeadingIds();
-    if (!editor.view || editor.isDestroyed) return;
-    const observer = new MutationObserver(syncHeadingIds);
-    observer.observe(editor.view.dom, { childList: true, subtree: true, characterData: true });
-    return () => observer.disconnect();
   }, [editor]);
 
   // 折叠标题：点击标题左侧箭头区域切换折叠状态
@@ -422,10 +406,8 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
     if (!editor) return;
     const handler = () => force();
     editor.on('update', handler);
-    editor.on('transaction', handler);
     return () => {
       editor.off('update', handler);
-      editor.off('transaction', handler);
     };
   }, [editor]);
 
@@ -647,7 +629,10 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
 
   // 组件卸载时清理未执行的 rAF
   useEffect(() => {
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (collapseRafRef.current) cancelAnimationFrame(collapseRafRef.current);
+    };
   }, []);
 
   if (!editor) return null;
