@@ -246,38 +246,29 @@ async function ghGet(cfg: SyncConfig): Promise<RemoteFile | null> {
   return (await res.json()) as RemoteFile;
 }
 
-async function ghPut(cfg: SyncConfig, content: string, sha?: string): Promise<string> {
+/**
+ * 单次 PUT data.json。返回新文件 sha；若返回 null 表示 409（远端被其他设备/进程修改，
+ * 需由调用方重新拉取远端并重新合并后再推送）。
+ */
+async function ghPutOnce(cfg: SyncConfig, content: string, sha?: string): Promise<string | null> {
   const url = `${API}/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.path}`;
-  // 409 = SHA 冲突（远端在本次拉取后被其他设备/进程修改）。自动重试：重新拉取最新 sha 再推送，
-  // 避免因 GitHub 最终一致性或并发同步导致的间歇性失败。
-  for (let attempt = 0; attempt < 3; attempt++) {
-    let currentSha = sha;
-    if (attempt > 0) {
-      const latest = await ghGet(cfg);
-      currentSha = latest?.sha;
-    }
-    const res = await fetch(url, {
-      method: 'PUT',
-      headers: { ...authHeaders(cfg.token), 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: `chore(sync): ${new Date().toISOString()}`,
-        content: b64encode(content),
-        branch: cfg.branch,
-        ...(currentSha ? { sha: currentSha } : {}),
-      }),
-    });
-    if (res.status === 409 && attempt < 2) {
-      await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
-      continue; // 重试
-    }
-    if (!res.ok) {
-      const t = await res.text().catch(() => '');
-      throw new Error(`GitHub PUT 失败: HTTP ${res.status} ${t.slice(0, 160)}`);
-    }
-    const json = await res.json();
-    return json?.content?.sha as string;
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { ...authHeaders(cfg.token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: `chore(sync): ${new Date().toISOString()}`,
+      content: b64encode(content),
+      branch: cfg.branch,
+      ...(sha ? { sha } : {}),
+    }),
+  });
+  if (res.status === 409) return null; // SHA 冲突 → 调用方重新拉取合并
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`GitHub PUT 失败: HTTP ${res.status} ${t.slice(0, 160)}`);
   }
-  throw new Error('GitHub PUT 失败: 多次重试后仍冲突');
+  const json = await res.json();
+  return json?.content?.sha as string;
 }
 
 export interface SyncResult {
@@ -289,42 +280,71 @@ export interface SyncResult {
 }
 
 /**
- * 完整同步流程：拉取远端 → 与本地合并（取较新）→ 写回本地 → 推送合并结果
+ * 拉取远端 → 与本地合并（取较新、检测冲突）→ 写回本地 → 重建派生索引。
+ * 返回 { merged, json, remoteSha, pulled, conflicts }，供推送使用。
+ */
+async function pullAndMerge(cfg: SyncConfig, local: FullData, baseline: Record<string, string>) {
+  const remote = await ghGet(cfg);
+  let merged = local;
+  let pulled = 0;
+  let conflicts = 0;
+
+  if (remote?.content) {
+    const remoteData = JSON.parse(b64decode(remote.content)) as FullData;
+    // 三方冲突检测（本地与远端相对基线都改变且不同）
+    const conflictedIds = detectConflictedIds(local.journals, remoteData.journals, baseline);
+    conflicts = await recordConflicts(local.journals, remoteData.journals, conflictedIds);
+    // 合并：冲突文档保留本地，其余按「较新」
+    merged = keepLocalForConflicts(mergeData(local, remoteData), local, conflictedIds);
+    await writeAllData(merged);
+    // 同步完成后本地重建派生索引（双链/分块/搜索），派生数据不参与同步
+    await rebuildDocumentIndexes();
+    pulled =
+      remoteData.journals.length +
+      remoteData.cards.length +
+      remoteData.notes.length;
+  }
+
+  const json = JSON.stringify(merged);
+  // GitHub 单文件硬上限 100MB，留余量用 95MB 提前拦截，避免推送失败
+  const byteSize = new Blob([json]).size;
+  const MAX_BYTES = 95 * 1024 * 1024; // 95MB（预留余量）
+  if (byteSize > MAX_BYTES) {
+    throw new Error(`数据体积 ${(byteSize / 1024 / 1024).toFixed(1)}MB 超过 95MB 上限，已阻止上传。请在设置中清理旧数据（如 AI 对话历史）后再试。`);
+  }
+  return { merged, json, remoteSha: remote?.sha, pulled, conflicts };
+}
+
+/**
+ * 完整同步流程：拉取远端 → 与本地合并（取较新）→ 写回本地 → 推送合并结果。
+ * 推送遇 409（远端被其他设备/进程并发修改）时，自动重新拉取远端并重新合并后再推送，
+ * 指数退避重试，避免覆盖其他设备的改动，也避免因 GitHub 最终一致性导致的间歇性失败。
  */
 export async function syncNow(cfg: SyncConfig): Promise<SyncResult> {
   return withSyncLock(async () => {
     const local = await collectAllData();
-    const remote = await ghGet(cfg);
     const baseline = cfg.baselineHashes ?? {};
 
-    let merged = local;
-    let pulled = 0;
-    let conflicts = 0;
+    // 首次拉取合并
+    let { merged, json, remoteSha, pulled, conflicts } = await pullAndMerge(cfg, local, baseline);
 
-    if (remote?.content) {
-      const remoteData = JSON.parse(b64decode(remote.content)) as FullData;
-      // 三方冲突检测（本地与远端相对基线都改变且不同）
-      const conflictedIds = detectConflictedIds(local.journals, remoteData.journals, baseline);
-      conflicts = await recordConflicts(local.journals, remoteData.journals, conflictedIds);
-      // 合并：冲突文档保留本地，其余按「较新」
-      merged = keepLocalForConflicts(mergeData(local, remoteData), local, conflictedIds);
-      await writeAllData(merged);
-      // 同步完成后本地重建派生索引（双链/分块/搜索），派生数据不参与同步
-      await rebuildDocumentIndexes();
-      pulled =
-        remoteData.journals.length +
-        remoteData.cards.length +
-        remoteData.notes.length;
+    // 推送：遇 409 重新拉取合并再推，最多 5 次（指数退避）
+    let sha: string | null = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      sha = await ghPutOnce(cfg, json, remoteSha);
+      if (sha) break;
+      // 409：远端被并发修改。等待后重新拉取远端并重新合并（基于最新远端，避免覆盖他人改动）
+      await new Promise((r) => setTimeout(r, 800 * Math.pow(2, attempt)));
+      // 使用上一轮合并结果作为新的本地快照，避免 409 重试时丢掉刚合并的数据。
+      const again = await pullAndMerge(cfg, merged, baseline);
+      merged = again.merged;
+      json = again.json;
+      remoteSha = again.remoteSha;
+      pulled = again.pulled;
+      conflicts = again.conflicts;
     }
+    if (!sha) throw new Error('GitHub PUT 失败: 多次重试后仍冲突，请稍后再试');
 
-    const json = JSON.stringify(merged);
-    // GitHub 单文件硬上限 100MB，留余量用 95MB 提前拦截，避免推送失败
-    const byteSize = new Blob([json]).size;
-    const MAX_BYTES = 95 * 1024 * 1024; // 95MB（预留余量）
-    if (byteSize > MAX_BYTES) {
-      throw new Error(`数据体积 ${(byteSize / 1024 / 1024).toFixed(1)}MB 超过 95MB 上限，已阻止上传。请在设置中清理旧数据（如 AI 对话历史）后再试。`);
-    }
-    const sha = await ghPut(cfg, json, remote?.sha);
     // 自动推送文档 + AI 对话为 Markdown（每篇/每条一个文件到 docs/ 和 conversations/）
     try { await pushJournalsAsMarkdown(cfg); } catch { /* ignore */ }
     try { await pushConversationsAsMarkdown(cfg); } catch { /* ignore */ }
