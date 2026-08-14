@@ -35,6 +35,15 @@ jobs:
       - name: 设置 Android SDK 缓存
         uses: android-actions/setup-android@v3
 
+      # 注入同步 Token 到 .env.local（来自 GitHub Secrets，不入库）。
+      # 这样安卓 APK 构建时 VITE_SYNC_TOKEN 会被注入，App 设置页可显示并点击填入。
+      - name: 写入同步 Token
+        run: |
+          echo "VITE_SYNC_TOKEN=${{ secrets.VITE_SYNC_TOKEN }}" >> .env.local
+          echo "VITE_SYNC_OWNER=${{ secrets.VITE_SYNC_OWNER || 'sxh313' }}" >> .env.local
+          echo "VITE_SYNC_REPO=${{ secrets.VITE_SYNC_REPO || 'knowledge-base' }}" >> .env.local
+          echo "VITE_SYNC_BRANCH=${{ secrets.VITE_SYNC_BRANCH || 'knowledge-base' }}" >> .env.local
+
       - name: 构建 Web + 同步 Capacitor
         env:
           BUILD_TARGET: android
