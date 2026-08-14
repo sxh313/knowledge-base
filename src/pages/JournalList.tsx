@@ -177,7 +177,7 @@ export default function JournalList() {
 
   return (
     <div
-      className="flex h-full animate-fade-in relative"
+      className="flex min-h-full w-full animate-fade-in relative"
       onDrop={handleDrop}
       onDragOver={(e) => { e.preventDefault(); if (!dragging) setDragging(true); }}
       onDragLeave={(e) => { if (e.currentTarget === e.target) setDragging(false); }}

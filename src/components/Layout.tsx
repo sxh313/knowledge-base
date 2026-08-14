@@ -4,7 +4,7 @@ import {
   ChevronLeft, Sun, Moon, Monitor, Search, HelpCircle, Smartphone, MoreHorizontal, X, Trash2,
   Cloud, Loader2, Tag, Inbox, Plus, Timer, ArrowUp, ArrowDown, RotateCcw,
 } from 'lucide-react';
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useThemeStore, type ThemeMode } from '../stores/themeStore';
 import { useViewModeStore, type ViewMode } from '../stores/viewModeStore';
 import { useSyncStore } from '../stores/syncStore';
@@ -77,17 +77,18 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
   const [showTemplates, setShowTemplates] = useState(false);
   const [isEditingMobileNav, setIsEditingMobileNav] = useState(false);
   const [mobileNavOrder, setMobileNavOrder] = useState<string[]>(loadMobileNavOrder);
-  // 顶部栏日期缓存：每分钟更新一次，避免每次 render 都 new Date()
   const [now, setNow] = useState(() => new Date());
+
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(t);
   }, []);
-  // 可拖拽调整主侧栏宽度（持久化到 localStorage）
+
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     const saved = Number(localStorage.getItem('sidebar-width'));
     return Number.isFinite(saved) && saved > 0 ? saved : 176;
   });
+
   const startResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const onMove = (ev: MouseEvent) => {
@@ -95,7 +96,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
       setSidebarWidth(w);
     };
     const onUp = () => {
-      setSidebarWidth(w => {
+      setSidebarWidth((w) => {
         localStorage.setItem('sidebar-width', String(w));
         return w;
       });
@@ -109,12 +110,13 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }, []);
+
   const location = useLocation();
   const navigate = useNavigate();
   const { mode, setMode } = useThemeStore();
   const { mode: viewMode, isMobile, cycleMode } = useViewModeStore();
   const { status: syncStatus, lastSyncAt, doSync } = useSyncStore();
-  const syncEnabled = !!useSettingsStore(s => s.settings?.sync?.enabled);
+  const syncEnabled = !!useSettingsStore((s) => s.settings?.sync?.enabled);
   const pomoVisible = usePomodoroStore((s) => s.visible);
   const setPomoVisible = usePomodoroStore((s) => s.setVisible);
   const setCurrent = useJournalStore((s) => s.setCurrent);
@@ -132,6 +134,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
     setMobileNavOrder(next);
     saveMobileNavOrder(next);
   };
+
   const moveMobileNavItem = (index: number, direction: -1 | 1) => {
     const target = index + direction;
     if (target < 0 || target >= mobileNavOrder.length) return;
@@ -139,14 +142,17 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
     [next[index], next[target]] = [next[target], next[index]];
     updateMobileNavOrder(next);
   };
+
   const resetMobileNavOrder = () => {
     updateMobileNavOrder(DEFAULT_MOBILE_NAV_ORDER);
   };
+
   const openBlankDocument = () => {
     setShowNewSheet(false);
     setCurrent(null);
     navigate('/edit/new');
   };
+
   const openTodayNote = async () => {
     setShowNewSheet(false);
     const { entry } = await createTodayNote();
@@ -155,14 +161,15 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
 
   if (isMobile) {
     return (
-      <div className="flex h-screen flex-col overflow-hidden">
+      <div className="flex min-h-[100dvh] flex-col overflow-hidden">
         {showTemplates && <TemplatePicker onClose={() => setShowTemplates(false)} />}
-        {/* 顶部栏 */}
+
         <div className="glass flex items-center gap-2 border-b border-[var(--color-border)] px-3 h-12 shrink-0">
           <button
             onClick={onOpenPalette}
             className="flex flex-1 items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)] transition-colors"
             title="搜索"
+            type="button"
           >
             <Search className="h-4 w-4" />
             <span>搜索</span>
@@ -188,27 +195,26 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </button>
         </div>
 
-        {/* 内容区 */}
-        <main className="flex-1 overflow-y-auto px-3 py-4">
-          <div key={location.pathname} className="animate-slide-up">
+        <main className="flex-1 min-h-0 overflow-y-auto px-3 py-4">
+          <div key={location.pathname} className="min-h-full animate-slide-up">
             <Outlet />
           </div>
         </main>
 
-        {/* 移动端悬浮：新建文档（编辑页隐藏，避免遮挡） */}
         {!location.pathname.startsWith('/edit') && (
           <button
             onClick={() => setShowNewSheet(true)}
             className="fixed bottom-[4.75rem] right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-primary)] text-white shadow-lg active:scale-90 transition-transform"
             title="新建文档"
             aria-label="新建文档"
+            type="button"
           >
             <Plus className="h-6 w-6" />
           </button>
         )}
 
         {showNewSheet && (
-          <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setShowNewSheet(false)}>
+          <div className="fixed inset-0 z-50 flex min-h-[100dvh] flex-col justify-end" onClick={() => setShowNewSheet(false)}>
             <div className="flex-1 bg-black/30 animate-fade-in" />
             <div
               className="glass rounded-t-2xl border-t border-[var(--color-border)] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
@@ -238,7 +244,6 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </div>
         )}
 
-        {/* 底部 Tab 栏 */}
         <nav className="glass flex items-center border-t border-[var(--color-border)] shrink-0 pb-[env(safe-area-inset-bottom)]">
           {mobileTabItems.map((item) => {
             const isActive = item.to === '/'
@@ -261,15 +266,15 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           <button
             onClick={() => { setShowMoreSheet(true); setIsEditingMobileNav(false); }}
             className="flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium text-[var(--color-text-tertiary)]"
+            type="button"
           >
             <MoreHorizontal className="h-5 w-5" />
             更多
           </button>
         </nav>
 
-        {/* 更多面板 */}
         {showMoreSheet && (
-          <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setShowMoreSheet(false)}>
+          <div className="fixed inset-0 z-50 flex min-h-[100dvh] flex-col justify-end" onClick={() => setShowMoreSheet(false)}>
             <div className="flex-1 bg-black/30 animate-fade-in" />
             <div
               className="glass rounded-t-2xl border-t border-[var(--color-border)] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
@@ -298,6 +303,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
                   </button>
                 </div>
               </div>
+
               {isEditingMobileNav ? (
                 <div className="max-h-[58vh] space-y-1 overflow-y-auto pr-1">
                   {orderedMobileNavItems.map((item, index) => (
@@ -324,6 +330,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
                       key={item.to}
                       className="flex min-h-14 flex-col items-center justify-center gap-1.5 rounded-lg px-1 py-2 text-center text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]"
                       onClick={() => { navigate(item.to); setShowMoreSheet(false); }}
+                      type="button"
                     >
                       <item.icon className="h-5 w-5" />
                       <span className="max-w-full truncate">{item.label}</span>
@@ -340,14 +347,12 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* 侧栏 */}
       <aside
         className={`glass relative flex flex-col border-r border-[var(--color-border)] ${
           collapsed ? 'w-16 transition-all duration-300' : ''
         }`}
         style={collapsed ? undefined : { width: sidebarWidth }}
       >
-        {/* 可拖拽调整宽度的把手（仅展开态） */}
         {!collapsed && (
           <div
             onMouseDown={startResize}
@@ -355,7 +360,6 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
             title="拖动调整侧栏宽度"
           />
         )}
-        {/* Logo 区 */}
         <div className="flex h-14 items-center justify-between border-b border-[var(--color-border)] px-4 relative">
           {!collapsed ? (
             <div className="flex items-center gap-2">
@@ -379,12 +383,12 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </button>
         </div>
 
-        {/* 搜索触发区 */}
         <div className="p-2 border-b border-[var(--color-border)]">
           <button
             onClick={onOpenPalette}
             className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-[var(--color-text-tertiary)] bg-[var(--color-surface-2)] hover:bg-[var(--color-border)] transition-colors"
             title="搜索文档和快捷操作"
+            type="button"
           >
             <Search className="h-3.5 w-3.5" />
             {collapsed ? <span className="text-xs">⌘K</span> : <span>搜索...</span>}
@@ -392,7 +396,6 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </button>
         </div>
 
-        {/* 导航 */}
         <nav className="flex-1 space-y-1 p-2 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = item.to === '/'
@@ -412,15 +415,12 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
               >
                 <item.icon className={`h-5 w-5 flex-shrink-0 ${isActive ? '' : 'transition-transform group-hover:scale-110'}`} />
                 {!collapsed && <span>{item.label}</span>}
-                {isActive && !collapsed && (
-                  <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[var(--color-primary)]" />
-                )}
+                {isActive && !collapsed && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[var(--color-primary)]" />}
               </NavLink>
             );
           })}
         </nav>
 
-        {/* 底部：主题切换 + 版本 */}
         <div className="border-t border-[var(--color-border)] p-2">
           <button
             onClick={() => setMode(nextTheme)}
@@ -436,20 +436,17 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
               </>
             )}
           </button>
-          {!collapsed && (
-            <div className="px-3 pt-1 pb-1 text-[10px] text-[var(--color-text-tertiary)]">知识库 v1.0</div>
-          )}
+          {!collapsed && <div className="px-3 pt-1 pb-1 text-[10px] text-[var(--color-text-tertiary)]">知识库 v1.0</div>}
         </div>
       </aside>
 
-      {/* 主内容区 */}
       <main className="flex-1 overflow-hidden flex flex-col">
-        {/* 顶部栏 */}
         <div className="glass sticky top-0 z-10 flex items-center gap-3 border-b border-[var(--color-border)] px-5 h-12 shrink-0">
           <button
             onClick={onOpenPalette}
             className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)] transition-colors"
             title="搜索 (⌘K)"
+            type="button"
           >
             <Search className="h-4 w-4" />
             <span className="hidden sm:inline">全局搜索</span>
@@ -473,6 +470,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
               onClick={() => doSync()}
               className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)]"
               title={lastSyncAt ? `上次同步：${new Date(lastSyncAt).toLocaleString('zh-CN')}（点击立即同步）` : '点击立即同步'}
+              type="button"
             >
               {syncStatus === 'syncing'
                 ? <Loader2 className="h-4 w-4 animate-spin text-[var(--color-primary)]" />
@@ -486,6 +484,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
             onClick={() => setPomoVisible(!pomoVisible)}
             className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors hover:bg-[var(--color-surface-2)] ${pomoVisible ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-tertiary)]'}`}
             title={pomoVisible ? '隐藏番茄钟' : '显示番茄钟'}
+            type="button"
           >
             <Timer className="h-4 w-4" />
           </button>
