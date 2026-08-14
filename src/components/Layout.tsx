@@ -2,7 +2,7 @@ import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   FileText, MessageSquare, Brain, BarChart3, Settings, BookOpen, Layers,
   ChevronLeft, Sun, Moon, Monitor, Search, HelpCircle, Smartphone, MoreHorizontal, X, Trash2,
-  Cloud, Loader2, Tag, Inbox, Plus, Timer,
+  Cloud, Loader2, Tag, Inbox, Plus, Timer, ArrowUp, ArrowDown, RotateCcw,
 } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useThemeStore, type ThemeMode } from '../stores/themeStore';
@@ -10,6 +10,8 @@ import { useViewModeStore, type ViewMode } from '../stores/viewModeStore';
 import { useSyncStore } from '../stores/syncStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { usePomodoroStore } from '../stores/pomodoroStore';
+import { useJournalStore } from '../stores/journalStore';
+import TemplatePicker from './TemplatePicker';
 
 interface LayoutProps {
   onOpenPalette?: () => void;
@@ -27,12 +29,32 @@ const navItems = [
   { to: '/settings', icon: Settings, label: '设置' },
 ];
 
-const mobileTabItems = navItems.slice(0, 4);
-const mobileMoreItems = [
-  ...navItems.slice(4),
+const mobileNavItems = [
+  ...navItems,
   { to: '/trash', icon: Trash2, label: '回收站' },
   { to: '/manual', icon: HelpCircle, label: '使用手册' },
 ];
+const DEFAULT_MOBILE_NAV_ORDER = mobileNavItems.map((item) => item.to);
+const MOBILE_NAV_ORDER_KEY = 'knowledge-base-mobile-nav-order';
+
+function loadMobileNavOrder(): string[] {
+  if (typeof window === 'undefined') return DEFAULT_MOBILE_NAV_ORDER;
+  try {
+    const raw = localStorage.getItem(MOBILE_NAV_ORDER_KEY);
+    if (!raw) return DEFAULT_MOBILE_NAV_ORDER;
+    const saved = JSON.parse(raw) as string[];
+    const valid = saved.filter((to) => DEFAULT_MOBILE_NAV_ORDER.includes(to));
+    return [...valid, ...DEFAULT_MOBILE_NAV_ORDER.filter((to) => !valid.includes(to))];
+  } catch {
+    return DEFAULT_MOBILE_NAV_ORDER;
+  }
+}
+
+function saveMobileNavOrder(order: string[]) {
+  try { localStorage.setItem(MOBILE_NAV_ORDER_KEY, JSON.stringify(order)); } catch { /* ignore */ }
+}
+
+const mobileNavByPath = new Map(mobileNavItems.map((item) => [item.to, item]));
 
 const themeCycle: ThemeMode[] = ['light', 'dark', 'auto'];
 const themeConfig: Record<ThemeMode, { icon: typeof Sun; label: string; hint: string }> = {
@@ -51,6 +73,10 @@ const viewModeConfig: Record<ViewMode, { icon: typeof Monitor; label: string }> 
 export default function Layout({ onOpenPalette }: LayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [showMoreSheet, setShowMoreSheet] = useState(false);
+  const [showNewSheet, setShowNewSheet] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [isEditingMobileNav, setIsEditingMobileNav] = useState(false);
+  const [mobileNavOrder, setMobileNavOrder] = useState<string[]>(loadMobileNavOrder);
   // 顶部栏日期缓存：每分钟更新一次，避免每次 render 都 new Date()
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -91,15 +117,46 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
   const syncEnabled = !!useSettingsStore(s => s.settings?.sync?.enabled);
   const pomoVisible = usePomodoroStore((s) => s.visible);
   const setPomoVisible = usePomodoroStore((s) => s.setVisible);
+  const setCurrent = useJournalStore((s) => s.setCurrent);
+  const createTodayNote = useJournalStore((s) => s.createTodayNote);
 
   const ThemeIcon = themeConfig[mode].icon;
   const nextTheme = themeCycle[(themeCycle.indexOf(mode) + 1) % themeCycle.length];
   const ViewModeIcon = viewModeConfig[viewMode].icon;
   const nextViewMode = viewModeCycle[(viewModeCycle.indexOf(viewMode) + 1) % viewModeCycle.length];
+  const orderedMobileNavItems = mobileNavOrder.map((to) => mobileNavByPath.get(to)).filter(Boolean) as typeof mobileNavItems;
+  const mobileTabItems = orderedMobileNavItems.slice(0, 4);
+  const mobileMoreOrderedItems = orderedMobileNavItems.slice(4);
+
+  const updateMobileNavOrder = (next: string[]) => {
+    setMobileNavOrder(next);
+    saveMobileNavOrder(next);
+  };
+  const moveMobileNavItem = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= mobileNavOrder.length) return;
+    const next = [...mobileNavOrder];
+    [next[index], next[target]] = [next[target], next[index]];
+    updateMobileNavOrder(next);
+  };
+  const resetMobileNavOrder = () => {
+    updateMobileNavOrder(DEFAULT_MOBILE_NAV_ORDER);
+  };
+  const openBlankDocument = () => {
+    setShowNewSheet(false);
+    setCurrent(null);
+    navigate('/edit/new');
+  };
+  const openTodayNote = async () => {
+    setShowNewSheet(false);
+    const { entry } = await createTodayNote();
+    navigate(`/edit/${entry.id}`);
+  };
 
   if (isMobile) {
     return (
       <div className="flex h-screen flex-col overflow-hidden">
+        {showTemplates && <TemplatePicker onClose={() => setShowTemplates(false)} />}
         {/* 顶部栏 */}
         <div className="glass flex items-center gap-2 border-b border-[var(--color-border)] px-3 h-12 shrink-0">
           <button
@@ -121,6 +178,14 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           <NavLink to="/manual" className="btn-ghost p-1.5" title="使用手册">
             <HelpCircle className="h-4 w-4" />
           </NavLink>
+          <button
+            onClick={() => setPomoVisible(!pomoVisible)}
+            className={`btn-ghost p-1.5 ${pomoVisible ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-tertiary)]'}`}
+            title={pomoVisible ? '隐藏番茄钟' : '显示番茄钟'}
+            type="button"
+          >
+            <Timer className="h-4 w-4" />
+          </button>
         </div>
 
         {/* 内容区 */}
@@ -130,16 +195,47 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </div>
         </main>
 
-        {/* 移动端悬浮：快速收集（在编辑/收集箱页隐藏，避免遮挡） */}
-        {!location.pathname.startsWith('/edit') && location.pathname !== '/inbox' && (
+        {/* 移动端悬浮：新建文档（编辑页隐藏，避免遮挡） */}
+        {!location.pathname.startsWith('/edit') && (
           <button
-            onClick={() => navigate('/inbox')}
+            onClick={() => setShowNewSheet(true)}
             className="fixed bottom-[4.75rem] right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-primary)] text-white shadow-lg active:scale-90 transition-transform"
-            title="快速收集"
-            aria-label="快速收集"
+            title="新建文档"
+            aria-label="新建文档"
           >
             <Plus className="h-6 w-6" />
           </button>
+        )}
+
+        {showNewSheet && (
+          <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setShowNewSheet(false)}>
+            <div className="flex-1 bg-black/30 animate-fade-in" />
+            <div
+              className="glass rounded-t-2xl border-t border-[var(--color-border)] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-sm font-medium text-[var(--color-text)]">新建</span>
+                <button className="btn-ghost h-8 w-8 p-0" onClick={() => setShowNewSheet(false)} type="button">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button className="btn-secondary flex h-14 flex-col items-center justify-center gap-1 text-xs" onClick={openBlankDocument} type="button">
+                  <Plus className="h-4 w-4" />
+                  空白
+                </button>
+                <button className="btn-secondary flex h-14 flex-col items-center justify-center gap-1 text-xs" onClick={openTodayNote} type="button">
+                  <BookOpen className="h-4 w-4" />
+                  今日
+                </button>
+                <button className="btn-secondary flex h-14 flex-col items-center justify-center gap-1 text-xs" onClick={() => { setShowNewSheet(false); setShowTemplates(true); }} type="button">
+                  <Layers className="h-4 w-4" />
+                  模板
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* 底部 Tab 栏 */}
@@ -163,7 +259,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
             );
           })}
           <button
-            onClick={() => setShowMoreSheet(true)}
+            onClick={() => { setShowMoreSheet(true); setIsEditingMobileNav(false); }}
             className="flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium text-[var(--color-text-tertiary)]"
           >
             <MoreHorizontal className="h-5 w-5" />
@@ -176,27 +272,65 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={() => setShowMoreSheet(false)}>
             <div className="flex-1 bg-black/30 animate-fade-in" />
             <div
-              className="glass rounded-t-2xl border-t border-[var(--color-border)] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
+              className="glass rounded-t-2xl border-t border-[var(--color-border)] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-[var(--color-text)]">更多</span>
-                <button className="btn-ghost p-1" onClick={() => setShowMoreSheet(false)}>
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="grid grid-cols-4 gap-3">
-                {mobileMoreItems.map((item) => (
-                  <button
-                    key={item.to}
-                    className="flex flex-col items-center gap-1.5 rounded-lg py-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]"
-                    onClick={() => { navigate(item.to); setShowMoreSheet(false); }}
-                  >
-                    <item.icon className="h-5 w-5" />
-                    {item.label}
+              <div className="mb-2.5 flex items-center justify-between">
+                <span className="text-sm font-medium text-[var(--color-text)]">{isEditingMobileNav ? '调整顺序' : '更多'}</span>
+                <div className="flex items-center gap-1.5">
+                  {!isEditingMobileNav && (
+                    <button className="btn-ghost h-8 px-2 text-xs" onClick={() => setIsEditingMobileNav(true)} type="button">
+                      排序
+                    </button>
+                  )}
+                  {isEditingMobileNav && (
+                    <>
+                      <button className="btn-ghost h-8 w-8 p-0" onClick={resetMobileNavOrder} title="恢复默认" type="button">
+                        <RotateCcw className="h-4 w-4" />
+                      </button>
+                      <button className="btn-primary h-8 px-3 text-xs" onClick={() => setIsEditingMobileNav(false)} type="button">
+                        完成
+                      </button>
+                    </>
+                  )}
+                  <button className="btn-ghost h-8 w-8 p-0" onClick={() => setShowMoreSheet(false)} type="button">
+                    <X className="h-4 w-4" />
                   </button>
-                ))}
+                </div>
               </div>
+              {isEditingMobileNav ? (
+                <div className="max-h-[58vh] space-y-1 overflow-y-auto pr-1">
+                  {orderedMobileNavItems.map((item, index) => (
+                    <div key={item.to} className="grid grid-cols-[1.25rem_1.25rem_minmax(0,1fr)_2.75rem_3.75rem] items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5">
+                      <span className="text-center text-[10px] text-[var(--color-text-tertiary)]">{index + 1}</span>
+                      <item.icon className="h-4 w-4 shrink-0 text-[var(--color-text-secondary)]" />
+                      <span className="truncate text-sm text-[var(--color-text)]">{item.label}</span>
+                      <span className="rounded-full bg-[var(--color-surface-2)] px-1.5 py-0.5 text-center text-[10px] text-[var(--color-text-tertiary)]">{index < 4 ? '底栏' : '更多'}</span>
+                      <div className="grid grid-cols-2 gap-1">
+                        <button className="btn-ghost h-7 w-7 p-0" onClick={() => moveMobileNavItem(index, -1)} disabled={index === 0} title="上移" type="button">
+                          <ArrowUp className="h-3.5 w-3.5" />
+                        </button>
+                        <button className="btn-ghost h-7 w-7 p-0" onClick={() => moveMobileNavItem(index, 1)} disabled={index === orderedMobileNavItems.length - 1} title="下移" type="button">
+                          <ArrowDown className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 gap-3">
+                  {mobileMoreOrderedItems.map((item) => (
+                    <button
+                      key={item.to}
+                      className="flex min-h-14 flex-col items-center justify-center gap-1.5 rounded-lg px-1 py-2 text-center text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]"
+                      onClick={() => { navigate(item.to); setShowMoreSheet(false); }}
+                    >
+                      <item.icon className="h-5 w-5" />
+                      <span className="max-w-full truncate">{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

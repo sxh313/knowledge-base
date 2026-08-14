@@ -87,6 +87,11 @@ export default function JournalList() {
     navigate(`/edit/${entry.id}`);
   };
 
+  const handleBlankNew = () => {
+    setCurrent(null);
+    navigate('/edit/new');
+  };
+
   // 多选：切换单个选中 / 全选 / 取消全选 / 批量删除
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -229,62 +234,70 @@ export default function JournalList() {
       )}
 
       {/* 右侧：文档列表 */}
-      <div className="flex flex-col flex-1 min-w-0 px-4 py-3">
+      <div className="flex flex-col flex-1 min-w-0 px-2 py-2 sm:px-4 sm:py-3">
         {/* Header */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 min-w-0">
             {isMobile && (
-              <button className="btn-ghost p-1.5" onClick={() => setShowTreeDrawer(true)} title="目录">
-                <Menu className="h-5 w-5" />
+              <button className="btn-ghost h-8 w-8 p-0" onClick={() => setShowTreeDrawer(true)} title="目录">
+                <Menu className="h-4 w-4" />
               </button>
             )}
-            <div>
-              <h1 className="text-2xl font-bold text-[var(--color-text)]">知识库</h1>
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold text-[var(--color-text)] sm:text-2xl">知识库</h1>
               <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
                 {filtered.length > 0 ? `共 ${filtered.length} 篇文档` : '构建你的知识体系'}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="grid grid-cols-2 gap-1.5 sm:flex sm:items-center sm:gap-2">
             {selectMode ? (
               <>
-                <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={toggleSelectAll} title="全选/取消全选">
+                <button className="btn-ghost h-8 px-2 text-xs flex items-center justify-center gap-1.5 sm:h-auto sm:text-sm" onClick={toggleSelectAll} title="全选/取消全选">
                   <span className="text-xs">{selectedIds.size > 0 && selectedIds.size === filtered.length ? '取消全选' : '全选'}</span>
                 </button>
                 <button
-                  className="btn-danger text-sm flex items-center gap-1.5"
+                  className="btn-danger h-8 px-2 text-xs flex items-center justify-center gap-1.5 sm:h-auto sm:text-sm"
                   onClick={handleDeleteSelected}
                   disabled={selectedIds.size === 0}
                   title="删除选中的文档"
                 >
                   <Trash2 className="h-4 w-4" />
-                  删除选中{selectedIds.size > 0 ? `（${selectedIds.size}）` : ''}
+                  删除{selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
                 </button>
-                <button className="btn-ghost text-sm" onClick={exitSelectMode} title="退出多选">取消</button>
+                <button className="btn-ghost h-8 px-2 text-xs sm:h-auto sm:text-sm" onClick={exitSelectMode} title="退出多选">取消</button>
               </>
             ) : (
               <>
-                <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={() => setSelectMode(true)} title="进入多选模式，可批量删除">
+                <button className="btn-ghost h-8 px-2 text-xs flex items-center justify-center gap-1 sm:h-auto sm:text-sm sm:gap-1.5" onClick={() => setSelectMode(true)} title="进入多选模式，可批量删除">
                   <Trash2 className="h-4 w-4" />
                   多选
                 </button>
-                <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={handleToday} title="一键创建/打开今天的每日总结">
+                {!isMobile && <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={handleToday} title="一键创建/打开今天的每日总结">
                   <CalendarDays className="h-4 w-4" />
                   今日笔记
-                </button>
-                <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={() => setShowTemplates(true)} title="从模板新建文档">
+                </button>}
+                {!isMobile && <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={() => setShowTemplates(true)} title="从模板新建文档">
                   <LayoutTemplate className="h-4 w-4" />
                   模板
-                </button>
-                <select value={sortBy} onChange={e => setSortBy(e.target.value as 'created' | 'updated' | 'title' | 'manual')} className="input-field text-xs w-auto" title="排序方式">
+                </button>}
+                <select value={sortBy} onChange={e => setSortBy(e.target.value as 'created' | 'updated' | 'title' | 'manual')} className="input-field h-8 w-full px-2 py-0 text-xs sm:h-auto sm:w-auto" title="排序方式">
                   <option value="created">创建时间</option>
                   <option value="updated">修改时间</option>
                   <option value="title">标题</option>
                   <option value="manual">↕ 手动排序</option>
                 </select>
-                <button className="btn-primary text-sm" onClick={() => { setCurrent(null); navigate('/edit/new'); }}>
-                  新建文档
-                </button>
+                {!isMobile && (
+                  <button
+                    className="btn-primary text-sm flex items-center justify-center gap-1"
+                    onClick={handleBlankNew}
+                    title="新建文档"
+                    aria-label="新建文档"
+                  >
+                    <Plus className="h-4 w-4" />
+                    新建
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -341,12 +354,12 @@ export default function JournalList() {
               <Star className="h-3 w-3 text-[var(--color-accent)] fill-[var(--color-accent)]" />
               收藏夹
             </p>
-            <div className="flex gap-2 overflow-x-auto pb-1">
+            <div className={isMobile ? 'grid grid-cols-2 gap-2' : 'flex gap-2 overflow-x-auto pb-1'}>
               {pinnedEntries.map(e => (
                 <button
                   key={e.id}
                   onClick={() => { setCurrent(e); navigate(`/edit/${e.id}`); }}
-                  className="group shrink-0 w-36 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 text-left transition-all hover:border-[var(--color-accent)] hover:shadow-md hover:-translate-y-0.5"
+                  className="group w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 text-left transition-all hover:border-[var(--color-accent)] hover:shadow-md hover:-translate-y-0.5 sm:w-36 sm:shrink-0"
                   title={e.title}
                 >
                   <p className="text-xs font-medium text-[var(--color-text)] truncate">{e.title || '无标题'}</p>
