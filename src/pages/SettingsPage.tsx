@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { useSettingsStore } from '../stores/settingsStore';
 import type { ProviderName } from '../lib/ai/providers';
 import { DEFAULT_BASE_URLS } from '../lib/ai/providers';
@@ -10,7 +11,11 @@ import { useUpdateStore, manualCheck, applyUpdate } from '../stores/updateStore'
 import { exportKeys, importKeys, type KeyBundle } from '../lib/utils/keyVault';
 import SyncConflicts from '../components/SyncConflicts';
 import DesktopUpdater from '../components/DesktopUpdater';
-import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search } from 'lucide-react';
+import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck } from 'lucide-react';
+import { useViewModeStore } from '../stores/viewModeStore';
+
+const isAndroidApp = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
+const androidReleaseUrl = 'https://github.com/sxh313/knowledge-base/releases/latest';
 
 const PROVIDER_INFO: { key: ProviderName; label: string; desc: string; icon: string }[] = [
   { key: 'shengsuanyun', label: '胜算云', desc: '推荐主力 — beta-router 统一入口', icon: '☁️' },
@@ -28,6 +33,8 @@ export default function SettingsPage() {
   const [refreshMsg, setRefreshMsg] = useState<Record<string, string>>({});
   const [manualModel, setManualModel] = useState<Record<string, string>>({});
   const { doSync, status: syncStatus, pullOnly, message: syncErrorMessage } = useSyncStore();
+  const isMobile = useViewModeStore((s) => s.isMobile);
+  const [openProvider, setOpenProvider] = useState<ProviderName | null>(null);
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
@@ -49,6 +56,10 @@ export default function SettingsPage() {
     markChecked();
     setChecking(false);
     setCheckMsg(ok ? '已检查，若有新版本将提示更新' : '检查失败，请稍后重试');
+  };
+
+  const openAndroidRelease = () => {
+    window.open(androidReleaseUrl, '_blank', 'noopener,noreferrer');
   };
 
   useEffect(() => { load(); }, []);
@@ -180,7 +191,7 @@ export default function SettingsPage() {
   })();
 
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-8">
+    <div className="mx-auto max-w-2xl space-y-6 p-4 sm:space-y-8 sm:p-6">
       <header>
         <h1 className="text-2xl font-bold">设置</h1>
         <p className="text-sm text-gray-500 mt-1">API Key 加密存于本地浏览器，本项目无服务器中转；调用 AI 时直连你选择的服务商</p>
@@ -201,10 +212,11 @@ export default function SettingsPage() {
           const filteredModels = filterText
             ? models.filter(m => m.toLowerCase().includes(filterText))
             : models;
+          const isProviderOpen = !isMobile || openProvider === key;
 
           return (
             <div key={key} className="card space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <span className="text-xl">{icon}</span>
                   <div>
@@ -219,9 +231,18 @@ export default function SettingsPage() {
                   <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
                 </label>
               </div>
+              {isMobile && prov.enabled && (
+                <button
+                  className="btn-secondary h-9 w-full text-sm"
+                  onClick={() => setOpenProvider(isProviderOpen ? null : key)}
+                  type="button"
+                >
+                  {isProviderOpen ? '收起配置' : '展开配置'}
+                </button>
+              )}
 
-              {prov.enabled && (
-                <div className="space-y-2 pl-10">
+              {prov.enabled && isProviderOpen && (
+                <div className="space-y-2 sm:pl-10">
                   <div>
                     <label className="text-xs text-gray-400">API 地址</label>
                     <input className="input-field mt-1 text-xs font-mono"
@@ -398,7 +419,7 @@ export default function SettingsPage() {
           </label>
           {settings.sync?.enabled && (
             <>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="text-xs text-gray-400">GitHub 用户名</label>
                   <input className="input-field mt-1 text-sm font-mono" value={settings.sync.owner}
@@ -535,7 +556,7 @@ export default function SettingsPage() {
       {/* 数据管理 */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">💾 数据管理</h2>
-        <div className="flex gap-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <button className="btn-secondary" onClick={() => import('../lib/services/export').then(m => m.exportAllData())}>
             📤 导出数据
           </button>
@@ -576,12 +597,17 @@ export default function SettingsPage() {
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">ℹ️ 关于与更新</h2>
         <div className="card space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium">知识库 · 版本 {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}</p>
               <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">本地优先的 AI 知识管理工具</p>
             </div>
-            {needRefresh ? (
+            {isAndroidApp ? (
+              <button className="btn-primary inline-flex h-10 w-full items-center justify-center gap-2 px-4 text-sm sm:w-auto" onClick={openAndroidRelease}>
+                <Download className="h-4 w-4 shrink-0" />
+                下载最新版 APK
+              </button>
+            ) : needRefresh ? (
               <button className="btn-primary text-sm" onClick={() => applyUpdate()}>
                 ✨ 发现新版本·立即更新
               </button>
@@ -591,20 +617,48 @@ export default function SettingsPage() {
               </button>
             )}
           </div>
-          {needRefresh && (
+          {isAndroidApp ? (
+            <div className="overflow-hidden rounded-xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-emerald-50 dark:border-sky-900/70 dark:from-sky-950/40 dark:via-[var(--color-surface)] dark:to-emerald-950/30">
+              <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 space-y-2.5">
+                  <div className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white/80 px-3 text-sm font-medium text-sky-700 ring-1 ring-sky-200 dark:bg-white/5 dark:text-sky-300 dark:ring-sky-900">
+                    <ShieldCheck className="h-4 w-4 shrink-0" />
+                    覆盖安装保留本地数据
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-[var(--color-text-primary)]">Android 版通过 APK 安装包更新</p>
+                    <p className="mt-1 text-sm leading-6 text-[var(--color-text-tertiary)]">打开发布页后下载最新 APK，安装时选择覆盖安装即可。</p>
+                  </div>
+                </div>
+                <button className="btn-secondary inline-flex h-10 w-full shrink-0 items-center justify-center gap-2 px-4 text-sm sm:w-auto" onClick={openAndroidRelease}>
+                  打开发布页
+                  <ExternalLink className="h-4 w-4 shrink-0" />
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-2 border-t border-sky-100 bg-white/45 p-2 text-center text-sm text-[var(--color-text-tertiary)] dark:border-sky-900/50 dark:bg-black/10">
+                <span className="flex h-8 items-center justify-center rounded-md bg-white/70 px-2 dark:bg-white/5">下载 APK</span>
+                <span className="flex h-8 items-center justify-center rounded-md bg-white/70 px-2 dark:bg-white/5">覆盖安装</span>
+                <span className="flex h-8 items-center justify-center rounded-md bg-white/70 px-2 dark:bg-white/5">重新打开</span>
+              </div>
+            </div>
+          ) : needRefresh && (
             <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 p-3">
               <p className="text-sm text-indigo-700 dark:text-indigo-300">✨ 发现新版本，点击「立即更新」即可安装最新版本并刷新。</p>
               <button className="btn-primary text-xs mt-2" onClick={() => applyUpdate()}>立即更新</button>
             </div>
           )}
-          {checkMsg && !needRefresh && <p className="text-xs text-gray-500">{checkMsg}</p>}
-          {lastCheckAt && (
+          {checkMsg && !needRefresh && !isAndroidApp && <p className="text-xs text-gray-500">{checkMsg}</p>}
+          {lastCheckAt && !isAndroidApp && (
             <p className="text-xs text-[var(--color-text-tertiary)]">上次检查：{new Date(lastCheckAt).toLocaleString('zh-CN')}</p>
           )}
-          <p className="text-xs text-[var(--color-text-tertiary)]">提示：应用会在后台每小时自动检查更新，发现新版本时右下角会弹出提示。</p>
+          <p className="text-xs text-[var(--color-text-tertiary)]">
+            {isAndroidApp
+              ? '提示：更新前先完成一次云同步，跨设备恢复会更稳。'
+              : '提示：应用会在后台每小时自动检查更新，发现新版本时右下角会弹出提示。'}
+          </p>
         </div>
         {/* 桌面端(Electron)自动更新:有更新时点按钮直接下载并重启安装 */}
-        <DesktopUpdater />
+        {!isAndroidApp && <DesktopUpdater />}
       </section>
 
       <div className="text-xs text-gray-400 text-center pb-8">

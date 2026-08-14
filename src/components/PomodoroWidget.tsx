@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
-import { Play, Pause, RotateCcw, Timer, Coffee, Settings2, X } from 'lucide-react';
+import { Play, Pause, RotateCcw, Timer, Coffee, Settings2, X, EyeOff } from 'lucide-react';
 import { usePomodoroStore } from '../stores/pomodoroStore';
 import { useJournalStore } from '../stores/journalStore';
+import { useViewModeStore } from '../stores/viewModeStore';
 
 function formatTime(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -37,6 +38,8 @@ export default function PomodoroWidget() {
   } = usePomodoroStore();
   const [expanded, setExpanded] = useState(false);
   const visible = usePomodoroStore((s) => s.visible);
+  const setVisible = usePomodoroStore((s) => s.setVisible);
+  const isMobile = useViewModeStore((s) => s.isMobile);
   // 可拖动位置（持久化）
   const [pos, setPos] = useState<{ x: number; y: number } | null>(() => loadPos());
   const posRef = useRef(pos); posRef.current = pos;
@@ -50,14 +53,30 @@ export default function PomodoroWidget() {
     movedRef.current = false;
   };
   useEffect(() => {
+    if (!isMobile || !pos) return;
+    const maxX = window.innerWidth - 132;
+    const maxY = window.innerHeight - 128;
+    const next = {
+      x: Math.max(8, Math.min(maxX, pos.x)),
+      y: Math.max(8, Math.min(maxY, pos.y)),
+    };
+    if (next.x !== pos.x || next.y !== pos.y) {
+      setPos(next);
+      savePos(next);
+    }
+  }, [isMobile, pos]);
+
+  useEffect(() => {
     const onMove = (e: PointerEvent) => {
       const d = dragRef.current;
       if (!d) return;
       const dx = e.clientX - d.sx;
       const dy = e.clientY - d.sy;
       if (Math.abs(dx) > 4 || Math.abs(dy) > 4) movedRef.current = true;
-      const x = Math.max(8, Math.min(window.innerWidth - 60, d.ox + dx));
-      const y = Math.max(8, Math.min(window.innerHeight - 60, d.oy + dy));
+      const maxX = window.innerWidth - (isMobile ? 132 : 60);
+      const maxY = window.innerHeight - (isMobile ? 128 : 60);
+      const x = Math.max(8, Math.min(maxX, d.ox + dx));
+      const y = Math.max(8, Math.min(maxY, d.oy + dy));
       setPos({ x, y });
     };
     const onUp = () => {
@@ -67,7 +86,7 @@ export default function PomodoroWidget() {
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
-  }, []);
+  }, [isMobile]);
   const [showSettings, setShowSettings] = useState(false);
   const [fMin, setFMin] = useState(String(focusMinutes));
   const [bMin, setBMin] = useState(String(breakMinutes));
@@ -121,13 +140,15 @@ export default function PomodoroWidget() {
   return (
     <div
       className="pomo-root fixed z-30 select-none"
-      style={pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : { right: 16, bottom: 16 }}
+      style={isMobile
+        ? (pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : { right: 16, bottom: 'calc(8.5rem + env(safe-area-inset-bottom))' })
+        : (pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : { right: 16, bottom: 16 })}
     >
       {/* 展开面板 */}
       {expanded && (
-        <div className="mb-2 w-72 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl animate-slide-up overflow-hidden">
+        <div className="mb-2 max-h-[calc(100vh-10rem)] w-[calc(100vw-1.5rem)] max-w-72 overflow-y-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl animate-slide-up sm:w-72">
           {/* 头部（可拖动） */}
-          <div className="flex items-center justify-between px-4 py-2.5 cursor-move" style={{ background: phaseColor }} onPointerDown={onDragStart}>
+          <div className="flex items-center justify-between px-4 py-2.5 cursor-move touch-none" style={{ background: phaseColor }} onPointerDown={onDragStart}>
             <div className="flex items-center gap-2 text-white">
               {phase === 'focus' ? <Timer className="h-4 w-4" /> : <Coffee className="h-4 w-4" />}
               <span className="text-sm font-medium">{phase === 'focus' ? '专注中' : '休息中'}</span>
@@ -182,6 +203,9 @@ export default function PomodoroWidget() {
             <button className="btn-ghost p-2 rounded-full" onClick={() => setShowSettings(s => !s)} title="设置时长">
               <Settings2 className="h-4 w-4" />
             </button>
+            <button className="btn-ghost p-2 rounded-full" onClick={() => setVisible(false)} title="隐藏番茄钟">
+              <EyeOff className="h-4 w-4" />
+            </button>
           </div>
 
           {/* 时长设置 */}
@@ -224,7 +248,7 @@ export default function PomodoroWidget() {
         <div
           onPointerDown={onDragStart}
           onPointerUp={() => { if (!movedRef.current) handleExpand(); }}
-          className="flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 shadow-lg hover:shadow-xl transition-all cursor-move"
+          className="flex touch-none items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 shadow-lg hover:shadow-xl transition-all cursor-move"
           title="番茄钟（拖动可移动，点击展开）"
         >
           <Timer className="h-4 w-4" style={{ color: phaseColor }} />
@@ -232,6 +256,14 @@ export default function PomodoroWidget() {
             {formatTime(remaining)}
           </span>
           {isRunning && <span className="h-2 w-2 rounded-full animate-pulse" style={{ background: phaseColor }} />}
+          <button
+            className="ml-1 rounded-full p-0.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => { event.stopPropagation(); setVisible(false); }}
+            title="隐藏番茄钟"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
     </div>
