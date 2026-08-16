@@ -4,6 +4,11 @@
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
+$buildOutput = if ($env:RUNNER_TEMP) {
+    Join-Path $env:RUNNER_TEMP 'kb-release'
+} else {
+    Join-Path $env:TEMP 'kb-release'
+}
 Set-Location $root
 
 Write-Host "📦 开始打包知识库 Electron 桌面版..." -ForegroundColor Cyan
@@ -11,7 +16,7 @@ Write-Host "📦 开始打包知识库 Electron 桌面版..." -ForegroundColor C
 # 1. 清理旧产物
 Write-Host "[1/6] 清理旧产物..." -ForegroundColor Yellow
 Remove-Item -Recurse -Force "$root\release" -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force "$env:TEMP\kb-release" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force $buildOutput -ErrorAction SilentlyContinue
 
 # 2. 检查 PNG 图标(脚本会保留项目中的自定义图标)
 Write-Host "[2/6] 检查 PNG 图标..." -ForegroundColor Yellow
@@ -33,13 +38,13 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # 5. 打包到系统临时目录(避免跨盘或工作区文件锁导致 rename EPERM)
 Write-Host "[5/6] 打包中(输出到系统临时目录)..." -ForegroundColor Yellow
-npx electron-builder --win --config.directories.output="$env:TEMP\kb-release"
+npx electron-builder --win --config.directories.output="$buildOutput"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # 6. 复制产物回项目 release/
 Write-Host "[6/6] 复制产物到 release/..." -ForegroundColor Yellow
 New-Item -ItemType Directory -Force -Path "$root\release" | Out-Null
-Copy-Item "$env:TEMP\kb-release\*" "$root\release" -Recurse -Force
+Copy-Item "$buildOutput\*" "$root\release" -Recurse -Force
 
 Write-Host ""
 Write-Host "✅ 打包完成!" -ForegroundColor Green
