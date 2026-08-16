@@ -331,9 +331,11 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
               key: 'rename',
               label: '重命名分类',
               onClick: async () => {
-                const name = window.prompt('输入新的分类名称', subjectCtx.category.name);
-                if (!name?.trim() || name.trim() === subjectCtx.category.name) return;
-                try { await renameCategory(subjectCtx.category.id, name); }
+                // Capture the menu target before opening a modal; the tree can re-render while it is open.
+                const category = subjectCtx.category;
+                const name = window.prompt('输入新的分类名称', category.name);
+                if (!name?.trim() || name.trim() === category.name) return;
+                try { await renameCategory(category.id, name); }
                 catch (error) { window.alert((error as Error).message); }
               },
             },
@@ -343,9 +345,10 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
               icon: <Trash2 className="h-4 w-4" />,
               danger: true,
               onClick: async () => {
-                const count = entries.filter((entry) => entry.subject === subjectCtx.category.name).length;
-                if (!window.confirm(`删除分类「${subjectCtx.category.name}」？${count ? `\n其中 ${count} 篇文档将移到“未分类”。` : ''}`)) return;
-                await deleteCategory(subjectCtx.category.id);
+                const category = subjectCtx.category;
+                const count = entries.filter((entry) => entry.subject === category.name).length;
+                if (!window.confirm(`删除分类「${category.name}」？${count ? `\n其中 ${count} 篇文档将移到“未分类”。` : ''}`)) return;
+                await deleteCategory(category.id);
               },
             },
           ]}

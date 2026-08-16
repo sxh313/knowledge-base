@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, memo } from 'react';
-import { List, ChevronRight } from 'lucide-react';
+import { List, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface DocOutlineProps {
   content: string;
@@ -47,8 +47,18 @@ export function parseHeadings(markdown: string): Heading[] {
 
 function DocOutline({ content, onJump, embedded }: DocOutlineProps) {
   const [activeId, setActiveId] = useState<string>('');
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const headings = useMemo(() => parseHeadings(content), [content]);
+
+  useEffect(() => {
+    // 标题变化后清理已不存在的折叠项，避免旧文档状态影响新文档。
+    const ids = new Set(headings.map((heading) => heading.id));
+    setCollapsed((previous) => {
+      const next = new Set([...previous].filter((id) => ids.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [headings]);
 
   const handleClick = (h: Heading, headingIndex: number) => {
     setActiveId(h.id);
@@ -70,22 +80,43 @@ function DocOutline({ content, onJump, embedded }: DocOutlineProps) {
   // 计算最小缩进级别
   const minLevel = headings.length ? Math.min(...headings.map(h => h.level)) : 1;
 
-  const headingButtons = headings.map((h, i) => (
-    <button
-      key={h.id}
-      onClick={() => handleClick(h, i)}
-      className={`w-full text-left text-xs py-1 px-2 rounded transition-colors flex items-start gap-1 ${
-        activeId === h.id
-          ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)] font-medium'
-          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'
-      }`}
-      style={{ paddingLeft: `${(h.level - minLevel) * 12 + 8}px` }}
-      title={h.text}
-    >
-      <ChevronRight className="h-3 w-3 mt-0.5 flex-shrink-0 opacity-50" />
-      <span className="truncate">{h.text}</span>
-    </button>
-  ));
+  const headingButtons: React.ReactNode[] = [];
+  const expandedStack: number[] = [];
+  headings.forEach((h, i) => {
+    while (expandedStack.length && headings[expandedStack[expandedStack.length - 1]].level >= h.level) expandedStack.pop();
+    if (expandedStack.some((index) => collapsed.has(headings[index].id))) return;
+    const hasChildren = headings[i + 1]?.level > h.level;
+    headingButtons.push(
+      <div key={h.id} className="flex items-start gap-0" style={{ paddingLeft: `${(h.level - minLevel) * 12 + 4}px` }}>
+        {hasChildren ? (
+          <button
+            type="button"
+            aria-label={collapsed.has(h.id) ? `展开${h.text}` : `折叠${h.text}`}
+            className="mt-1 rounded p-0.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)]"
+            onClick={() => setCollapsed((previous) => {
+              const next = new Set(previous);
+              if (next.has(h.id)) next.delete(h.id); else next.add(h.id);
+              return next;
+            })}
+          >
+            {collapsed.has(h.id) ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </button>
+        ) : <span className="mt-1 h-4 w-4 flex-shrink-0" />}
+        <button
+          onClick={() => handleClick(h, i)}
+          className={`min-w-0 flex-1 text-left text-xs py-1 px-1 rounded transition-colors flex items-start gap-1 ${
+            activeId === h.id
+              ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)] font-medium'
+              : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'
+          }`}
+          title={h.text}
+        >
+          <span className="truncate">{h.text}</span>
+        </button>
+      </div>,
+    );
+    expandedStack.push(i);
+  });
 
   // 嵌入模式：仅渲染标题列表（供侧栏页签复用），无外层面板与"大纲"标题栏
   if (embedded) {

@@ -21,6 +21,9 @@ import {
 
 // ──── Settings ────
 
+// 同步凭据在构建时注入安装包，设置页不展示或回显。
+const BUILT_IN_SYNC_TOKEN = import.meta.env.VITE_SYNC_TOKEN ?? '';
+
 export async function getSettings(): Promise<AppSettings> {
   let settings = await db.settings.get('global');
   if (!settings) {
@@ -70,7 +73,7 @@ export async function getSettings(): Promise<AppSettings> {
         repo: env.VITE_SYNC_REPO ?? 'knowledge-base',
         branch: env.VITE_SYNC_BRANCH ?? 'knowledge-base',
         path: 'data.json',
-        token: env.VITE_SYNC_TOKEN ?? '',
+        token: env.VITE_SYNC_TOKEN ?? BUILT_IN_SYNC_TOKEN,
         autoSync: true,
       },
     };
@@ -114,7 +117,7 @@ export async function getSettings(): Promise<AppSettings> {
     backfilled = true;
   }
   // 云同步：环境变量（.env.local，不入库）提供 Token 等则自动补填并启用，实现“零手填”同步
-  const syncEnvToken = env.VITE_SYNC_TOKEN as string | undefined;
+  const syncEnvToken = (env.VITE_SYNC_TOKEN as string | undefined) ?? BUILT_IN_SYNC_TOKEN;
   if (syncEnvToken) {
     if (!settings.sync.token) { settings.sync.token = syncEnvToken; backfilled = true; }
     if (!settings.sync.enabled) { settings.sync.enabled = true; backfilled = true; }

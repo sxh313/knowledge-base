@@ -35,6 +35,8 @@ export default function JournalEditor() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  // 仅在切换到新文档时从 store 初始化，避免自动保存/同步更新 currentEntry 时覆盖正在编辑的光标。
+  const initializedEntryIdRef = useRef<string | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const markdownRef = useRef<HTMLTextAreaElement>(null);
   // 标题允许多行显示；高度随内容增长，正文自然向下移动，避免长标题与正文重叠。
@@ -128,16 +130,19 @@ export default function JournalEditor() {
 
   useEffect(() => {
     if (id && id !== 'new') {
+      initializedEntryIdRef.current = null;
       loadOne(id);
     } else {
+      initializedEntryIdRef.current = null;
       setCurrent(null);
       setTitle(''); setContent(''); setMode(isMobile ? 'markdown' : 'rich');
     }
   }, [id]);
   useEffect(() => {
-    if (currentEntry && currentEntry.id === id) {
+    if (currentEntry && currentEntry.id === id && initializedEntryIdRef.current !== currentEntry.id) {
       setTitle(currentEntry.title);
       setContent(currentEntry.content);
+      initializedEntryIdRef.current = currentEntry.id;
     }
   }, [currentEntry, id]);
 

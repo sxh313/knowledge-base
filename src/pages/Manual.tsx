@@ -177,8 +177,10 @@ export default function Manual() {
       <Section icon={Cloud} title="云同步（GitHub）" color="text-sky-500">
         <ul className="list-disc pl-5 space-y-1">
           <li><b>跨设备同步</b> — 数据推送到你的 GitHub 私有仓库，免费、带版本历史</li>
-          <li><b>配置</b> — 「设置 → ☁️ 云同步」填用户名/仓库名/分支/Token；点「前往生成 →」一键跳转 GitHub（repo 权限已预填）</li>
+          <li><b>配置</b> — 同步连接信息已内置，设置页不会显示 Token、用户名、仓库、分支和文件路径</li>
           <li><b>保存即上传</b> — 启用后保存文档自动推送；编辑停顿 10 秒也会自动同步</li>
+          <li><b>设置导航</b> — 设置页右侧可点击跳转到 AI 服务、模型偏好、云同步、数据管理等分区</li>
+          <li><b>大纲层级</b> — 有下级标题的大纲项可按层级折叠或展开，点击标题仍会准确跳转</li>
           <li><b>合并策略</b> — 多设备按记录取较新版本，软删除自动传播，不丢数据</li>
           <li><b>上限</b> — 单文件 95MB（GitHub 限 100MB，预留余量）；超出会阻止上传并提示</li>
         </ul>

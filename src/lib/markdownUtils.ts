@@ -35,7 +35,8 @@ turndown.addRule('codeBlockWithNote', {
     const note = pre.getAttribute('data-code-note') || '';
     const language = code?.className.match(/(?:^|\s)language-([^\s]+)/)?.[1] || '';
     const source = (code?.textContent || pre.textContent || '').replace(/^\n/, '').replace(/\n+$/, '');
-    return `\n\n<!-- code-note:${encodeURIComponent(note)} -->\n\`\`\`${language}\n${source}\n\`\`\`\n\n`;
+    // 代码块自身不制造空段落；相邻正文的分隔由 Markdown 原有结构决定。
+    return `<!-- code-note:${encodeURIComponent(note)} -->\n\`\`\`${language}\n${source}\n\`\`\`\n`;
   },
 });
 
