@@ -726,7 +726,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
       {/* 浮动工具栏（选中文字时） */}
       {editor && (
       <BubbleMenu editor={editor}>
-        <div className="flex items-center gap-0.5 rounded-lg border border-[var(--color-border)] bg-white shadow-lg px-1 py-1">
+        <div className="flex items-center gap-0.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg px-1 py-1">
           <ToolbarBtn onClick={() => editor.chain().focus().toggleBold().run()} active={isActive('bold')} title="加粗"><Bold className="w-3.5 h-3.5" /></ToolbarBtn>
           <ToolbarBtn onClick={() => editor.chain().focus().toggleItalic().run()} active={isActive('italic')} title="斜体"><Italic className="w-3.5 h-3.5" /></ToolbarBtn>
           <ToolbarBtn onClick={() => editor.chain().focus().toggleStrike().run()} active={isActive('strike')} title="删除线"><Strikethrough className="w-3.5 h-3.5" /></ToolbarBtn>
@@ -756,7 +756,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
       )}
 
       {/* 固定工具栏 */}
-      <div className="sticky top-0 z-20 -mx-2 mb-4 flex flex-wrap items-center gap-1 rounded-lg border border-[var(--color-border)] bg-white px-2 py-1.5 shadow-sm animate-slide-down">
+      <div className="sticky top-0 z-20 -mx-2 mb-4 flex flex-wrap items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 shadow-sm animate-slide-down">
         <ToolbarBtn onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title="撤销 (Ctrl+Z)"><Undo2 className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title="前进 (Ctrl+Y)"><Redo2 className="w-4 h-4" /></ToolbarBtn>
         <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
@@ -854,7 +854,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
                 placeholder="粘贴完整的 <svg>...</svg> 代码"
                 spellCheck={false}
               />
-              <div className="flex min-h-64 items-center justify-center overflow-auto border border-[var(--color-border)] bg-white p-3">
+              <div className="flex min-h-64 items-center justify-center overflow-auto border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
                 {safeSvgPreviewUrl(svgSource) ? (
                   <img
                     src={safeSvgPreviewUrl(svgSource)}
