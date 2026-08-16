@@ -59,6 +59,12 @@ export default function SettingsPage() {
     window.open(androidReleaseUrl, '_blank', 'noopener,noreferrer');
   };
 
+  const jumpToSection = (id: string) => {
+    const target = document.getElementById(id);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   useEffect(() => { load(); }, []);
 
   useEffect(() => {
@@ -622,9 +628,9 @@ export default function SettingsPage() {
             ['data-management', '数据管理'],
             ['about-updates', '关于与更新'],
           ].map(([id, label]) => (
-            <a key={id} href={`#${id}`} className="block rounded-md px-2 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-primary)]">
+            <button key={id} type="button" onClick={() => jumpToSection(id)} className="block w-full rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-primary)]">
               {label}
-            </a>
+            </button>
           ))}
         </nav>
       </aside>
