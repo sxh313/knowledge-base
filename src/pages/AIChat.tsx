@@ -17,7 +17,7 @@ import { useSyncStore } from '../stores/syncStore';
 import type { AIConversation } from '../lib/db/schema';
 import CitationList from '../components/CitationList';
 import MarkdownContent from '../components/MarkdownContent';
-import { Save, Plus, Trash2, PanelLeft } from 'lucide-react';
+import { Save, Plus, Trash2, PanelLeft, Bot } from 'lucide-react';
 import { searchWeb, formatWebResults } from '../lib/ai/webSearch';
 
 const GREETING: ChatMessage = { role: 'assistant', content: '👋 你好！我是你的 AI 学习助手。\n\n选择「知识范围」我会优先从笔记检索作答（带参考来源）；选「不使用知识库」可自由对话。\n点击左侧「+ 新建对话」开始新聊天，历史对话自动保存。' };
@@ -222,6 +222,15 @@ export default function AIChat() {
       <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--color-border)]">
         {!sidebarOpen && <button className="btn-ghost p-1" onClick={toggleSidebar} title="显示对话列表"><PanelLeft className="h-4 w-4" /></button>}
         <h1 className="text-lg font-bold flex items-center gap-1.5">🧠 AI 助手</h1>
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            className="btn-ghost text-xs px-2.5 py-1 flex items-center gap-1 rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-2)]"
+            onClick={() => navigate('/agent')}
+            title="切换到 Agent 模式：可新建/编辑/追加文档"
+          >
+            <Bot className="h-3.5 w-3.5" /> Agent
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
