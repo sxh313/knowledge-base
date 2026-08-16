@@ -31,7 +31,7 @@ declare const __APP_VERSION__: string;
 
 // ─── Electron 桌面端暴露的 API(通过 preload.cjs) ───
 interface ElectronUpdateStatus {
-  status: 'checking' | 'available' | 'not-available' | 'error' | 'downloaded';
+  status: 'checking' | 'available' | 'not-available' | 'error' | 'downloaded' | 'installing';
   version?: string;
   message?: string;
   info?: unknown;

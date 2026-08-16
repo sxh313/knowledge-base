@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, Download, RotateCcw, CheckCircle2 } from 'lucide-react';
+import { RefreshCw, CheckCircle2 } from 'lucide-react';
 
 /**
  * 桌面端(Electron)自动更新组件。
@@ -8,7 +8,7 @@ import { RefreshCw, Download, RotateCcw, CheckCircle2 } from 'lucide-react';
  * 浏览器端自动隐藏(无 electronAPI)。
  */
 export default function DesktopUpdater() {
-  const [state, setState] = useState<string>('idle'); // idle|checking|available|not-available|downloading|downloaded|error
+  const [state, setState] = useState<string>('idle'); // idle|checking|available|not-available|downloading|installing|error
   const [version, setVersion] = useState<string>('');
   const [percent, setPercent] = useState(0);
   const [message, setMessage] = useState('');
@@ -21,7 +21,7 @@ export default function DesktopUpdater() {
       if (d.status === 'checking') setState('checking');
       else if (d.status === 'available') { setState('available'); setVersion(d.version || ''); }
       else if (d.status === 'not-available') { setState('not-available'); setMessage('已是最新版本'); }
-      else if (d.status === 'downloaded') { setState('downloaded'); setVersion(d.version || ''); }
+      else if (d.status === 'downloaded' || d.status === 'installing') { setState('installing'); setVersion(d.version || ''); }
       else if (d.status === 'error') { setState('error'); setMessage(d.message || '检查更新失败'); }
     });
     const offProgress = api.update.onProgress((p) => {
@@ -35,8 +35,6 @@ export default function DesktopUpdater() {
   if (!api?.isElectron || !api.update) return null;
 
   const handleCheck = () => { setState('checking'); setMessage(''); api.update.check(); };
-  const handleDownload = () => { api.update.download(); };
-  const handleInstall = () => { api.update.install(); };
 
   return (
     <div className="card space-y-3">
@@ -49,7 +47,7 @@ export default function DesktopUpdater() {
         </div>
         {state === 'idle' && (
           <button className="btn-secondary text-sm" onClick={handleCheck}>
-            <RefreshCw className="h-4 w-4" /> 检查更新
+            <RefreshCw className="h-4 w-4" /> 检查并自动更新
           </button>
         )}
         {state === 'not-available' && (
@@ -69,9 +67,7 @@ export default function DesktopUpdater() {
       {state === 'available' && (
         <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 p-3">
           <p className="text-sm text-indigo-700 dark:text-indigo-300">✨ 发现新版本 v{version}</p>
-          <button className="btn-primary text-xs mt-2" onClick={handleDownload}>
-            <Download className="h-3.5 w-3.5" /> 下载并更新
-          </button>
+          <p className="mt-1 text-xs text-indigo-600 dark:text-indigo-400">正在应用内下载，完成后会自动重启并安装。</p>
         </div>
       )}
 
@@ -84,12 +80,9 @@ export default function DesktopUpdater() {
         </div>
       )}
 
-      {state === 'downloaded' && (
+      {state === 'installing' && (
         <div className="rounded-lg bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 p-3">
-          <p className="text-sm text-green-700 dark:text-green-300">✅ 更新已下载完成(v{version})</p>
-          <button className="btn-primary text-xs mt-2" onClick={handleInstall}>
-            <RotateCcw className="h-3.5 w-3.5" /> 重启并安装
-          </button>
+          <p className="text-sm text-green-700 dark:text-green-300">更新已下载完成（v{version}），正在自动重启安装...</p>
         </div>
       )}
 
