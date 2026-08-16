@@ -127,10 +127,10 @@ export function getSlashCommands(): SlashCommandItem[] {
     },
     {
       title: '提示框',
-      description: '💡 提示块（Callout）',
+      description: '引用格式提示块',
       icon: '💡',
       keywords: '提示 callout note 提示框',
-      action: (editor) => editor.chain().focus().setCallout('note').run(),
+      action: (editor) => editor.chain().focus().toggleBlockquote().run(),
     },
     {
       title: '技巧框',

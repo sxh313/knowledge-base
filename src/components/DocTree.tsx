@@ -5,19 +5,20 @@ import {
   Star, Clock, Trash2, Files, MoreVertical, FolderInput, Copy,
 } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
-import type { JournalEntry } from '../lib/db/schema';
+import type { Category, JournalEntry } from '../lib/db/schema';
 import ContextMenu from './ContextMenu';
 
 /** 折叠区头部 */
 function SectionHeader({
-  icon, label, count, expanded, onClick, indent,
+  icon, label, count, expanded, onClick, onContextMenu,
 }: {
-  icon: React.ReactNode; label: string; count?: number; expanded: boolean; onClick: () => void; indent?: boolean;
+  icon: React.ReactNode; label: string; count?: number; expanded: boolean; onClick: () => void; onContextMenu?: (event: React.MouseEvent) => void;
 }) {
   return (
     <button
       className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-md hover:bg-[var(--color-surface-2)] transition-colors text-[var(--color-text-secondary)]"
       onClick={onClick}
+      onContextMenu={onContextMenu}
     >
       {expanded
         ? <ChevronDown className="h-3 w-3 flex-shrink-0" />
@@ -38,7 +39,10 @@ interface DocTreeProps {
 
 function DocTree({ onNavigate }: DocTreeProps = {}) {
   const navigate = useNavigate();
-  const { entries, setCurrent, currentEntry, remove, update, duplicate, togglePin } = useJournalStore();
+  const {
+    entries, categories, setCurrent, currentEntry, remove, update, duplicate, togglePin,
+    createCategory, renameCategory, deleteCategory,
+  } = useJournalStore();
   const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(new Set());
   const [expandedTags, setExpandedTags] = useState(false);
   const [showAllDocs, setShowAllDocs] = useState(false);
@@ -47,9 +51,13 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
   // 右键/⋮菜单：主菜单 + “移动到”分类子菜单
   const [ctx, setCtx] = useState<{ x: number; y: number; doc: JournalEntry } | null>(null);
   const [moveCtx, setMoveCtx] = useState<{ x: number; y: number; doc: JournalEntry } | null>(null);
+  const [subjectCtx, setSubjectCtx] = useState<{ x: number; y: number; category: Category } | null>(null);
   const allSubjects = useMemo(
-    () => Array.from(new Set(entries.map((e) => e.subject).filter(Boolean))) as string[],
-    [entries],
+    () => Array.from(new Set([
+      ...categories.map((category) => category.name),
+      ...entries.map((entry) => entry.subject).filter(Boolean),
+    ] as string[])).sort((a, b) => a.localeCompare(b, 'zh-CN')),
+    [categories, entries],
   );
 
   // 置顶文档
@@ -67,6 +75,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
   // 按分类分组
   const subjectGroups = useMemo(() => {
     const groups: Record<string, JournalEntry[]> = {};
+    for (const category of categories) groups[category.name] = [];
     for (const entry of entries) {
       const subj = entry.subject || '未分类';
       if (!groups[subj]) groups[subj] = [];
@@ -75,8 +84,24 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
     for (const subj of Object.keys(groups)) {
       groups[subj].sort((a, b) => b.updatedAt - a.updatedAt);
     }
-    return Object.entries(groups).sort(([, a], [, b]) => b.length - a.length);
-  }, [entries]);
+    return Object.entries(groups).sort(([nameA, a], [nameB, b]) => {
+      if (nameA === '未分类') return 1;
+      if (nameB === '未分类') return -1;
+      return b.length - a.length || nameA.localeCompare(nameB, 'zh-CN');
+    });
+  }, [categories, entries]);
+
+  const handleCreateCategory = async (doc?: JournalEntry) => {
+    const name = window.prompt('输入新的分类名称');
+    if (!name?.trim()) return;
+    try {
+      const category = await createCategory(name);
+      setExpandedSubjects((previous) => new Set(previous).add(category.name));
+      if (doc) await update(doc.id, { subject: category.name });
+    } catch (error) {
+      window.alert((error as Error).message);
+    }
+  };
 
   // 所有标签
   const allTags = useMemo(() => {
@@ -107,7 +132,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
   const renderDocRow = (doc: JournalEntry, indent = false) => (
     <div
       key={doc.id}
-      className={`group flex items-center gap-1 w-full rounded-md transition-colors cv-auto ${
+      className={`group flex items-start gap-1 w-full rounded-md transition-colors cv-auto ${
         isActive(doc.id)
           ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)]'
           : 'hover:bg-[var(--color-surface-2)] text-[var(--color-text-secondary)]'
@@ -116,12 +141,12 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
       onContextMenu={(e) => { e.preventDefault(); setCtx({ x: e.clientX, y: e.clientY, doc }); }}
     >
       <button
-        className="flex items-center gap-1.5 flex-1 min-w-0 py-1 pr-1 text-left"
+        className="flex items-start gap-1.5 flex-1 min-w-0 py-1 pr-1 text-left"
         onClick={() => handleDocClick(doc)}
         title={doc.title || '无标题'}
       >
         <FileText className="h-3 w-3 flex-shrink-0 opacity-50" />
-        <span className="text-xs truncate">{doc.title || '无标题'}</span>
+        <span className="text-xs min-w-0 whitespace-normal break-words leading-5">{doc.title || '无标题'}</span>
         {doc.pinned && <Star className="h-2.5 w-2.5 ml-auto flex-shrink-0 text-[var(--color-accent)]" />}
       </button>
       <button
@@ -202,9 +227,19 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
       )}
 
       {/* 按分类分组 */}
-      <div className="text-[10px] font-medium text-[var(--color-text-tertiary)] px-2 pb-1 uppercase tracking-wide">分类</div>
+      <div className="flex items-center justify-between px-2 pb-1 text-[var(--color-text-tertiary)]">
+        <span className="text-[10px] font-medium uppercase tracking-wide">分类</span>
+        <button
+          className="rounded p-0.5 hover:bg-[var(--color-surface-2)] hover:text-[var(--color-primary)]"
+          onClick={() => handleCreateCategory()}
+          title="新建分类"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </div>
       {subjectGroups.map(([subject, docs]) => {
         const expanded = expandedSubjects.has(subject);
+        const category = categories.find((item) => item.name === subject);
         return (
           <div key={subject}>
             <SectionHeader
@@ -213,6 +248,10 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
               count={docs.length}
               expanded={expanded}
               onClick={() => toggleSubject(subject)}
+              onContextMenu={category ? (event) => {
+                event.preventDefault();
+                setSubjectCtx({ x: event.clientX, y: event.clientY, category });
+              } : undefined}
             />
             {expanded && (
               <div className="ml-5 border-l border-[var(--color-border)] pl-1 space-y-0.5">
@@ -278,7 +317,37 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
           items={[
             { key: 'none', label: '（无分类）', onClick: () => { update(moveCtx.doc.id, { subject: '' }); } },
             ...allSubjects.map((s) => ({ key: `subj-${s}`, label: s, onClick: () => { update(moveCtx.doc.id, { subject: s }); } })),
-            { key: 'new', label: '新建分类…', icon: <Plus className="h-4 w-4" />, divider: true, onClick: () => { const ns = window.prompt('输入新的分类名称'); if (ns && ns.trim()) update(moveCtx.doc.id, { subject: ns.trim() }); } },
+            { key: 'new', label: '新建分类…', icon: <Plus className="h-4 w-4" />, divider: true, onClick: () => handleCreateCategory(moveCtx.doc) },
+          ]}
+        />
+      )}
+      {subjectCtx && (
+        <ContextMenu
+          x={subjectCtx.x}
+          y={subjectCtx.y}
+          onClose={() => setSubjectCtx(null)}
+          items={[
+            {
+              key: 'rename',
+              label: '重命名分类',
+              onClick: async () => {
+                const name = window.prompt('输入新的分类名称', subjectCtx.category.name);
+                if (!name?.trim() || name.trim() === subjectCtx.category.name) return;
+                try { await renameCategory(subjectCtx.category.id, name); }
+                catch (error) { window.alert((error as Error).message); }
+              },
+            },
+            {
+              key: 'delete',
+              label: '删除分类',
+              icon: <Trash2 className="h-4 w-4" />,
+              danger: true,
+              onClick: async () => {
+                const count = entries.filter((entry) => entry.subject === subjectCtx.category.name).length;
+                if (!window.confirm(`删除分类「${subjectCtx.category.name}」？${count ? `\n其中 ${count} 篇文档将移到“未分类”。` : ''}`)) return;
+                await deleteCategory(subjectCtx.category.id);
+              },
+            },
           ]}
         />
       )}

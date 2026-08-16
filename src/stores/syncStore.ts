@@ -32,7 +32,10 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
     set({ status: 'syncing', message: null });
     try {
       const result = await syncNow(cfg);
-      if (!result) return false; // 已有同步在进行，本次跳过
+      if (!result) {
+        set({ status: 'idle', message: '已有同步任务正在进行' });
+        return false;
+      }
       const now = Date.now();
       await updateSettings({ sync: { ...cfg, lastSyncAt: now, lastSyncSha: result.sha, baselineHashes: result.baselineHashes } });
       await useSettingsStore.getState().load();
@@ -58,9 +61,24 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
     set({ status: 'syncing', message: null });
     try {
       const r = await pullFromCloud(cfg);
+      if (!r) {
+        set({ status: 'idle', message: '已有同步任务正在进行' });
+        return false;
+      }
+      const now = Date.now();
+      // 仅拉取也要记录远端 SHA 与文档基线，否则下一次双向同步会把已拉取数据误判为冲突。
+      await updateSettings({
+        sync: {
+          ...cfg,
+          lastSyncAt: now,
+          ...(r.lastSyncSha ? { lastSyncSha: r.lastSyncSha } : {}),
+          ...(r.lastSyncSha ? { baselineHashes: r.baselineHashes } : {}),
+        },
+      });
+      await useSettingsStore.getState().load();
       set({
         status: 'success',
-        lastSyncAt: Date.now(),
+        lastSyncAt: now,
         message:
           r.pulled > 0
             ? `已从云端拉取 ${r.pulled} 条记录` + (r.conflicts > 0 ? `；检测到 ${r.conflicts} 处冲突，请在下方查看` : '')

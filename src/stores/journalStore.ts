@@ -1,11 +1,23 @@
 import { create } from 'zustand';
-import type { JournalEntry } from '../lib/db/schema';
-import { createJournal, updateJournal, deleteJournal, getJournal, getAllJournals, duplicateJournal } from '../lib/db/queries';
+import type { Category, JournalEntry } from '../lib/db/schema';
+import {
+  createJournal,
+  updateJournal,
+  deleteJournal,
+  getJournal,
+  getAllJournals,
+  duplicateJournal,
+  getCategories,
+  createCategory as createCategoryRecord,
+  renameCategory as renameCategoryRecord,
+  deleteCategory as deleteCategoryRecord,
+} from '../lib/db/queries';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 interface JournalStore {
   entries: JournalEntry[];
+  categories: Category[];
   currentEntry: JournalEntry | null;
   isLoading: boolean;
   error: string | null;
@@ -33,10 +45,14 @@ interface JournalStore {
   getFilteredEntries: () => JournalEntry[];
   setSaveStatus: (status: SaveStatus) => void;
   setSortBy: (s: 'created' | 'updated' | 'title' | 'manual') => void;
+  createCategory: (name: string) => Promise<Category>;
+  renameCategory: (id: string, name: string) => Promise<void>;
+  deleteCategory: (id: string) => Promise<void>;
 }
 
 export const useJournalStore = create<JournalStore>((set, get) => ({
   entries: [],
+  categories: [],
   currentEntry: null,
   isLoading: false,
   error: null,
@@ -49,9 +65,9 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   loadAll: async () => {
     set({ isLoading: true, error: null });
     try {
-      const entries = await getAllJournals();
+      const [entries, categories] = await Promise.all([getAllJournals(), getCategories()]);
       entries.sort((a, b) => b.createdAt - a.createdAt);
-      set({ entries, isLoading: false });
+      set({ entries, categories, isLoading: false });
     } catch (e) {
       set({ error: (e as Error).message, isLoading: false });
     }
@@ -71,7 +87,9 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
     set({ saveStatus: 'saving' });
     try {
       const entry = await createJournal(data);
-      set((state) => ({ entries: [entry, ...state.entries], saveStatus: 'saved' }));
+      if (entry.subject) await createCategoryRecord(entry.subject);
+      const categories = await getCategories();
+      set((state) => ({ entries: [entry, ...state.entries], categories, saveStatus: 'saved' }));
       return entry;
     } catch (e) {
       set({ saveStatus: 'error', error: (e as Error).message });
@@ -83,11 +101,14 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
     set({ saveStatus: 'saving' });
     try {
       await updateJournal(id, data);
+      if (typeof data.subject === 'string' && data.subject.trim()) await createCategoryRecord(data.subject);
       const updated = await getJournal(id);
       if (!updated) return;
+      const categories = await getCategories();
       set((state) => ({
         entries: state.entries.map((e) => (e.id === id ? updated : e)),
         currentEntry: state.currentEntry?.id === id ? updated : state.currentEntry,
+        categories,
         saveStatus: 'saved',
       }));
     } catch (e) {
@@ -169,6 +190,21 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   setSelectedSubject: (subject) => set({ selectedSubject: subject }),
   setSaveStatus: (status) => set({ saveStatus: status }),
   setSortBy: (s) => set({ sortBy: s }),
+  createCategory: async (name) => {
+    const category = await createCategoryRecord(name);
+    set({ categories: await getCategories() });
+    return category;
+  },
+  renameCategory: async (id, name) => {
+    await renameCategoryRecord(id, name);
+    const [entries, categories] = await Promise.all([getAllJournals(), getCategories()]);
+    set({ entries, categories });
+  },
+  deleteCategory: async (id) => {
+    await deleteCategoryRecord(id);
+    const [entries, categories] = await Promise.all([getAllJournals(), getCategories()]);
+    set({ entries, categories });
+  },
 
   getFilteredEntries: () => {
     const { entries, searchQuery, selectedTag, selectedSubject, sortBy } = get();

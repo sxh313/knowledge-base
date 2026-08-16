@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Star, PanelLeft, PanelRight, Maximize, Download, FileCode, ChevronDown, History, Trash2 } from 'lucide-react';
+import { ArrowLeft, Star, PanelLeft, PanelRight, Maximize, Download, FileCode, ChevronDown, History, Trash2, Copy, Check, X, Loader2 } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
 import { useViewModeStore } from '../stores/viewModeStore';
@@ -16,6 +16,13 @@ import DocumentSidebar from '../components/DocumentSidebar';
 import DocTree from '../components/DocTree';
 
 type EditMode = 'rich' | 'markdown';
+type SelectionAIAction = 'translate' | 'explain' | 'polish';
+
+const selectionAILabels: Record<SelectionAIAction, string> = {
+  translate: 'AI 翻译',
+  explain: 'AI 解释',
+  polish: 'AI 润色',
+};
 
 export default function JournalEditor() {
   const { id } = useParams();
@@ -28,6 +35,15 @@ export default function JournalEditor() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const titleRef = useRef<HTMLTextAreaElement>(null);
+  const markdownRef = useRef<HTMLTextAreaElement>(null);
+  // 标题允许多行显示；高度随内容增长，正文自然向下移动，避免长标题与正文重叠。
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [title]);
   // 传给右侧文档侧栏（大纲/反链/提及）的 content：防抖延迟更新，避免每次按键都触发侧栏重算
   const [sidebarContent, setSidebarContent] = useState('');
   useEffect(() => {
@@ -53,8 +69,27 @@ export default function JournalEditor() {
   const charCount = useMemo(() => content.replace(/\s+/g, '').length, [content]);
   // 稳定的导航回调：避免每次渲染都创建新引用，配合子组件 React.memo 减少重渲染
   const handleNavigate = useCallback((targetId: string) => navigate(`/edit/${targetId}`), [navigate]);
-  /** 选中→AI 操作：把 AI 处理结果通过 signal 注入回编辑器选区 */
-  const [insertSignal, setInsertSignal] = useState<{ text: string; n: number } | null>(null);
+  const handleMarkdownOutlineJump = useCallback((line: number) => {
+    const textarea = markdownRef.current;
+    if (!textarea) return;
+    const lines = content.split('\n');
+    const safeLine = Math.max(0, Math.min(line, lines.length - 1));
+    const start = lines.slice(0, safeLine).reduce((sum, value) => sum + value.length + 1, 0);
+    const end = start + (lines[safeLine]?.length ?? 0);
+    textarea.focus();
+    textarea.setSelectionRange(start, end);
+    const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight) || 21;
+    textarea.scrollTop = Math.max(0, safeLine * lineHeight - textarea.clientHeight * 0.25);
+  }, [content]);
+  const [selectionAI, setSelectionAI] = useState<{
+    action: SelectionAIAction;
+    source: string;
+    result: string;
+    status: 'loading' | 'done' | 'error';
+    error?: string;
+  } | null>(null);
+  const [selectionAICopied, setSelectionAICopied] = useState(false);
+  const selectionAIRequestRef = useRef(0);
   const exportRef = useRef<HTMLDivElement>(null);
   // 版本历史
   const [showHistory, setShowHistory] = useState(false);
@@ -174,9 +209,12 @@ export default function JournalEditor() {
     }
   };
 
-  // 选中→AI 操作（飞书式）：翻译/解释/润色，完成后把结果注入编辑器选区
-  const handleSelectionAI = useCallback(async (action: 'translate' | 'explain' | 'polish', selectedText: string) => {
+  // 选中→AI 操作：结果只显示在独立浮层，不自动修改或替换原文。
+  const handleSelectionAI = useCallback(async (action: SelectionAIAction, selectedText: string) => {
     if (!selectedText.trim()) return;
+    const requestId = ++selectionAIRequestRef.current;
+    setSelectionAICopied(false);
+    setSelectionAI({ action, source: selectedText, result: '', status: 'loading' });
     const sysMap: Record<string, string> = {
       translate: '你是一位专业翻译。把以下文本翻译成英文（若原文是英文则翻译成中文），只输出译文，不要任何解释或前后缀。',
       explain: '你是一位耐心的老师。用简洁通俗的中文解释以下内容，必要时举例，帮助读者快速理解。',
@@ -188,13 +226,34 @@ export default function JournalEditor() {
     ];
     try {
       const result = await callAI('explain', messages);
-      setInsertSignal({ text: result.trim(), n: Date.now() });
-      // 清空残留的 streamingContent（避免污染下次 AI 面板）
+      if (selectionAIRequestRef.current !== requestId) return;
+      setSelectionAI({ action, source: selectedText, result: result.trim(), status: 'done' });
       useAIStore.setState({ streamingContent: '' });
-    } catch {
-      /* 错误已由 store 处理，AIChatPanel 未打开时静默 */
+    } catch (error) {
+      if (selectionAIRequestRef.current !== requestId) return;
+      setSelectionAI({
+        action,
+        source: selectedText,
+        result: '',
+        status: 'error',
+        error: (error as Error).message || 'AI 处理失败，请重试',
+      });
+      useAIStore.setState({ streamingContent: '' });
     }
   }, [callAI]);
+
+  const closeSelectionAI = useCallback(() => {
+    selectionAIRequestRef.current += 1;
+    setSelectionAI(null);
+    setSelectionAICopied(false);
+  }, []);
+
+  const copySelectionAIResult = useCallback(async () => {
+    if (!selectionAI?.result) return;
+    await navigator.clipboard.writeText(selectionAI.result);
+    setSelectionAICopied(true);
+    window.setTimeout(() => setSelectionAICopied(false), 1200);
+  }, [selectionAI]);
 
   // 点击双向链接：跳转到目标文档
   const handleWikilinkClick = useCallback((target: string) => {
@@ -389,13 +448,19 @@ export default function JournalEditor() {
           </div>
         )}
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[920px] px-6 py-7">
+          <div className="mx-auto w-full max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8 2xl:px-12">
             {/* 标题 */}
-            <input
-              className="w-full bg-transparent border-none outline-none text-[2rem] sm:text-[2.5rem] font-bold placeholder:text-[var(--color-text-tertiary)] tracking-normal leading-[1.18]"
+            <textarea
+              ref={titleRef}
+              rows={1}
+              className="block w-full resize-none overflow-hidden bg-transparent border-none outline-none text-[2rem] sm:text-[2.5rem] font-bold placeholder:text-[var(--color-text-tertiary)] tracking-normal leading-[1.18]"
               placeholder="无标题"
               value={title}
-              onChange={e => setTitle(e.target.value)}
+              onChange={e => setTitle(e.target.value.replace(/[\r\n]+/g, ' '))}
+              onKeyDown={e => {
+                if (e.key === 'Enter') e.preventDefault();
+              }}
+              spellCheck={false}
               autoFocus={isNew}
             />
 
@@ -420,12 +485,12 @@ export default function JournalEditor() {
                 onChange={setContent}
                 autoFocus={isNew}
                 onAIAction={handleSelectionAI}
-                insertSignal={insertSignal}
                 onWikilinkClick={handleWikilinkClick}
                 journalId={currentEntry?.id}
               />
             ) : (
               <textarea
+                ref={markdownRef}
                 className="w-full min-h-[60vh] bg-transparent border-none outline-none resize-none font-mono text-sm leading-[1.5]"
                 placeholder="# 在此输入 Markdown..."
                 value={content}
@@ -445,6 +510,7 @@ export default function JournalEditor() {
             aliases={currentEntry?.aliases}
             content={sidebarContent}
             onNavigate={handleNavigate}
+            onOutlineJump={mode === 'markdown' ? handleMarkdownOutlineJump : undefined}
           />
         )}
 
@@ -464,6 +530,67 @@ export default function JournalEditor() {
           </div>
         )}
       </div>
+
+      {/* 选区 AI 结果浮层：结果只供查看/复制，绝不自动写回正文。 */}
+      {selectionAI && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/35 p-4 animate-fade-in"
+          onClick={closeSelectionAI}
+          role="presentation"
+        >
+          <section
+            className="flex max-h-[78vh] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label={selectionAILabels[selectionAI.action]}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
+              <h2 className="text-sm font-semibold text-[var(--color-text)]">{selectionAILabels[selectionAI.action]}</h2>
+              <button type="button" className="btn-ghost h-8 w-8 p-0" onClick={closeSelectionAI} title="关闭">
+                <X className="h-4 w-4" />
+              </button>
+            </header>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+              <div>
+                <p className="mb-1.5 text-xs font-medium text-[var(--color-text-secondary)]">原文</p>
+                <div className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 text-sm leading-6 text-[var(--color-text-secondary)]">
+                  {selectionAI.source}
+                </div>
+              </div>
+              <div>
+                <p className="mb-1.5 text-xs font-medium text-[var(--color-text-secondary)]">结果</p>
+                {selectionAI.status === 'loading' && (
+                  <div className="flex min-h-28 items-center justify-center gap-2 rounded-md border border-[var(--color-border)] p-4 text-sm text-[var(--color-text-secondary)]">
+                    <Loader2 className="h-4 w-4 animate-spin" /> 正在处理...
+                  </div>
+                )}
+                {selectionAI.status === 'error' && (
+                  <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
+                    <p className="text-sm text-[var(--color-text)]">{selectionAI.error}</p>
+                    <button type="button" className="btn-ghost mt-2 text-xs" onClick={() => handleSelectionAI(selectionAI.action, selectionAI.source)}>重试</button>
+                  </div>
+                )}
+                {selectionAI.status === 'done' && (
+                  <div className="min-h-28 whitespace-pre-wrap rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-sm leading-6 text-[var(--color-text)]">
+                    {selectionAI.result || 'AI 未返回内容'}
+                  </div>
+                )}
+              </div>
+            </div>
+            <footer className="flex items-center justify-between border-t border-[var(--color-border)] px-4 py-3">
+              <span className="text-xs text-[var(--color-text-tertiary)]">原文不会被修改</span>
+              <div className="flex items-center gap-2">
+                <button type="button" className="btn-ghost text-sm" onClick={closeSelectionAI}>关闭</button>
+                <button type="button" className="btn-primary flex items-center gap-1.5 text-sm" onClick={copySelectionAIResult} disabled={selectionAI.status !== 'done' || !selectionAI.result}>
+                  {selectionAICopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  {selectionAICopied ? '已复制' : '复制结果'}
+                </button>
+              </div>
+            </footer>
+          </section>
+        </div>
+      )}
 
       {/* 版本历史模态 */}
       {showHistory && (

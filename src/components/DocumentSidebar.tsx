@@ -21,6 +21,8 @@ interface DocumentSidebarProps {
   content: string;
   /** 跳转到指定文档 */
   onNavigate: (id: string) => void;
+  /** Markdown 模式下跳转到标题所在行 */
+  onOutlineJump?: (line: number) => void;
 }
 
 interface MentionCandidate {
@@ -55,7 +57,7 @@ function findUnlinkedMention(content: string, names: string[]): string | null {
  *   只展示候选，用户点击"转为 [[双链]]"后才会改写目标文档。
  * - 失效链接：当前文档中指向不存在目标的 [[链接]]（broken=true），可一键创建目标文档。
  */
-function DocumentSidebar({ journalId, title, aliases, content, onNavigate }: DocumentSidebarProps) {
+function DocumentSidebar({ journalId, title, aliases, content, onNavigate, onOutlineJump }: DocumentSidebarProps) {
   const { entries } = useJournalStore();
   const [tab, setTab] = useState<Tab>('outline');
   const [backlinks, setBacklinks] = useState<BacklinkInfo[]>([]);
@@ -167,7 +169,7 @@ function DocumentSidebar({ journalId, title, aliases, content, onNavigate }: Doc
 
       {/* 内容区 */}
       <div className="flex-1 overflow-y-auto">
-        {tab === 'outline' && <DocOutline content={content} embedded />}
+        {tab === 'outline' && <DocOutline content={content} embedded onJump={onOutlineJump} />}
 
         {tab === 'backlinks' && (
           <div className="p-2 space-y-1">

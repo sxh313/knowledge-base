@@ -1,10 +1,14 @@
-// 生成真正的 PNG 图标(512x512),用于 Electron 打包
-// 纯 Node 实现:用 zlib 手写 PNG。图标为「蓝色书本」风格:
-// 圆形深蓝紫渐变底 + 中央白色书本(含书脊与文字行)
-// 用带符号距离函数(SDF)实现抗锯齿,边缘更平滑
+// 生成默认 PNG 图标(512x512),用于 Electron 打包。
+// 项目当前使用 build/icon.png 中的自定义图片；除非显式要求，否则不要覆盖它。
 const zlib = require('zlib');
 const fs = require('fs');
 const path = require('path');
+
+const canonicalIcon = path.join(__dirname, '..', 'build', 'icon.png');
+if (fs.existsSync(canonicalIcon) && process.env.FORCE_DEFAULT_ICON !== '1') {
+  console.log(`保留现有自定义图标: ${canonicalIcon}`);
+  process.exit(0);
+}
 
 const SIZE = 512;
 

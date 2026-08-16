@@ -11,6 +11,7 @@ import {
   type SavedSearch,
   type Attachment,
   type SyncConflict,
+  type Category,
 } from './schema';
 import {
   persistJournalWithIndexes,
@@ -572,6 +573,54 @@ export async function fetchAvailableModels(
   }
 }
 
+// ──── Categories ────
+
+export async function getCategories(): Promise<Category[]> {
+  const categories = await db.categories.filter((category) => !category.deletedAt).toArray();
+  return categories.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+}
+
+export async function createCategory(name: string): Promise<Category> {
+  const normalized = name.trim().replace(/\s+/g, ' ');
+  if (!normalized) throw new Error('分类名称不能为空');
+  const existing = (await db.categories.toArray()).find(
+    (category) => !category.deletedAt && category.name.toLocaleLowerCase() === normalized.toLocaleLowerCase(),
+  );
+  if (existing) return existing;
+  const now = Date.now();
+  const category: Category = { id: crypto.randomUUID(), name: normalized, createdAt: now, updatedAt: now };
+  await db.categories.put(category);
+  return category;
+}
+
+export async function renameCategory(id: string, name: string): Promise<Category> {
+  const normalized = name.trim().replace(/\s+/g, ' ');
+  if (!normalized) throw new Error('分类名称不能为空');
+  const category = await db.categories.get(id);
+  if (!category || category.deletedAt) throw new Error('分类不存在');
+  const duplicate = (await db.categories.toArray()).find(
+    (item) => item.id !== id && !item.deletedAt && item.name.toLocaleLowerCase() === normalized.toLocaleLowerCase(),
+  );
+  if (duplicate) throw new Error('已存在同名分类');
+  const now = Date.now();
+  const updated = { ...category, name: normalized, updatedAt: now };
+  await db.transaction('rw', [db.categories, db.journals], async () => {
+    await db.categories.put(updated);
+    await db.journals.where('subject').equals(category.name).modify({ subject: normalized, updatedAt: now });
+  });
+  return updated;
+}
+
+export async function deleteCategory(id: string): Promise<void> {
+  const category = await db.categories.get(id);
+  if (!category || category.deletedAt) return;
+  const now = Date.now();
+  await db.transaction('rw', [db.categories, db.journals], async () => {
+    await db.categories.put({ ...category, deletedAt: now, updatedAt: now });
+    await db.journals.where('subject').equals(category.name).modify({ subject: '', updatedAt: now });
+  });
+}
+
 // ──── Data Export / Import ────
 
 export async function exportAllData() {
@@ -596,6 +645,7 @@ export async function exportAllData() {
     attachments,
     savedSearches: await db.savedSearches.toArray(),
     propertyDefinitions: await db.propertyDefinitions.toArray(),
+    categories: await db.categories.toArray(),
     settings: await db.settings.toArray(),
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -627,6 +677,7 @@ export async function importData(file: File) {
       db.attachments,
       db.savedSearches,
       db.propertyDefinitions,
+      db.categories,
     ],
     async () => {
       if (Array.isArray(data.journals)) await db.journals.bulkPut(data.journals);
@@ -638,6 +689,7 @@ export async function importData(file: File) {
       if (Array.isArray(data.attachments)) await db.attachments.bulkPut(data.attachments);
       if (Array.isArray(data.savedSearches)) await db.savedSearches.bulkPut(data.savedSearches);
       if (Array.isArray(data.propertyDefinitions)) await db.propertyDefinitions.bulkPut(data.propertyDefinitions);
+      if (Array.isArray(data.categories)) await db.categories.bulkPut(data.categories);
     },
   );
   await rebuildDocumentIndexes();

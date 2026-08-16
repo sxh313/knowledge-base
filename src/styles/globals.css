@@ -403,6 +403,78 @@
   }
 
   /* 代码块语法高亮（github-dark 风格，固定暗背景） */
+  .code-block-shell,
+  .markdown-code-block {
+    margin: 0.5rem 0;
+    overflow: hidden;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    background: #0d1117;
+  }
+  .code-block-toolbar,
+  .markdown-code-toolbar {
+    display: flex;
+    min-height: 2.25rem;
+    align-items: center;
+    gap: 0.75rem;
+    border-bottom: 1px solid #30363d;
+    background: #161b22;
+    padding: 0.4rem 0.55rem 0.4rem 0.75rem;
+    color: #8b949e;
+    font-size: 0.75rem;
+  }
+  .code-block-language {
+    flex: 0 0 auto;
+    color: #79c0ff;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .code-block-note {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .code-block-note input {
+    min-width: 0;
+    flex: 1;
+    border: 0;
+    border-bottom: 1px solid transparent;
+    outline: 0;
+    background: transparent;
+    color: #c9d1d9;
+    font-size: 0.75rem;
+  }
+  .code-block-note input:focus { border-bottom-color: #58a6ff; }
+  .code-block-note input::placeholder { color: #6e7681; }
+  .code-block-copy,
+  .markdown-code-toolbar button {
+    display: inline-flex;
+    height: 1.75rem;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 5px;
+    padding: 0 0.5rem;
+    color: #c9d1d9;
+  }
+  .code-block-copy:hover,
+  .markdown-code-toolbar button:hover { background: #21262d; color: #fff; }
+  .markdown-code-note {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .code-block-shell pre,
+  .markdown-code-block pre {
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #0d1117 !important;
+    padding: 1rem !important;
+  }
   .prose-custom pre {
     background: #0d1117;
     color: #c9d1d9;
@@ -421,6 +493,20 @@
   .prose-custom:focus-within { background-color: color-mix(in srgb, var(--color-primary) 3%, transparent); }
   .prose-custom p { transition: background-color 0.15s ease; border-radius: 0.25rem; }
   .prose-custom p:hover { background-color: color-mix(in srgb, var(--color-primary) 4%, transparent); }
+  /* 图片紧跟正文显示，不叠加 typography 的段落与图片上边距。 */
+  .prose-custom img { margin-top: 0 !important; }
+  .prose-custom p:has(> img:only-child) {
+    margin-top: 0 !important;
+    background: transparent !important;
+  }
+  .prose-custom p:has(> img:only-child) > img {
+    display: block;
+    margin-top: 0 !important;
+  }
+  .prose-custom p:has(> br.ProseMirror-trailingBreak:only-child):has(+ img),
+  .prose-custom p:has(> br.ProseMirror-trailingBreak:only-child):has(+ .code-block-shell) {
+    display: none;
+  }
 
   /* 表格样式（飞书式） */
   .prose-custom table {

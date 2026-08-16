@@ -23,7 +23,8 @@ npm run electron:build
 
 ### 图标要求
 
-- 位置:`build/icon.png`(512x512,真 PNG)
+- 源文件:`build/icon-source.jpg`(原始图片)
+- 实际图标:`build/icon.png`(512x512,真 PNG)
 - ⚠️ **坑**:`public/icons/*.png` 之前实际是 **SVG 内容**(改名的文件),electron-builder 无法用。
 - 生成真 PNG 图标:
 
@@ -31,7 +32,7 @@ npm run electron:build
 node scripts/gen-icon.cjs
 ```
 
-这个脚本会用纯 Node(zlib)手写生成 512 和 192 尺寸的真 PNG 图标(深蓝底 + 白色书本图形),并写入 `build/icon.png` 和 `public/icons/*.png`。
+项目已使用 `build/icon-source.jpg` 生成自定义图标，并写入 `build/icon.png` 和 `public/icons/*.png`；`scripts/gen-icon.cjs` 默认会保留现有自定义图标，避免打包时被覆盖。
 
 ---
 

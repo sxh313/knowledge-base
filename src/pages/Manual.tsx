@@ -55,11 +55,15 @@ export default function Manual() {
       <Section icon={PaintRoller} title="编辑器进阶（富文本）" color="text-pink-500">
         <ul className="list-disc pl-5 space-y-1">
           <li><b>查找替换</b> — <kbd className="kbd">Ctrl+H</kbd> 或 <kbd className="kbd">Ctrl+F</kbd> 打开查找栏，支持区分大小写、上一个/下一个、替换、全部替换</li>
-          <li><b>提示框 Callout</b> — 工具栏 💡 或斜杠命令 <kbd className="kbd">/提示框</kbd>，4 种变体（💡提示 / ✅技巧 / ⚠️警告 / 🔴危险）；开头按 <kbd className="kbd">Backspace</kbd> 可取消</li>
+          <li><b>提示框</b> — 工具栏提示按钮或斜杠命令 <kbd className="kbd">/提示框</kbd> 只使用标准 Markdown 引用格式 <code className="font-mono">&gt;</code>，不会自动添加斜体或 <code className="font-mono">[!NOTE]</code>。技巧 / 警告 / 危险仍可用专用 Callout</li>
           <li><b>格式刷</b> — 工具栏 🖌️：先选中带格式的文字点刷<b>复制格式</b>，再选目标文字点刷<b>套用格式</b>（粗体/斜体/删除线/代码）</li>
-          <li><b>选中→AI</b> — 选中文字浮现飞书式菜单：<b>🌐翻译 / 📖解释 / ✨润色</b>，AI 结果自动回填到选区</li>
+          <li><b>选中→AI</b> — 选中文字浮现快捷菜单：<b>翻译 / 解释 / 润色</b>；结果在独立小窗中显示，可复制或关闭，<b>不会自动修改原文</b></li>
+          <li><b>标题折叠</b> — 点击 H1-H5 标题左侧箭头，可隐藏或展开该标题所属内容</li>
+          <li><b>表格与 SVG</b> — 工具栏可插入 3×3 表格；选择 SVG 代码可预览并转换为 PNG 图片插入</li>
+          <li><b>代码块</b> — 每个代码块都有备注输入区和复制按钮；备注会随 Markdown、备份和同步保存</li>
+          <li><b>Tab 缩进</b> — 正文按 <kbd className="kbd">Tab</kbd> 插入可持久保存的缩进，代码块插入 4 个空格，<kbd className="kbd">Shift+Tab</kbd> 减少缩进</li>
           <li><b>双向链接</b> — 工具栏 🔗 插入 <code className="font-mono">[[文档标题]]</code>，显示为可点击 chip，点击跳转</li>
-          <li><b>右侧文档面板</b> — 编辑器右侧「大纲 / 反链 / 提及」三页签（工具栏 ▭ 可隐藏）：<b>大纲</b>跳转章节；<b>反链</b>列出引用本文的文档 + 失效链接（可一键创建目标）；<b>提及</b>列出提到本文标题但未建链的文档，一键转为 <code className="font-mono">[[双链]]</code></li>
+          <li><b>右侧文档面板</b> — 编辑器右侧「大纲 / 反链 / 提及」三页签（工具栏 ▭ 可隐藏）：<b>大纲</b>在富文本和 Markdown 模式都可点击跳转章节；<b>反链</b>列出引用本文的文档 + 失效链接（可一键创建目标）；<b>提及</b>列出提到本文标题但未建链的文档，一键转为 <code className="font-mono">[[双链]]</code></li>
           <li><b>附件图片</b> — 已保存文档中粘贴/拖入的图片会以附件存储，正文用 <code className="font-mono">attachment://</code> 引用（随云同步）；未保存的新文档仍用 base64 内联</li>
           <li><b>禁用拖拽</b> — 选中内容不能拖动移动（避免误操作），移动内容用剪切 <kbd className="kbd">Ctrl+X</kbd> + 粘贴</li>
         </ul>
@@ -244,7 +248,7 @@ export default function Manual() {
       </Section>
 
       <div className="text-center text-xs text-gray-400 pb-8 pt-4">
-        知识库 · Knowledge Base v1.0 · 本地优先，数据加密存于浏览器，可选 GitHub 云同步
+        知识库 · Knowledge Base v{__APP_VERSION__} · 本地优先，数据加密存于浏览器，可选 GitHub 云同步
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import MarkdownContent from './MarkdownContent';
 
 interface CardFlipProps {
   front: string;
@@ -26,7 +26,7 @@ export default function CardFlip({ front, back, tags }: CardFlipProps) {
             </div>
           )}
           <div className="prose-custom text-center">
-            <ReactMarkdown>{front}</ReactMarkdown>
+            <MarkdownContent>{front}</MarkdownContent>
           </div>
           {!isFlipped && (
             <p className="mt-6 text-xs text-[var(--color-text-secondary)]">
@@ -39,7 +39,7 @@ export default function CardFlip({ front, back, tags }: CardFlipProps) {
         <div className={`absolute inset-0 card flex flex-col items-center justify-center p-8 backface-hidden rotate-y-180 border-brand-200 dark:border-brand-800 bg-brand-50 dark:bg-brand-950/30 ${!isFlipped ? 'invisible' : ''}`}>
           <span className="tag-brand mb-4 text-xs">答案</span>
           <div className="prose-custom text-center">
-            <ReactMarkdown>{back}</ReactMarkdown>
+            <MarkdownContent>{back}</MarkdownContent>
           </div>
         </div>
       </div>

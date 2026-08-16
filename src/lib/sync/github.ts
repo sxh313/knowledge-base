@@ -51,6 +51,7 @@ export interface FullData {
   savedSearches: unknown[];
   journalVersions: unknown[];
   propertyDefinitions: unknown[];
+  categories: unknown[];
   attachments: unknown[];
 }
 
@@ -66,7 +67,7 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 
 /** 收集本地全部数据（同步用）；附件 Blob 序列化为 dataUrl，settings 不同步（含密钥） */
 export async function collectAllData(): Promise<FullData> {
-  const [journals, notes, cards, graphNodes, graphEdges, aiConversations, savedSearches, journalVersions, propertyDefinitions, rawAttachments] = await Promise.all([
+  const [journals, notes, cards, graphNodes, graphEdges, aiConversations, savedSearches, journalVersions, propertyDefinitions, categories, rawAttachments] = await Promise.all([
     db.journals.toArray(),
     db.notes.toArray(),
     db.cards.toArray(),
@@ -76,6 +77,7 @@ export async function collectAllData(): Promise<FullData> {
     db.savedSearches.toArray(),
     db.journalVersions.toArray(),
     db.propertyDefinitions.toArray(),
+    db.categories.toArray(),
     db.attachments.toArray(),
   ]);
   // 附件 Blob 无法直接 JSON 序列化，转成 dataUrl
@@ -90,7 +92,7 @@ export async function collectAllData(): Promise<FullData> {
     version: 1,
     exportedAt: Date.now(),
     journals, notes, cards, graphNodes, graphEdges, aiConversations,
-    savedSearches, journalVersions, propertyDefinitions, attachments,
+    savedSearches, journalVersions, propertyDefinitions, categories, attachments,
   };
 }
 
@@ -135,6 +137,7 @@ export function mergeData(local: FullData, remote: FullData): FullData {
     savedSearches: mergeByNewest(local.savedSearches, r.savedSearches ?? []),
     journalVersions: mergeByNewest(local.journalVersions, r.journalVersions ?? []),
     propertyDefinitions: mergeByNewest(local.propertyDefinitions, r.propertyDefinitions ?? []),
+    categories: mergeByNewest(local.categories, r.categories ?? []),
     attachments: mergeByNewest(local.attachments, r.attachments ?? []),
   };
 }
@@ -146,6 +149,7 @@ export async function writeAllData(data: FullData): Promise<void> {
     [
       db.journals, db.notes, db.cards, db.graphNodes, db.graphEdges, db.aiConversations,
       db.savedSearches, db.journalVersions, db.propertyDefinitions, db.attachments,
+      db.categories,
     ],
     async () => {
       await Promise.all([
@@ -158,6 +162,7 @@ export async function writeAllData(data: FullData): Promise<void> {
         db.savedSearches.bulkPut(data.savedSearches as never),
         db.journalVersions.bulkPut(data.journalVersions as never),
         db.propertyDefinitions.bulkPut(data.propertyDefinitions as never),
+        db.categories.bulkPut(data.categories as never),
         db.attachments.bulkPut(data.attachments as never),
       ]);
     },
@@ -356,13 +361,21 @@ export async function syncNow(cfg: SyncConfig): Promise<SyncResult> {
  * 仅从云端拉取：拉取远端 → 与本地合并（取较新、检测冲突）→ 写回本地 → 重建派生索引。
  * 不推送（不会把本地改动上传）。适合“把云端最新数据取到本设备”。
  */
-export async function pullFromCloud(cfg: SyncConfig): Promise<{ pulled: number; conflicts: number }> {
+export interface PullResult {
+  pulled: number;
+  conflicts: number;
+  lastSyncSha?: string;
+  baselineHashes: Record<string, string>;
+}
+
+export async function pullFromCloud(cfg: SyncConfig): Promise<PullResult | null> {
   return withSyncLock(async () => {
     const local = await collectAllData();
     const remote = await ghGet(cfg);
     const baseline = cfg.baselineHashes ?? {};
     let pulled = 0;
     let conflicts = 0;
+    let baselineHashes: Record<string, string> = {};
     if (remote?.content) {
       const remoteData = JSON.parse(b64decode(remote.content)) as FullData;
       const conflictedIds = detectConflictedIds(local.journals, remoteData.journals, baseline);
@@ -371,9 +384,10 @@ export async function pullFromCloud(cfg: SyncConfig): Promise<{ pulled: number; 
       await writeAllData(merged);
       await rebuildDocumentIndexes();
       pulled = remoteData.journals.length + remoteData.cards.length + remoteData.notes.length;
+      baselineHashes = buildBaseline(merged.journals);
     }
-    return { pulled, conflicts };
-  }) as Promise<{ pulled: number; conflicts: number }>;
+    return { pulled, conflicts, lastSyncSha: remote?.sha, baselineHashes };
+  });
 }
 
 /** 测试连接：验证 token + 仓库可访问 */

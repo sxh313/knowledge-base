@@ -60,7 +60,7 @@ const themeCycle: ThemeMode[] = ['light', 'dark', 'auto'];
 const themeConfig: Record<ThemeMode, { icon: typeof Sun; label: string; hint: string }> = {
   light: { icon: Sun, label: '白天', hint: '日' },
   dark: { icon: Moon, label: '夜晚', hint: '夜' },
-  auto: { icon: Monitor, label: '跟随系统', hint: '随' },
+  auto: { icon: Monitor, label: '系统', hint: '系' },
 };
 
 const viewModeCycle: ViewMode[] = ['auto', 'desktop', 'mobile'];
@@ -436,7 +436,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
               </>
             )}
           </button>
-          {!collapsed && <div className="px-3 pt-1 pb-1 text-[10px] text-[var(--color-text-tertiary)]">知识库 v1.0</div>}
+          {!collapsed && <div className="px-3 pt-1 pb-1 text-[10px] text-[var(--color-text-tertiary)]">知识库 v{__APP_VERSION__}</div>}
         </div>
       </aside>
 
