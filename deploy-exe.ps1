@@ -38,7 +38,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # 5. 打包到系统临时目录(避免跨盘或工作区文件锁导致 rename EPERM)
 Write-Host "[5/6] 打包中(输出到系统临时目录)..." -ForegroundColor Yellow
-npx electron-builder --win --config.directories.output="$buildOutput"
+npx electron-builder --win --publish never --config.directories.output="$buildOutput"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # 6. 复制产物回项目 release/
