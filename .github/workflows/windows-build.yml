@@ -28,22 +28,26 @@ jobs:
 
       - name: Build Windows installer
         shell: pwsh
-        run: npm run exe
+        run: |
+          npm run exe
+          if (-not (Test-Path "$env:RUNNER_TEMP\kb-release\*.exe")) {
+            throw 'Windows installer was not generated.'
+          }
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: knowledge-base-windows
           path: |
-            release/*.exe
-            release/*.blockmap
+            ${{ runner.temp }}/kb-release/*.exe
+            ${{ runner.temp }}/kb-release/*.blockmap
 
       - name: Publish Windows installer to GitHub Releases
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/*.exe
-            release/*.blockmap
+            ${{ runner.temp }}/kb-release/*.exe
+            ${{ runner.temp }}/kb-release/*.blockmap
           draft: false
           prerelease: false
