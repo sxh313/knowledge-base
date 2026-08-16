@@ -23,10 +23,12 @@ Write-Host "[2/6] 检查 PNG 图标..." -ForegroundColor Yellow
 node "$root\scripts\gen-icon.cjs"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-# 3. 设置国内镜像(必需,否则 NSIS 工具下载超时)
-Write-Host "[3/6] 配置国内镜像..." -ForegroundColor Yellow
-$env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
-$env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-builder-binaries/"
+# 3. 本地使用国内镜像；GitHub Runner 使用官方源，避免跨境镜像在 CI 中超时。
+Write-Host "[3/6] 配置下载源..." -ForegroundColor Yellow
+if (-not $env:CI) {
+    $env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
+    $env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-builder-binaries/"
+}
 
 # 4. 每次都重新生成 Electron 专用前端，避免误打包上一次 Android/PWA 的 dist。
 Write-Host "[4/6] 构建 Electron 前端..." -ForegroundColor Yellow
