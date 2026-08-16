@@ -7,28 +7,32 @@ import {
 import { useJournalStore } from '../stores/journalStore';
 import type { Category, JournalEntry } from '../lib/db/schema';
 import ContextMenu from './ContextMenu';
+import CategoryDialog from './CategoryDialog';
 
 /** 折叠区头部 */
 function SectionHeader({
-  icon, label, count, expanded, onClick, onContextMenu,
+  icon, label, count, expanded, onClick, onContextMenu, onMore,
 }: {
-  icon: React.ReactNode; label: string; count?: number; expanded: boolean; onClick: () => void; onContextMenu?: (event: React.MouseEvent) => void;
+  icon: React.ReactNode; label: string; count?: number; expanded: boolean; onClick: () => void; onContextMenu?: (event: React.MouseEvent) => void; onMore?: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   return (
-    <button
-      className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-md hover:bg-[var(--color-surface-2)] transition-colors text-[var(--color-text-secondary)]"
-      onClick={onClick}
-      onContextMenu={onContextMenu}
-    >
-      {expanded
-        ? <ChevronDown className="h-3 w-3 flex-shrink-0" />
-        : <ChevronRight className="h-3 w-3 flex-shrink-0" />}
-      {icon}
-      <span className="text-xs font-medium truncate">{label}</span>
-      {typeof count === 'number' && (
-        <span className="ml-auto text-[10px] text-[var(--color-text-tertiary)]">{count}</span>
+    <div className="group flex w-full items-center rounded-md hover:bg-[var(--color-surface-2)]" onContextMenu={onContextMenu}>
+      <button className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-[var(--color-text-secondary)]" onClick={onClick}>
+        {expanded
+          ? <ChevronDown className="h-3 w-3 flex-shrink-0" />
+          : <ChevronRight className="h-3 w-3 flex-shrink-0" />}
+        {icon}
+        <span className="truncate text-xs font-medium">{label}</span>
+        {typeof count === 'number' && (
+          <span className="ml-auto text-[10px] text-[var(--color-text-tertiary)]">{count}</span>
+        )}
+      </button>
+      {onMore && (
+        <button type="button" className="mr-1 rounded p-0.5 text-[var(--color-text-tertiary)] opacity-50 hover:bg-[var(--color-surface)] hover:text-[var(--color-text)] hover:opacity-100 focus:opacity-100" onClick={onMore} title={`${label}分类操作`}>
+          <MoreVertical className="h-3.5 w-3.5" />
+        </button>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -52,6 +56,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
   const [ctx, setCtx] = useState<{ x: number; y: number; doc: JournalEntry } | null>(null);
   const [moveCtx, setMoveCtx] = useState<{ x: number; y: number; doc: JournalEntry } | null>(null);
   const [subjectCtx, setSubjectCtx] = useState<{ x: number; y: number; category: Category } | null>(null);
+  const [categoryDialog, setCategoryDialog] = useState<{ mode: 'create'; doc?: JournalEntry } | { mode: 'rename'; category: Category } | null>(null);
   const allSubjects = useMemo(
     () => Array.from(new Set([
       ...categories.map((category) => category.name),
@@ -91,16 +96,21 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
     });
   }, [categories, entries]);
 
-  const handleCreateCategory = async (doc?: JournalEntry) => {
-    const name = window.prompt('输入新的分类名称');
-    if (!name?.trim()) return;
-    try {
+  const saveCategory = async (name: string) => {
+    if (!categoryDialog) return;
+    if (categoryDialog.mode === 'create') {
       const category = await createCategory(name);
       setExpandedSubjects((previous) => new Set(previous).add(category.name));
-      if (doc) await update(doc.id, { subject: category.name });
-    } catch (error) {
-      window.alert((error as Error).message);
+      if (categoryDialog.doc) await update(categoryDialog.doc.id, { subject: category.name });
+      return;
     }
+    const previousName = categoryDialog.category.name;
+    await renameCategory(categoryDialog.category.id, name);
+    setExpandedSubjects((previous) => {
+      const next = new Set(previous);
+      if (next.delete(previousName)) next.add(name);
+      return next;
+    });
   };
 
   // 所有标签
@@ -231,7 +241,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
         <span className="text-[10px] font-medium uppercase tracking-wide">分类</span>
         <button
           className="rounded p-0.5 hover:bg-[var(--color-surface-2)] hover:text-[var(--color-primary)]"
-          onClick={() => handleCreateCategory()}
+          onClick={() => setCategoryDialog({ mode: 'create' })}
           title="新建分类"
         >
           <Plus className="h-3.5 w-3.5" />
@@ -251,6 +261,11 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
               onContextMenu={category ? (event) => {
                 event.preventDefault();
                 setSubjectCtx({ x: event.clientX, y: event.clientY, category });
+              } : undefined}
+              onMore={category ? (event) => {
+                event.stopPropagation();
+                const rect = event.currentTarget.getBoundingClientRect();
+                setSubjectCtx({ x: rect.right, y: rect.bottom, category });
               } : undefined}
             />
             {expanded && (
@@ -317,7 +332,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
           items={[
             { key: 'none', label: '（无分类）', onClick: () => { update(moveCtx.doc.id, { subject: '' }); } },
             ...allSubjects.map((s) => ({ key: `subj-${s}`, label: s, onClick: () => { update(moveCtx.doc.id, { subject: s }); } })),
-            { key: 'new', label: '新建分类…', icon: <Plus className="h-4 w-4" />, divider: true, onClick: () => handleCreateCategory(moveCtx.doc) },
+            { key: 'new', label: '新建分类…', icon: <Plus className="h-4 w-4" />, divider: true, onClick: () => setCategoryDialog({ mode: 'create', doc: moveCtx.doc }) },
           ]}
         />
       )}
@@ -330,14 +345,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
             {
               key: 'rename',
               label: '重命名分类',
-              onClick: async () => {
-                // Capture the menu target before opening a modal; the tree can re-render while it is open.
-                const category = subjectCtx.category;
-                const name = window.prompt('输入新的分类名称', category.name);
-                if (!name?.trim() || name.trim() === category.name) return;
-                try { await renameCategory(category.id, name); }
-                catch (error) { window.alert((error as Error).message); }
-              },
+              onClick: () => setCategoryDialog({ mode: 'rename', category: subjectCtx.category }),
             },
             {
               key: 'delete',
@@ -352,6 +360,15 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
               },
             },
           ]}
+        />
+      )}
+      {categoryDialog && (
+        <CategoryDialog
+          title={categoryDialog.mode === 'create' ? '新建分类' : '重命名分类'}
+          initialValue={categoryDialog.mode === 'rename' ? categoryDialog.category.name : ''}
+          confirmLabel={categoryDialog.mode === 'create' ? '创建' : '保存'}
+          onSubmit={saveCategory}
+          onClose={() => setCategoryDialog(null)}
         />
       )}
     </div>

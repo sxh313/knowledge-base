@@ -621,7 +621,7 @@ export default function SettingsPage() {
       </main>
       <aside className="sticky top-6 hidden w-44 shrink-0 lg:block">
         <nav aria-label="设置分区" className="border-l border-[var(--color-border)] pl-3">
-          <p className="mb-2 text-xs font-semibold text-[var(--color-text-tertiary)]">设置导航</p>
+          <p className="mb-2 px-2 text-sm font-semibold text-[var(--color-text-tertiary)]">设置导航</p>
           {[
             ['ai-services', 'AI 服务'],
             ['model-preferences', '模型偏好'],
@@ -631,7 +631,7 @@ export default function SettingsPage() {
             ['data-management', '数据管理'],
             ['about-updates', '关于与更新'],
           ].map(([id, label]) => (
-            <button key={id} type="button" onClick={() => jumpToSection(id)} className="block w-full rounded-md px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-primary)]">
+            <button key={id} type="button" onClick={() => jumpToSection(id)} className="block min-h-9 w-full rounded-md px-2 py-2 text-left text-sm leading-5 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-primary)]">
               {label}
             </button>
           ))}

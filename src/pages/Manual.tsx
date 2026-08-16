@@ -55,10 +55,11 @@ export default function Manual() {
       <Section icon={PaintRoller} title="编辑器进阶（富文本）" color="text-pink-500">
         <ul className="list-disc pl-5 space-y-1">
           <li><b>查找替换</b> — <kbd className="kbd">Ctrl+H</kbd> 或 <kbd className="kbd">Ctrl+F</kbd> 打开查找栏，支持区分大小写、上一个/下一个、替换、全部替换</li>
-          <li><b>提示框</b> — 工具栏提示按钮或斜杠命令 <kbd className="kbd">/提示框</kbd> 只使用标准 Markdown 引用格式 <code className="font-mono">&gt;</code>，不会自动添加斜体或 <code className="font-mono">[!NOTE]</code>。技巧 / 警告 / 危险仍可用专用 Callout</li>
+          <li><b>提示框</b> — 工具栏提示按钮或斜杠命令 <kbd className="kbd">/提示框</kbd> 只使用标准 Markdown 引用格式 <code className="font-mono">&gt;</code>，不会自动添加斜体、双引号或 <code className="font-mono">[!NOTE]</code>。技巧 / 警告 / 危险仍可用专用 Callout</li>
           <li><b>格式刷</b> — 工具栏 🖌️：先选中带格式的文字点刷<b>复制格式</b>，再选目标文字点刷<b>套用格式</b>（粗体/斜体/删除线/代码）</li>
           <li><b>选中→AI</b> — 选中文字浮现快捷菜单：<b>翻译 / 解释 / 润色</b>；结果在独立小窗中显示，可复制或关闭，<b>不会自动修改原文</b></li>
-          <li><b>标题折叠</b> — 点击 H1-H5 标题左侧箭头，可隐藏或展开该标题所属内容</li>
+          <li><b>标题折叠</b> — 点击 H1-H5 标题左侧箭头，可隐藏该标题正文及其下级标题；遇到下一个同级或更高级标题停止，再点一次完整展开</li>
+          <li><b>分类管理</b> — 左侧分类区点“+”新建分类；点分类右侧“⋮”可重命名或删除，删除后其中的文档自动移到“未分类”</li>
           <li><b>表格与 SVG</b> — 工具栏可插入 3×3 表格；选择 SVG 代码可预览并转换为 PNG 图片插入</li>
           <li><b>代码块</b> — 每个代码块都有备注输入区和复制按钮；备注会随 Markdown、备份和同步保存</li>
           <li><b>Tab 缩进</b> — 正文按 <kbd className="kbd">Tab</kbd> 插入可持久保存的缩进，代码块插入 4 个空格，<kbd className="kbd">Shift+Tab</kbd> 减少缩进</li>

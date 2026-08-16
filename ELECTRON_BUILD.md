@@ -5,13 +5,11 @@
 
 ## 快速开始(一条命令)
 
-```bash
-npm run electron:build
+```powershell
+npm run exe
 ```
 
-> ⚠️ **注意**:直接运行 `npm run electron:build` 在 D 盘项目目录会因 `rename EPERM` 失败。
-> **正确做法**:输出目录必须放到 **C 盘临时目录**,打包成功后再复制回 `release/`。
-> 详见下方「完整步骤」。
+`npm run exe` 会自动在系统临时目录打包，再把完整产物复制到 `release/`，可避免 D 盘项目目录出现 `rename EPERM`。
 
 ---
 
@@ -81,9 +79,12 @@ Copy-Item "$env:TEMP\kb-release\*" release -Recurse -Force
 
 ### 第 5 步:输出产物位置
 
-- **安装包**:`release\知识库 Setup 1.0.0.exe`(约 101 MB,发给用户安装)
-- **便携版**:`release\win-unpacked\知识库.exe`(约 215 MB,解压即用)
-- `release\win-unpacked\` 完整目录(403 MB,免安装运行)
+- **安装包**:`release\knowledge-base-setup-X.Y.Z.exe`
+- **增量信息**:`release\knowledge-base-setup-X.Y.Z.exe.blockmap`
+- **更新清单**:`release\latest.yml`
+- **便携目录**:`release\win-unpacked\知识库.exe`
+
+发布新版本时必须将安装包、`.blockmap` 和 `latest.yml` 一起上传到同一 GitHub Release。缺少 `latest.yml` 会导致应用内自动更新返回 404；桌面端检测到新版本后会自动下载、重启并安装。
 
 ---
 
@@ -113,7 +114,7 @@ npx electron-builder --win --config.directories.output="$env:TEMP\kb-release"
 New-Item -ItemType Directory -Force -Path release | Out-Null
 Copy-Item "$env:TEMP\kb-release\*" release -Recurse -Force
 
-Write-Host "✅ 打包完成:release\知识库 Setup 1.0.0.exe"
+Write-Host "打包完成:release\knowledge-base-setup-X.Y.Z.exe"
 ```
 
 ---
