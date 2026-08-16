@@ -199,6 +199,14 @@ export interface PropertyDefinition {
   updatedAt: number;
 }
 
+export interface Category {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
+}
+
 export interface SyncConflict {
   id: string;
   journalId: string;
@@ -225,6 +233,7 @@ export class StudyJournalDB extends Dexie {
   attachments!: Table<Attachment>;
   savedSearches!: Table<SavedSearch>;
   propertyDefinitions!: Table<PropertyDefinition>;
+  categories!: Table<Category>;
   syncConflicts!: Table<SyncConflict>;
 
   constructor() {
@@ -259,6 +268,24 @@ export class StudyJournalDB extends Dexie {
         entry.status ??= 'active';
         entry.properties ??= {};
       });
+    });
+    // version(4): 分类成为独立实体，支持空分类、重命名、删除和跨设备同步。
+    this.version(4).stores({
+      categories: 'id, name, updatedAt, deletedAt',
+    }).upgrade(async (tx) => {
+      const journals = await tx.table<JournalEntry, string>('journals').toArray();
+      const names = Array.from(new Set(journals.map((entry) => entry.subject?.trim()).filter(Boolean) as string[]));
+      const now = Date.now();
+      if (names.length > 0) {
+        await tx.table<Category, string>('categories').bulkPut(
+          names.map((name, index) => ({
+            id: crypto.randomUUID(),
+            name,
+            createdAt: now + index,
+            updatedAt: now + index,
+          })),
+        );
+      }
     });
     // 说明：availableModels / shengsuanyun 等非索引字段由读取时兼容补全，无需单独升级版本。
   }

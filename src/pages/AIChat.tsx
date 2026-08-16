@@ -16,7 +16,7 @@ import { getConversations, getConversation, upsertConversation, deleteConversati
 import { useSyncStore } from '../stores/syncStore';
 import type { AIConversation } from '../lib/db/schema';
 import CitationList from '../components/CitationList';
-import ReactMarkdown from 'react-markdown';
+import MarkdownContent from '../components/MarkdownContent';
 import { Save, Plus, Trash2, PanelLeft } from 'lucide-react';
 import { searchWeb, formatWebResults } from '../lib/ai/webSearch';
 
@@ -233,14 +233,14 @@ export default function AIChat() {
                 ? 'bg-indigo-600 text-white'
                 : 'bg-gray-100 dark:bg-gray-800 text-[var(--color-text)]'
             }`}>
-              <ReactMarkdown>{msg.content}</ReactMarkdown>
+              <MarkdownContent>{msg.content}</MarkdownContent>
             </div>
           </div>
         ))}
         {isProcessing && streamingContent && (
           <div className="flex justify-start">
             <div className="max-w-[80%] rounded-2xl px-4 py-3 text-sm bg-gray-100 dark:bg-gray-800">
-              <ReactMarkdown>{streamingContent}</ReactMarkdown>
+              <MarkdownContent>{streamingContent}</MarkdownContent>
               <span className="inline-block w-2 h-4 bg-indigo-500 animate-pulse ml-1" />
             </div>
           </div>

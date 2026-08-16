@@ -25,3 +25,31 @@ describe('markdown headings', () => {
     expect(html).toContain('<h5>H5</h5>');
   });
 });
+
+describe('code block notes', () => {
+  it('restores a persisted note onto the code block', () => {
+    const html = markdownToHtml('<!-- code-note:%E8%BF%99%E6%98%AF%E5%A4%87%E6%B3%A8 -->\n```ts\nconst answer = 42;\n```');
+    expect(html).toContain('data-code-note="这是备注"');
+    expect(html).toContain('language-ts');
+  });
+
+  it('serializes a code block note without mixing it into source code', () => {
+    const markdown = htmlToMarkdown('<pre data-code-note="初始化"><code class="language-js">const value = 1;</code></pre>');
+    expect(markdown).toContain('<!-- code-note:%E5%88%9D%E5%A7%8B%E5%8C%96 -->');
+    expect(markdown).toContain('```js\nconst value = 1;\n```');
+  });
+
+  it('serializes the default prompt as a plain Markdown quote', () => {
+    const markdown = htmlToMarkdown('<div data-type="callout" data-variant="note"><p>工具执行前先做权限判断 — 权限管线决定哪些操作需要审批。</p><p><strong>Harness 层</strong>: 权限 — 在工具执行前加一道门。</p></div>');
+    expect(markdown).not.toContain('[!NOTE]');
+    expect(markdown).toContain('> 工具执行前先做权限判断 — 权限管线决定哪些操作需要审批。');
+    expect(markdown).toContain('> **Harness 层**: 权限 — 在工具执行前加一道门。');
+  });
+});
+
+describe('markdown spacing', () => {
+  it('preserves an intentional empty paragraph between blocks', () => {
+    const markdown = htmlToMarkdown('<p>第一行</p><p></p><p>第二行</p>');
+    expect(markdown).toMatch(/第一行\n{2,}第二行/);
+  });
+});

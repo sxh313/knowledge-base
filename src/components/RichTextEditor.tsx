@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState, useCallback, useReducer, memo, type CSSProperties } from 'react';
-import { useEditor, EditorContent } from '@tiptap/react';
+import {
+  useEditor,
+  EditorContent,
+  NodeViewContent,
+  NodeViewWrapper,
+  ReactNodeViewRenderer,
+  type NodeViewProps,
+} from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -16,7 +23,7 @@ import {
   Bold, Italic, Strikethrough,
   Code, Link as LinkIcon, List, ListOrdered,
   Quote, Heading1, Heading2, Heading3, Heading4, Heading5, Pilcrow, CodeXml, Minus, Image as ImageIcon,
-  Undo2, Redo2, ListChecks, ZoomIn, ZoomOut, Copy,
+  Undo2, Redo2, ListChecks, ZoomIn, ZoomOut, Copy, Check, Table2, ImageDown, X,
   Lightbulb, Languages, Sparkles, BookOpen, Search, PaintRoller,
 } from 'lucide-react';
 import { markdownToHtml, htmlToMarkdown } from '../lib/markdownUtils';
@@ -30,6 +37,61 @@ import SearchReplaceBar from './SearchReplaceBar';
 
 // 代码语法高亮：注册常用语言集合
 const lowlight = createLowlight(common);
+
+function EnhancedCodeBlockView({ node, updateAttributes }: NodeViewProps) {
+  const [copied, setCopied] = useState(false);
+  const language = node.attrs.language || 'text';
+  const note = node.attrs.note || '';
+
+  const copyCode = async () => {
+    await navigator.clipboard.writeText(node.textContent);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  };
+
+  return (
+    <NodeViewWrapper className="code-block-shell">
+      <div className="code-block-toolbar" contentEditable={false}>
+        <span className="code-block-language">{language}</span>
+        <label className="code-block-note">
+          <span>备注</span>
+          <input
+            value={note}
+            onChange={(event) => updateAttributes({ note: event.target.value })}
+            placeholder="添加这段代码的说明..."
+          />
+        </label>
+        <button
+          type="button"
+          className="code-block-copy"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={copyCode}
+          title="复制代码"
+        >
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          <span>{copied ? '已复制' : '复制'}</span>
+        </button>
+      </div>
+      <pre><NodeViewContent as={'code' as never} className={`language-${language}`} /></pre>
+    </NodeViewWrapper>
+  );
+}
+
+const EnhancedCodeBlock = CodeBlockLowlight.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      note: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-code-note') || '',
+        renderHTML: (attributes) => attributes.note ? { 'data-code-note': attributes.note } : {},
+      },
+    };
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(EnhancedCodeBlockView);
+  },
+});
 
 // 附件图片解析缓存：attachmentId → 可渲染 dataUrl（跨实例复用，避免重复查库）
 const attachmentSrcCache = new Map<string, string>();
@@ -64,15 +126,43 @@ interface RichTextEditorProps {
   autoFocus?: boolean;
   /** 选中→AI 操作（飞书式）：翻译/解释/润色 */
   onAIAction?: (action: 'translate' | 'explain' | 'polish', selectedText: string) => void;
-  /** AI 结果注入信号：n 变化时把 text 插入/替换到当前选区 */
-  insertSignal?: { text: string; n: number } | null;
   /** 点击双向链接 [[目标]] 时触发（父组件负责跳转到目标文档） */
   onWikilinkClick?: (target: string) => void;
   /** 当前文档 id（有值时粘贴/拖入图片会落库为附件并用 attachment://id 引用；未保存的新文档退化为 base64） */
   journalId?: string;
 }
 
-function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, insertSignal, onWikilinkClick, journalId }: RichTextEditorProps) {
+// Tiptap 可能先返回 Editor 实例、稍后才挂载 ProseMirror view。访问 view.dom 前必须确认已初始化，
+// 否则重载/HMR 期间会触发“editor view is not available”并让编辑器短暂空白。
+function getEditorDom(editor: any): HTMLElement | null {
+  if (!editor || editor.isDestroyed || !editor.isInitialized) return null;
+  try {
+    return editor.view?.dom ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function whenEditorDomReady(editor: any, callback: (dom: HTMLElement) => void): () => void {
+  let cancelled = false;
+  let frame = 0;
+  const check = () => {
+    if (cancelled || editor.isDestroyed) return;
+    const dom = getEditorDom(editor);
+    if (dom) {
+      callback(dom);
+      return;
+    }
+    frame = requestAnimationFrame(check);
+  };
+  check();
+  return () => {
+    cancelled = true;
+    if (frame) cancelAnimationFrame(frame);
+  };
+}
+
+function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, onWikilinkClick, journalId }: RichTextEditorProps) {
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
@@ -83,6 +173,10 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
     const saved = Number(localStorage.getItem('kb-editor-font-scale'));
     return Number.isFinite(saved) && saved >= 0.7 && saved <= 1.6 ? saved : 1;
   });
+  const [showSvgDialog, setShowSvgDialog] = useState(false);
+  const [svgSource, setSvgSource] = useState('');
+  const [svgError, setSvgError] = useState('');
+  const [svgRendering, setSvgRendering] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   // 格式刷：第一次点复制选区格式，第二次点应用到新选区
   const [storedMarks, setStoredMarks] = useState<{ type: string }[] | null>(null);
@@ -127,7 +221,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
       Image.configure({ allowBase64: true }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      CodeBlockLowlight.configure({ lowlight }),
+      EnhancedCodeBlock.configure({ lowlight }),
       Table.configure({ resizable: false }),
       TableRow,
       TableCell,
@@ -140,6 +234,30 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
     editorProps: {
       attributes: {
         class: 'prose-custom max-w-none focus:outline-none min-h-[58vh] px-1 py-3',
+        spellcheck: 'false',
+      },
+      handleKeyDown: (view, event) => {
+        if (event.key !== 'Tab') return false;
+        const { state } = view;
+        const { $from, from, to } = state.selection;
+        // 表格用 Tab 切换单元格，列表用 Tab 调整层级，保持 Word 类似的原生行为。
+        for (let depth = $from.depth; depth >= 0; depth--) {
+          const type = $from.node(depth).type.name;
+          if (type === 'tableCell' || type === 'tableHeader' || type === 'listItem' || type === 'taskItem') return false;
+        }
+        event.preventDefault();
+        if (event.shiftKey) {
+          if (from !== to) return true;
+          const before = state.doc.textBetween(Math.max(0, from - 4), from, '\n');
+          const indentation = before.match(/[ \u00a0\u3000]{1,4}$/)?.[0] || '';
+          if (indentation) view.dispatch(state.tr.delete(from - indentation.length, from));
+          return true;
+        }
+        const inCodeBlock = $from.parent.type.name === 'codeBlock';
+        // 正文使用两个全角空格，视觉约等于四个半角空格，Markdown 往返后也不会被合并或裁掉。
+        const indentation = inCodeBlock ? '    ' : '\u3000'.repeat(2);
+        view.dispatch(state.tr.insertText(indentation, from, to));
+        return true;
       },
       handleDOMEvents: {
         dragstart: (view: any, event: DragEvent) => {
@@ -155,7 +273,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = 0;
-        if (editor.isDestroyed) return;
+        if (editor.isDestroyed || !editor.isInitialized) return;
         const md = htmlToMarkdown(editor.getHTML());
         // 标记本次变化由编辑器自身产生：下方 effect 据此跳过 setContent，保留撤销/重做历史栈
         lastEmittedRef.current = md;
@@ -171,7 +289,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
 
   // 外部内容变化时同步到编辑器（如加载已有文档）
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed || !editor.isInitialized) return;
     if (value !== lastEmittedRef.current) {
       const newHtml = markdownToHtml(value);
       if (editor.getHTML() !== newHtml) {
@@ -205,6 +323,39 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
     ed.chain().focus().setImage({ src, alt: name }).run();
   }, [editor, journalId]);
 
+  const openSvgDialog = () => {
+    if (!editor) return;
+    const { from, to, $from } = editor.state.selection;
+    let source = from !== to ? editor.state.doc.textBetween(from, to, '\n') : '';
+    if (!source) {
+      for (let depth = $from.depth; depth >= 0; depth--) {
+        const node = $from.node(depth);
+        if (node.type.name === 'codeBlock') {
+          source = node.textContent;
+          break;
+        }
+      }
+    }
+    setSvgSource(source);
+    setSvgError('');
+    setShowSvgDialog(true);
+  };
+
+  const insertSvgAsImage = async () => {
+    setSvgRendering(true);
+    setSvgError('');
+    try {
+      const png = await svgToPngDataUrl(svgSource);
+      await insertImageFromDataUrl(png, 'svg-render.png', 'image/png');
+      setShowSvgDialog(false);
+      setSvgSource('');
+    } catch (error) {
+      setSvgError((error as Error).message);
+    } finally {
+      setSvgRendering(false);
+    }
+  };
+
   // 用 ref 暴露最新插入函数给粘贴/拖拽监听（监听只绑定一次，避免依赖变化重建）
   const insertImageRef = useRef(insertImageFromDataUrl);
   useEffect(() => { insertImageRef.current = insertImageFromDataUrl; }, [insertImageFromDataUrl]);
@@ -212,7 +363,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
   // 解析正文里 attachment://<id> 图片为可渲染 dataUrl（content 保持引用，仅渲染层替换 src）
   useEffect(() => {
     if (!editor) return;
-    const run = () => { if (editor && !editor.isDestroyed && editor.view) resolveAttachmentImages(editor.view.dom); };
+    const run = () => { const dom = getEditorDom(editor); if (dom) resolveAttachmentImages(dom); };
     run();
     const raf = requestAnimationFrame(run);
     return () => cancelAnimationFrame(raf);
@@ -223,8 +374,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
   useEffect(() => {
     if (!editor) return;
     const syncCollapse = () => {
-      if (!editor.view || editor.isDestroyed) return;
-      const root = editor.view.dom;
+      const root = getEditorDom(editor);
       if (!root) return;
       if (!root.querySelector('[data-hidden="true"], h1[data-collapsed="true"], h2[data-collapsed="true"], h3[data-collapsed="true"], h4[data-collapsed="true"], h5[data-collapsed="true"]')) {
         return;
@@ -269,9 +419,11 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
     if (!editor) return;
     const onTransaction = ({ transaction }: { transaction: any }) => {
       if (!transaction.docChanged) return;
-      const view = editor.view;
-      if (!view || editor.isDestroyed) return;
-      const root = view.dom;
+      if (editor.isDestroyed || !editor.isInitialized) return;
+      let view: any;
+      try { view = editor.view; } catch { return; }
+      if (!view) return;
+      const root: HTMLElement = view.dom as HTMLElement;
       // 光标所在 DOM 元素（可能是文本节点，取其父元素）
       const domAtPos = view.domAtPos(editor.state.selection.from);
       let el: HTMLElement | null = domAtPos.node instanceof Text ? domAtPos.node.parentElement : (domAtPos.node as HTMLElement);
@@ -320,8 +472,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
 
   // 折叠标题：点击标题左侧箭头区域切换折叠状态
   useEffect(() => {
-    if (!editor) return;
-    const dom = editor.view.dom;
+    if (!editor || editor.isDestroyed || !editor.isInitialized) return;
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       // 找到被点击的标题元素
@@ -335,7 +486,10 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
       e.preventDefault();
       e.stopPropagation();
       // 从 DOM 定位标题节点，再换算成 ProseMirror 位置
-      const view = editor.view;
+      if (editor.isDestroyed || !editor.isInitialized) return;
+      let view: any;
+      try { view = editor.view; } catch { return; }
+      if (!view) return;
       const pos = view.posAtDOM(headingEl, 0);
       if (pos == null) return;
       const $pos = view.state.doc.resolve(pos);
@@ -351,14 +505,20 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
         collapsed,
       }));
     };
-    dom.addEventListener('click', onClick);
-    return () => dom.removeEventListener('click', onClick);
+    let dom: HTMLElement | null = null;
+    const stop = whenEditorDomReady(editor, (readyDom) => {
+      dom = readyDom;
+      dom.addEventListener('click', onClick);
+    });
+    return () => {
+      stop();
+      dom?.removeEventListener('click', onClick);
+    };
   }, [editor]);
 
   // 飞书式：粘贴（Ctrl+V 截图）/ 拖拽图片自动插入（DOM 级监听，HMR 友好）
   useEffect(() => {
     if (!editor) return;
-    const dom = editor.view.dom;
     const insertImageFile = (file: File) =>
       fileToImageDataURL(file).then(({ src, alt }) => {
         if (!src) return;
@@ -391,13 +551,18 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
       // 兜底：禁用编辑器内所有拖拽（主逻辑在 editorProps.handleDOMEvents.dragstart）
       e.preventDefault();
     };
-    dom.addEventListener('paste', onPaste);
-    dom.addEventListener('drop', onDrop);
-    dom.addEventListener('dragstart', onDragStart);
+    let dom: HTMLElement | null = null;
+    const stop = whenEditorDomReady(editor, (readyDom) => {
+      dom = readyDom;
+      dom.addEventListener('paste', onPaste);
+      dom.addEventListener('drop', onDrop);
+      dom.addEventListener('dragstart', onDragStart);
+    });
     return () => {
-      dom.removeEventListener('paste', onPaste);
-      dom.removeEventListener('drop', onDrop);
-      dom.removeEventListener('dragstart', onDragStart);
+      stop();
+      dom?.removeEventListener('paste', onPaste);
+      dom?.removeEventListener('drop', onDrop);
+      dom?.removeEventListener('dragstart', onDragStart);
     };
   }, [editor]);
 
@@ -428,7 +593,6 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
   // 点击双向链接 chip 跳转
   useEffect(() => {
     if (!editor || !onWikilinkClick) return;
-    const dom = editor.view.dom;
     const onClick = (e: MouseEvent) => {
       const wl = (e.target as HTMLElement).closest('.wikilink') as HTMLElement | null;
       if (wl) {
@@ -436,8 +600,15 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
         onWikilinkClick(wl.getAttribute('data-wikilink') || wl.textContent || '');
       }
     };
-    dom.addEventListener('click', onClick);
-    return () => dom.removeEventListener('click', onClick);
+    let dom: HTMLElement | null = null;
+    const stop = whenEditorDomReady(editor, (readyDom) => {
+      dom = readyDom;
+      dom.addEventListener('click', onClick);
+    });
+    return () => {
+      stop();
+      dom?.removeEventListener('click', onClick);
+    };
   }, [editor, onWikilinkClick]);
 
   // 输入 [[ 检测：弹出文档搜索浮层
@@ -481,16 +652,6 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
   }, [wlOpen, wlIndex, filteredDocs]);
-
-  // AI 结果注入：n 变化时把 text 插入/替换当前选区
-  const lastInsertN = useRef(0);
-  useEffect(() => {
-    if (!editor || !insertSignal) return;
-    if (insertSignal.n === lastInsertN.current) return;
-    lastInsertN.current = insertSignal.n;
-    const { from, to } = editor.state.selection;
-    editor.chain().focus().insertContentAt({ from, to }, insertSignal.text).run();
-  }, [editor, insertSignal]);
 
   // 选中→AI 操作：取当前选中文本，回调给父组件
   const triggerSelectionAI = (action: 'translate' | 'explain' | 'polish') => {
@@ -549,11 +710,11 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
   useEffect(() => {
     if (!editor) return;
 
-    const editorEl = editor.view.dom;
+    let editorEl: HTMLElement | null = null;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // 仅响应编辑器（含已渲染的斜杠菜单）内的按键，避免影响标题输入框等
-      const inEditor = editorEl.contains(e.target as Node);
+      const inEditor = !!editorEl?.contains(e.target as Node);
 
       // 输入 / 打开命令菜单（需在 / 被解析插入前判断，故用捕获阶段）
       if (inEditor && e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -604,11 +765,15 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown, true);
-    editor.on('update', handleUpdate);
-    editor.on('selectionUpdate', handleUpdate);
+    const stop = whenEditorDomReady(editor, (dom) => {
+      editorEl = dom;
+      document.addEventListener('keydown', handleKeyDown, true);
+      editor.on('update', handleUpdate);
+      editor.on('selectionUpdate', handleUpdate);
+    });
 
     return () => {
+      stop();
       document.removeEventListener('keydown', handleKeyDown, true);
       editor.off('update', handleUpdate);
       editor.off('selectionUpdate', handleUpdate);
@@ -652,7 +817,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
       {/* 浮动工具栏（选中文字时） */}
       {editor && (
       <BubbleMenu editor={editor}>
-        <div className="flex items-center gap-0.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg px-1 py-1">
+        <div className="flex items-center gap-0.5 rounded-lg border border-[var(--color-border)] bg-white shadow-lg px-1 py-1">
           <ToolbarBtn onClick={() => editor.chain().focus().toggleBold().run()} active={isActive('bold')} title="加粗"><Bold className="w-3.5 h-3.5" /></ToolbarBtn>
           <ToolbarBtn onClick={() => editor.chain().focus().toggleItalic().run()} active={isActive('italic')} title="斜体"><Italic className="w-3.5 h-3.5" /></ToolbarBtn>
           <ToolbarBtn onClick={() => editor.chain().focus().toggleStrike().run()} active={isActive('strike')} title="删除线"><Strikethrough className="w-3.5 h-3.5" /></ToolbarBtn>
@@ -682,7 +847,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
       )}
 
       {/* 固定工具栏 */}
-      <div className="sticky top-0 z-20 -mx-2 mb-4 flex items-center gap-1 overflow-x-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]/95 px-2 py-1.5 shadow-sm backdrop-blur animate-slide-down flex-nowrap">
+      <div className="sticky top-0 z-20 -mx-2 mb-4 flex flex-wrap items-center gap-1 rounded-lg border border-[var(--color-border)] bg-white px-2 py-1.5 shadow-sm animate-slide-down">
         <ToolbarBtn onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title="撤销 (Ctrl+Z)"><Undo2 className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title="前进 (Ctrl+Y)"><Redo2 className="w-4 h-4" /></ToolbarBtn>
         <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
@@ -707,7 +872,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
         <ToolbarBtn onClick={() => editor.chain().focus().toggleOrderedList().run()} active={isActive('orderedList')} title="有序列表"><ListOrdered className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleTaskList().run()} active={isActive('taskList')} title="待办清单"><ListChecks className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleBlockquote().run()} active={isActive('blockquote')} title="引用"><Quote className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleCallout('note').run()} active={isActive('callout')} title="提示框（Callout，再次点击取消）"><Lightbulb className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => editor.chain().focus().toggleBlockquote().run()} active={isActive('blockquote')} title="提示框（引用格式，再次点击取消）"><Lightbulb className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => {
           const docs = useJournalStore.getState().entries.filter(e => !e.deletedAt);
           if (docs.length === 0) { window.alert('还没有文档，先创建一篇吧'); return; }
@@ -716,6 +881,8 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
           if (target && target.trim()) editor.chain().focus().insertWikilink(target.trim()).run();
         }} title="插入双向链接 [[]]"><LinkIcon className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleCodeBlock().run()} active={isActive('codeBlock')} title="代码块"><CodeXml className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} title="插入 3×3 表格"><Table2 className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={openSvgDialog} title="SVG 代码转 PNG 图片"><ImageDown className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="分隔线"><Minus className="w-4 h-4" /></ToolbarBtn>
         <label className="p-1.5 rounded-md transition-colors text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] cursor-pointer" title="插入图片（选文件）">
           <ImageIcon className="w-4 h-4" />
@@ -754,6 +921,54 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, i
       </div>
 
       {showSearch && editor && <SearchReplaceBar editor={editor} onClose={() => setShowSearch(false)} />}
+
+      {showSvgDialog && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4" onMouseDown={() => setShowSvgDialog(false)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="SVG 代码转图片"
+            className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-2xl"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
+              <h3 className="text-sm font-semibold text-[var(--color-text)]">SVG 代码转 PNG 图片</h3>
+              <button className="btn-ghost h-8 w-8 p-0" onClick={() => setShowSvgDialog(false)} title="关闭">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 md:grid-cols-2">
+              <textarea
+                className="input-field min-h-64 resize-y font-mono text-xs leading-5"
+                value={svgSource}
+                onChange={(event) => { setSvgSource(event.target.value); setSvgError(''); }}
+                placeholder="粘贴完整的 <svg>...</svg> 代码"
+                spellCheck={false}
+              />
+              <div className="flex min-h-64 items-center justify-center overflow-auto border border-[var(--color-border)] bg-white p-3">
+                {safeSvgPreviewUrl(svgSource) ? (
+                  <img
+                    src={safeSvgPreviewUrl(svgSource)}
+                    alt="SVG 预览"
+                    className="max-h-[420px] max-w-full object-contain"
+                  />
+                ) : (
+                  <span className="text-xs text-gray-400">输入有效 SVG 后显示预览</span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3 border-t border-[var(--color-border)] px-4 py-3">
+              <span className="min-w-0 text-xs text-[var(--color-danger)]">{svgError}</span>
+              <div className="flex shrink-0 gap-2">
+                <button className="btn-secondary text-sm" onClick={() => setShowSvgDialog(false)}>取消</button>
+                <button className="btn-primary text-sm" onClick={insertSvgAsImage} disabled={svgRendering || !svgSource.trim()}>
+                  {svgRendering ? '转换中...' : '转为 PNG 并插入'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 编辑器内容 */}
       <EditorContent editor={editor} />
@@ -850,6 +1065,76 @@ function fileToImageDataURL(file: File, maxW = 1280): Promise<{ src: string; alt
     reader.onerror = () => resolve({ src: '', alt: file.name });
     reader.readAsDataURL(file);
   });
+}
+
+function svgToPngDataUrl(source: string, maxSize = 1600): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let svg = '';
+    try { svg = sanitizeSvgSource(source); }
+    catch (error) { reject(error); return; }
+    const blobUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+    const image = document.createElement('img');
+    image.onload = () => {
+      const naturalWidth = image.naturalWidth || 800;
+      const naturalHeight = image.naturalHeight || 600;
+      const scale = Math.min(1, maxSize / Math.max(naturalWidth, naturalHeight));
+      const width = Math.max(1, Math.round(naturalWidth * scale));
+      const height = Math.max(1, Math.round(naturalHeight * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        URL.revokeObjectURL(blobUrl);
+        reject(new Error('当前环境无法创建图片画布'));
+        return;
+      }
+      try {
+        context.clearRect(0, 0, width, height);
+        context.drawImage(image, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/png'));
+      } catch {
+        reject(new Error('SVG 包含无法转换的外部资源'));
+      } finally {
+        URL.revokeObjectURL(blobUrl);
+      }
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(blobUrl);
+      reject(new Error('SVG 无法解析，请检查标签和属性'));
+    };
+    image.src = blobUrl;
+  });
+}
+
+function sanitizeSvgSource(source: string): string {
+  const raw = source.trim();
+  if (!/^<svg[\s>]/i.test(raw) || !/<\/svg>\s*$/i.test(raw)) {
+    throw new Error('请输入完整的 <svg>...</svg> 代码');
+  }
+  const documentNode = new DOMParser().parseFromString(raw, 'image/svg+xml');
+  if (documentNode.querySelector('parsererror') || documentNode.documentElement.tagName.toLowerCase() !== 'svg') {
+    throw new Error('SVG 无法解析，请检查标签和属性');
+  }
+  documentNode.querySelectorAll('script, foreignObject').forEach((element) => element.remove());
+  documentNode.querySelectorAll('*').forEach((element) => {
+    for (const attribute of Array.from(element.attributes)) {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value.trim().toLowerCase();
+      if (name.startsWith('on') || ((name === 'href' || name.endsWith(':href')) && /^(https?:|\/\/|javascript:)/.test(value))) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  });
+  return new XMLSerializer().serializeToString(documentNode.documentElement);
+}
+
+function safeSvgPreviewUrl(source: string): string {
+  try {
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(sanitizeSvgSource(source))}`;
+  } catch {
+    return '';
+  }
 }
 
 function ToolbarBtn({ children, onClick, active, disabled, title }: { children: React.ReactNode; onClick: () => void; active?: boolean; disabled?: boolean; title: string }) {

@@ -13,8 +13,8 @@ Write-Host "[1/5] 清理旧产物..." -ForegroundColor Yellow
 Remove-Item -Recurse -Force "$root\release" -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force "$env:TEMP\kb-release" -ErrorAction SilentlyContinue
 
-# 2. 生成真 PNG 图标(图标没改可注释掉这行)
-Write-Host "[2/5] 生成 PNG 图标..." -ForegroundColor Yellow
+# 2. 检查 PNG 图标(脚本会保留项目中的自定义图标)
+Write-Host "[2/5] 检查 PNG 图标..." -ForegroundColor Yellow
 node "$root\scripts\gen-icon.cjs"
 
 # 3. 设置国内镜像(必需,否则 NSIS 工具下载超时)

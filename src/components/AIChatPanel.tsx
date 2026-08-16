@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import MarkdownContent from './MarkdownContent';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { useAIStore } from '../stores/aiStore';
@@ -111,7 +111,7 @@ export default function AIChatPanel({ onAccept, onAction, journalId, onClose }: 
 
         {streamingContent && (
           <div className="prose-custom text-sm">
-            <ReactMarkdown>{streamingContent}</ReactMarkdown>
+            <MarkdownContent>{streamingContent}</MarkdownContent>
           </div>
         )}
 

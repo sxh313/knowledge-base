@@ -11,7 +11,7 @@ import TemplatePicker from '../components/TemplatePicker';
 
 export default function JournalList() {
   const navigate = useNavigate();
-  const { entries, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedTag, selectedSubject, setSelectedSubject, togglePin, duplicate, remove, removeMany, update, sortBy, setSortBy, create, createTodayNote } = useJournalStore();
+  const { entries, categories, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedTag, selectedSubject, setSelectedSubject, togglePin, duplicate, remove, removeMany, update, sortBy, setSortBy, create, createTodayNote, createCategory } = useJournalStore();
   const { hasAnyProviderConfigured } = useSettingsStore();
   const { isMobile } = useViewModeStore();
   // 右键菜单：主菜单 + “移动到”分类子菜单
@@ -160,8 +160,11 @@ export default function JournalList() {
     [getFilteredEntries, entries, searchQuery, selectedTag, selectedSubject, sortBy, manualTick],
   );
   const allSubjects = useMemo(
-    () => [...new Set(entries.map(e => e.subject).filter(Boolean) as string[])].sort(),
-    [entries],
+    () => [...new Set([
+      ...categories.map((category) => category.name),
+      ...entries.map((entry) => entry.subject).filter(Boolean),
+    ] as string[])].sort((a, b) => a.localeCompare(b, 'zh-CN')),
+    [categories, entries],
   );
   const getDifficultyStars = (d?: number) => d ? '★'.repeat(d) + '☆'.repeat(5-d) : '';
   // 收藏夹：置顶文档，首页快捷直达
@@ -362,7 +365,7 @@ export default function JournalList() {
                   className="group w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 text-left transition-all hover:border-[var(--color-accent)] hover:shadow-md hover:-translate-y-0.5 sm:w-36 sm:shrink-0"
                   title={e.title}
                 >
-                  <p className="text-xs font-medium text-[var(--color-text)] truncate">{e.title || '无标题'}</p>
+                  <p className="text-xs font-medium text-[var(--color-text)] whitespace-normal break-words leading-5">{e.title || '无标题'}</p>
                   <p className="text-[10px] text-[var(--color-text-tertiary)] mt-1 truncate">
                     {e.subject || '未分类'} · {new Date(e.updatedAt).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}
                   </p>
@@ -435,9 +438,9 @@ export default function JournalList() {
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-[var(--color-text)] truncate flex items-center gap-1.5">
+                    <h3 className="font-semibold text-[var(--color-text)] flex items-start gap-1.5 min-w-0 leading-6">
                       {entry.pinned && <Star className="h-3.5 w-3.5 flex-shrink-0 text-[var(--color-accent)] fill-[var(--color-accent)]" />}
-                      {entry.title || '无标题'}
+                      <span className="min-w-0 whitespace-normal break-words">{entry.title || '无标题'}</span>
                     </h3>
                     <p className="text-sm text-[var(--color-text-secondary)] line-clamp-2 mt-1">
                       {entry.contentPlain?.slice(0, 200) || entry.content?.slice(0, 200)}
@@ -495,7 +498,16 @@ export default function JournalList() {
           items={[
             { key: 'none', label: '（无分类）', onClick: () => { update(moveCtx.entry.id, { subject: '' }); } },
             ...allSubjects.map((s) => ({ key: `subj-${s}`, label: s, onClick: () => { update(moveCtx.entry.id, { subject: s }); } })),
-            { key: 'new', label: '新建分类…', icon: <Plus className="h-4 w-4" />, divider: true, onClick: () => { const ns = window.prompt('输入新的分类名称'); if (ns && ns.trim()) update(moveCtx.entry.id, { subject: ns.trim() }); } },
+            { key: 'new', label: '新建分类…', icon: <Plus className="h-4 w-4" />, divider: true, onClick: async () => {
+              const name = window.prompt('输入新的分类名称');
+              if (!name?.trim()) return;
+              try {
+                const category = await createCategory(name);
+                await update(moveCtx.entry.id, { subject: category.name });
+              } catch (error) {
+                window.alert((error as Error).message);
+              }
+            } },
           ]}
         />
       )}

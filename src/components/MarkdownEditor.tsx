@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import ReactMarkdown from 'react-markdown';
+import MarkdownContent from './MarkdownContent';
 import remarkGfm from 'remark-gfm';
 import { Bold, Italic, Code, List, Heading, Quote, Link as LinkIcon, Undo2, Redo2 } from 'lucide-react';
 
@@ -184,9 +184,9 @@ export default function MarkdownEditor({ value, onChange, placeholder, minHeight
           className="flex-1 p-5 prose-custom max-w-none overflow-y-auto"
           style={{ minHeight }}
         >
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          <MarkdownContent remarkPlugins={[remarkGfm]}>
             {value || '*暂无内容*'}
-          </ReactMarkdown>
+          </MarkdownContent>
         </div>
       ) : (
         <textarea
@@ -197,6 +197,7 @@ export default function MarkdownEditor({ value, onChange, placeholder, minHeight
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
+          spellCheck={false}
         />
       )}
     </div>

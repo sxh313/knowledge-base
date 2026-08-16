@@ -14,6 +14,29 @@ const turndown = new TurndownService({
   codeBlockStyle: 'fenced',
   bulletListMarker: '-',
   emDelimiter: '*',
+  // 保留编辑器中用户主动插入的空段落，避免保存/回流时空行被自动吞掉。
+  blankReplacement: () => '\n\n',
+});
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// 带备注的代码块使用隐藏注释保存备注，保持 Markdown、备份和同步均可往返。
+turndown.addRule('codeBlockWithNote', {
+  filter: (node) => node.nodeName === 'PRE' && !!(node as HTMLElement).getAttribute('data-code-note'),
+  replacement: (_content, node) => {
+    const pre = node as HTMLElement;
+    const code = pre.querySelector('code');
+    const note = pre.getAttribute('data-code-note') || '';
+    const language = code?.className.match(/(?:^|\s)language-([^\s]+)/)?.[1] || '';
+    const source = (code?.textContent || pre.textContent || '').replace(/^\n/, '').replace(/\n+$/, '');
+    return `\n\n<!-- code-note:${encodeURIComponent(note)} -->\n\`\`\`${language}\n${source}\n\`\`\`\n\n`;
+  },
 });
 
 // 配置 turndown 规则
@@ -65,6 +88,11 @@ turndown.addRule('callout', {
     node.nodeName === 'DIV' && (node as HTMLElement).getAttribute('data-type') === 'callout',
   replacement: (content, node) => {
     const variant = ((node as HTMLElement).getAttribute('data-variant') || 'note').toLowerCase();
+    // 默认提示框使用普通 Markdown 引用格式，不再写入 [!NOTE] 标记。
+    // 内容格式保持原样，仅使用 > 前缀表达提示块。
+    if (variant === 'note') {
+      return content.trim().split('\n').map((line) => line ? `> ${line}` : '>').join('\n') + '\n';
+    }
     const type = CALLOUT_REVERSE_MAP[variant] || 'NOTE';
     const lines = content.trim().split('\n');
     return [`> [!${type}]`, ...lines.map((l) => `> ${l}`.trimEnd())].join('\n') + '\n';
@@ -109,6 +137,16 @@ export function linkifyFirstMention(content: string, title: string): string {
 export function markdownToHtml(markdown: string): string {
   if (!markdown) return '';
   let html = marked.parse(markdown) as string;
+
+  // <!-- code-note:... --> + fenced code → TipTap 代码块属性。
+  html = html.replace(
+    /<!--\s*code-note:([^>]*?)\s*-->\s*<pre>/gi,
+    (_match, encoded: string) => {
+      let note = encoded.trim();
+      try { note = decodeURIComponent(note); } catch { /* 保留原值 */ }
+      return `<pre data-code-note="${escapeHtmlAttribute(note)}">`;
+    },
+  );
 
   // 双向链接 [[标题]] → <span data-wikilink="标题">标题</span>
   // 注意：marked 会把 [[x]] 当纯文本输出（在 <p> 内），这里整体替换

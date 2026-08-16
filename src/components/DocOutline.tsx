@@ -4,7 +4,7 @@ import { List, ChevronRight } from 'lucide-react';
 interface DocOutlineProps {
   content: string;
   /** 可选：点击大纲项的回调（用于滚动到对应位置） */
-  onJump?: (headingId: string) => void;
+  onJump?: (line: number) => void;
   /** 嵌入模式：只渲染标题列表，不带外层面板与“大纲”标题栏（用于嵌入侧栏页签） */
   embedded?: boolean;
 }
@@ -13,15 +13,17 @@ interface Heading {
   level: number;
   text: string;
   id: string;
+  line: number;
 }
 
 /** 从 Markdown 内容中提取标题 */
-function parseHeadings(markdown: string): Heading[] {
+export function parseHeadings(markdown: string): Heading[] {
   const lines = markdown.split('\n');
   const headings: Heading[] = [];
   let inCodeBlock = false;
 
-  for (const line of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
     if (line.trim().startsWith('```')) {
       inCodeBlock = !inCodeBlock;
       continue;
@@ -32,10 +34,12 @@ function parseHeadings(markdown: string): Heading[] {
     if (match) {
       const level = match[1].length;
       const text = match[2].replace(/[*`~_]/g, '').trim();
-      const id = text.toLowerCase()
+      const slug = text.toLowerCase()
         .replace(/[^一-龥a-z0-9]+/g, '-')
         .replace(/^-|-$/g, '');
-      headings.push({ level, text, id });
+      // 行号保证重复标题也有唯一的大纲状态键。
+      const id = `${slug || 'heading'}-${lineIndex}`;
+      headings.push({ level, text, id, line: lineIndex });
     }
   }
   return headings;
@@ -46,27 +50,20 @@ function DocOutline({ content, onJump, embedded }: DocOutlineProps) {
 
   const headings = useMemo(() => parseHeadings(content), [content]);
 
-  const handleClick = (h: Heading) => {
+  const handleClick = (h: Heading, headingIndex: number) => {
     setActiveId(h.id);
-    onJump?.(h.id);
+    onJump?.(h.line);
 
-    // 尝试滚动到标题元素（编辑器已为标题设置与 h.id 一致的 id）
-    const el = document.getElementById(h.id);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } else {
-      // 如果找不到 ID 元素（markdown 预览模式），尝试用文本精确匹配
-      const preview = document.querySelector('.prose-custom');
-      if (preview) {
-        const allHeaders = preview.querySelectorAll('h1, h2, h3, h4, h5, h6');
-        for (const header of allHeaders) {
-          // 精确匹配标题文本（忽略首尾空白），避免 includes 部分匹配到错误标题
-          if ((header.textContent?.trim() ?? '') === h.text) {
-            header.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            break;
-          }
-        }
-      }
+    // 富文本模式按「级别 + 文本 + 同名出现次数」定位，避免重复标题总跳到第一处。
+    const preview = document.querySelector('.prose-custom');
+    if (preview) {
+      const allHeaders = Array.from(preview.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6'));
+      const sameBefore = headings.slice(0, headingIndex).filter((item) => item.level === h.level && item.text === h.text).length;
+      const exactMatches = allHeaders.filter((header) =>
+        header.tagName === `H${h.level}` && (header.textContent?.trim() ?? '') === h.text,
+      );
+      const target = exactMatches[sameBefore] ?? allHeaders[headingIndex];
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   };
 
@@ -75,8 +72,8 @@ function DocOutline({ content, onJump, embedded }: DocOutlineProps) {
 
   const headingButtons = headings.map((h, i) => (
     <button
-      key={i}
-      onClick={() => handleClick(h)}
+      key={h.id}
+      onClick={() => handleClick(h, i)}
       className={`w-full text-left text-xs py-1 px-2 rounded transition-colors flex items-start gap-1 ${
         activeId === h.id
           ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)] font-medium'
