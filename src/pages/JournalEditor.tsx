@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Star, PanelLeft, PanelRight, Maximize, Download, FileCode, ChevronDown, History, Trash2, Copy, Check, X, Loader2 } from 'lucide-react';
+import { ArrowLeft, Star, PanelLeft, PanelRight, Maximize, Download, FileCode, ChevronDown, History, Trash2, Copy, Check, X, Loader2, Bot } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
 import { useViewModeStore } from '../stores/viewModeStore';
@@ -364,6 +364,25 @@ export default function JournalEditor() {
           <button className="btn-ghost text-xs" onClick={() => handleAIAction('generateCards')} disabled={!content.trim() || isProcessing} title="AI 生成知识卡片">卡片</button>
           <button className="btn-ghost text-xs" onClick={() => setShowAIPanel(!showAIPanel)} title="展开/收起 AI 面板">
             {showAIPanel ? '关闭 AI' : 'AI 助手'}
+          </button>
+          <button
+            className="btn-ghost text-xs flex items-center gap-1"
+            onClick={() => {
+              // 发送当前文档到 Agent：先保存，再跳转并附带文档内容
+              handleSave();
+              const payload = encodeURIComponent(
+                JSON.stringify({
+                  journalId: currentEntry?.id,
+                  title: title || currentEntry?.title || '',
+                  content: content || '',
+                }),
+              );
+              navigate(`/agent?doc=${payload}`);
+            }}
+            disabled={!content.trim()}
+            title="发送当前文档到 Agent，让 AI 帮你编辑/扩展"
+          >
+            <Bot className="h-3.5 w-3.5" /> Agent
           </button>
         </div>
 

@@ -17,6 +17,7 @@ import UpdatePrompt from './components/UpdatePrompt';
 const JournalList = lazy(() => import('./pages/JournalList'));
 const JournalEditor = lazy(() => import('./pages/JournalEditor'));
 const AIChat = lazy(() => import('./pages/AIChat'));
+const Agent = lazy(() => import('./pages/Agent'));
 const ReviewPage = lazy(() => import('./pages/ReviewPage'));
 const Cards = lazy(() => import('./pages/Cards'));
 const Stats = lazy(() => import('./pages/Stats'));
@@ -143,6 +144,7 @@ export default function App() {
           <Route path="/" element={<JournalList />} />
           <Route path="/edit/:id" element={<JournalEditor />} />
           <Route path="/ai" element={<AIChat />} />
+          <Route path="/agent" element={<Agent />} />
           <Route path="/review" element={<ReviewPage />} />
           <Route path="/cards" element={<Cards />} />
           <Route path="/knowledge" element={<KnowledgeMap />} />
