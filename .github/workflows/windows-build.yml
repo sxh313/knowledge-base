@@ -44,8 +44,8 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           npm run exe 2>&1 | Tee-Object -FilePath $logFile
           $exitCode = $LASTEXITCODE
-          if ($exitCode -eq 0 -and -not (Test-Path "$env:RUNNER_TEMP\kb-release\*.exe")) {
-            'Windows installer was not generated.' | Add-Content $logFile
+          if ($exitCode -eq 0 -and (-not (Test-Path "$env:RUNNER_TEMP\kb-release\*.exe") -or -not (Test-Path "$env:RUNNER_TEMP\kb-release\latest.yml"))) {
+            'Windows installer or latest.yml was not generated.' | Add-Content $logFile
             $exitCode = 1
           }
           exit $exitCode
@@ -70,6 +70,7 @@ jobs:
           path: |
             ${{ runner.temp }}/kb-release/*.exe
             ${{ runner.temp }}/kb-release/*.blockmap
+            ${{ runner.temp }}/kb-release/latest.yml
 
       - name: Publish Windows installer to GitHub Releases
         if: startsWith(github.ref, 'refs/tags/')
@@ -78,5 +79,6 @@ jobs:
           files: |
             ${{ runner.temp }}/kb-release/*.exe
             ${{ runner.temp }}/kb-release/*.blockmap
+            ${{ runner.temp }}/kb-release/latest.yml
           draft: false
           prerelease: false
