@@ -37,6 +37,7 @@ describe('code block notes', () => {
     const markdown = htmlToMarkdown('<pre data-code-note="初始化"><code class="language-js">const value = 1;</code></pre>');
     expect(markdown).toContain('<!-- code-note:%E5%88%9D%E5%A7%8B%E5%8C%96 -->');
     expect(markdown).toContain('```js\nconst value = 1;\n```');
+    expect(markdown).not.toMatch(/```js\nconst value = 1;\n```\n\n/);
   });
 
   it('serializes the default prompt as a plain Markdown quote', () => {

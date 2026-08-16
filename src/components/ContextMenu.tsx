@@ -5,7 +5,7 @@ export interface ContextMenuItem {
   key: string;
   label: string;
   icon?: ReactNode;
-  onClick?: () => void;
+  onClick?: () => void | Promise<void>;
   danger?: boolean;
   divider?: boolean;     // 在此项后渲染分隔线
   disabled?: boolean;
@@ -57,7 +57,14 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
         <div key={item.key}>
           <button
             disabled={item.disabled}
-            onClick={() => { if (!item.disabled) { item.onClick?.(); onClose(); } }}
+            onClick={async () => {
+              if (item.disabled) return;
+              try {
+                await item.onClick?.();
+              } finally {
+                onClose();
+              }
+            }}
             className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-sm transition-colors ${
               item.disabled
                 ? 'cursor-not-allowed text-[var(--color-text-tertiary)]'

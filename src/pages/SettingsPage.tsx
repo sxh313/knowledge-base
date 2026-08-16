@@ -37,9 +37,6 @@ export default function SettingsPage() {
   const [openProvider, setOpenProvider] = useState<ProviderName | null>(null);
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
-  const [tokenCopied, setTokenCopied] = useState(false);
-  // 来自 .env.local 的同步 Token（运行时注入，非源码硬编码）；用于“点击填入”输入框
-  const envSyncToken = import.meta.env.VITE_SYNC_TOKEN;
   const [mdBusy, setMdBusy] = useState(false);
   const [mdMsg, setMdMsg] = useState<string | null>(null);
   const [exportOut, setExportOut] = useState('');
@@ -191,14 +188,15 @@ export default function SettingsPage() {
   })();
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-4 sm:space-y-8 sm:p-6">
+    <div className="mx-auto flex max-w-6xl items-start gap-8 p-4 sm:p-6">
+      <main className="min-w-0 max-w-2xl flex-1 space-y-6 sm:space-y-8">
       <header>
         <h1 className="text-2xl font-bold">设置</h1>
         <p className="text-sm text-gray-500 mt-1">API Key 加密存于本地浏览器，本项目无服务器中转；调用 AI 时直连你选择的服务商</p>
       </header>
 
       {/* AI 服务配置 */}
-      <section className="space-y-4">
+      <section id="ai-services" className="scroll-mt-6 space-y-4">
         <h2 className="text-lg font-semibold">🤖 AI 服务配置</h2>
         <p className="text-xs text-gray-400">填写 API Key 后点击「刷新模型」获取可用模型列表，勾选你想使用的模型</p>
 
@@ -349,7 +347,7 @@ export default function SettingsPage() {
       </section>
 
       {/* 模型偏好 */}
-      <section className="space-y-3">
+      <section id="model-preferences" className="scroll-mt-6 space-y-3">
         <h2 className="text-lg font-semibold">🎯 模型偏好</h2>
         <p className="text-xs text-gray-400">
           从上方勾选的模型中选择，默认：deepseek-v4-flash
@@ -407,7 +405,7 @@ export default function SettingsPage() {
       </section>
 
       {/* 云同步 */}
-      <section className="space-y-3">
+      <section id="cloud-sync" className="scroll-mt-6 space-y-3">
         <h2 className="text-lg font-semibold">☁️ 云同步（GitHub）</h2>
         <p className="text-xs text-gray-400">数据推送到你的 GitHub 私有仓库，跨设备同步、免费、带版本历史</p>
         <div className="card space-y-3">
@@ -419,50 +417,6 @@ export default function SettingsPage() {
           </label>
           {settings.sync?.enabled && (
             <>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="text-xs text-gray-400">GitHub 用户名</label>
-                  <input className="input-field mt-1 text-sm font-mono" value={settings.sync.owner}
-                    onChange={e => updateSync({ owner: e.target.value })} placeholder="sxh313" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400">仓库名</label>
-                  <input className="input-field mt-1 text-sm font-mono" value={settings.sync.repo}
-                    onChange={e => updateSync({ repo: e.target.value })} placeholder="knowledge-base" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400">分支</label>
-                  <input className="input-field mt-1 text-sm font-mono" value={settings.sync.branch}
-                    onChange={e => updateSync({ branch: e.target.value })} placeholder="main" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400">文件路径</label>
-                  <input className="input-field mt-1 text-sm font-mono" value={settings.sync.path}
-                    onChange={e => updateSync({ path: e.target.value })} placeholder="data.json" />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 flex items-center justify-between">
-                  <span>Personal Access Token（需 repo 权限）</span>
-                  <a href="https://github.com/settings/tokens/new?scopes=repo&description=knowledge-base-sync"
-                    target="_blank" rel="noreferrer"
-                    className="text-[var(--color-primary)] hover:underline">前往生成 →</a>
-                </label>
-                <input type="password" className="input-field mt-1 text-sm font-mono" value={settings.sync.token}
-                  onChange={e => updateSync({ token: e.target.value })} placeholder="ghp_..." />
-                {envSyncToken && (
-                  <button
-                    type="button"
-                    onClick={() => { updateSync({ token: envSyncToken }); setTokenCopied(true); setTimeout(() => setTokenCopied(false), 1500); }}
-                    className="mt-1 flex items-center gap-1 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-primary)] transition-colors w-full text-left"
-                    title="点击填入 Token 到上方输入框"
-                  >
-                    {tokenCopied
-                      ? '✅ 已填入 Token 输入框'
-                      : <>📋 <span className="font-mono break-all">{envSyncToken}</span>（点击填入）</>}
-                  </button>
-                )}
-              </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={settings.sync.autoSync}
                   onChange={e => updateSync({ autoSync: e.target.checked })}
@@ -493,22 +447,13 @@ export default function SettingsPage() {
                 </p>
               )}
               <SyncConflicts refreshKey={settings.sync?.lastSyncAt ?? 0} />
-              <details className="text-xs text-gray-400">
-                <summary className="cursor-pointer">如何获取 Token 与配置？</summary>
-                <div className="mt-1 leading-relaxed space-y-1">
-                  <p>1. 先在 GitHub 创建一个<b>私有仓库</b>（如 <code className="font-mono">knowledge-base</code>）</p>
-                  <p>2. GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)</p>
-                  <p>3. 勾选 <code className="font-mono">repo</code> 权限，生成 Token 并粘贴到上方</p>
-                  <p className="text-[var(--color-text-tertiary)]">Token 仅存储于本地浏览器，不经过任何服务器。</p>
-                </div>
-              </details>
             </>
           )}
         </div>
       </section>
 
       {/* 密钥迁移（跨设备，基于主密码加密） */}
-      <section className="space-y-3">
+      <section id="key-migration" className="scroll-mt-6 space-y-3">
         <h2 className="text-lg font-semibold">🔐 密钥迁移（跨设备）</h2>
         <p className="text-xs text-gray-400">
           用主密码加密 API Key 生成密文，可安全放任意位置（含 GitHub 公开仓库）；另一台设备用同一主密码解密恢复。<br/>
@@ -547,14 +492,14 @@ export default function SettingsPage() {
       </section>
 
       {/* 连接测试 */}
-      <section className="card">
+      <section id="connection-test" className="scroll-mt-6 card">
         <h2 className="text-lg font-semibold mb-3">🔌 连接测试</h2>
         <p className="text-xs text-gray-400 mb-3">测试各 API 服务是否可用</p>
         <ConnectionTest />
       </section>
 
       {/* 数据管理 */}
-      <section className="space-y-3">
+      <section id="data-management" className="scroll-mt-6 space-y-3">
         <h2 className="text-lg font-semibold">💾 数据管理</h2>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <button className="btn-secondary" onClick={() => import('../lib/services/export').then(m => m.exportAllData())}>
@@ -594,7 +539,7 @@ export default function SettingsPage() {
       </section>
 
       {/* 关于与更新 */}
-      <section className="space-y-3">
+      <section id="about-updates" className="scroll-mt-6 space-y-3">
         <h2 className="text-lg font-semibold">ℹ️ 关于与更新</h2>
         <div className="card space-y-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -664,6 +609,25 @@ export default function SettingsPage() {
       <div className="text-xs text-gray-400 text-center pb-8">
         API Key 加密存于本地浏览器；笔记数据默认本地，仅在启用云同步时推送到你自己的 GitHub 仓库
       </div>
+      </main>
+      <aside className="sticky top-6 hidden w-44 shrink-0 lg:block">
+        <nav aria-label="设置分区" className="border-l border-[var(--color-border)] pl-3">
+          <p className="mb-2 text-xs font-semibold text-[var(--color-text-tertiary)]">设置导航</p>
+          {[
+            ['ai-services', 'AI 服务'],
+            ['model-preferences', '模型偏好'],
+            ['cloud-sync', '云同步'],
+            ['key-migration', '密钥迁移'],
+            ['connection-test', '连接测试'],
+            ['data-management', '数据管理'],
+            ['about-updates', '关于与更新'],
+          ].map(([id, label]) => (
+            <a key={id} href={`#${id}`} className="block rounded-md px-2 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-primary)]">
+              {label}
+            </a>
+          ))}
+        </nav>
+      </aside>
     </div>
   );
 }
