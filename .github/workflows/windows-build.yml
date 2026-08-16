@@ -29,7 +29,15 @@ jobs:
       - name: Build Windows installer
         shell: pwsh
         run: |
-          npm run exe
+          $logFile = Join-Path $env:RUNNER_TEMP 'windows-build.log'
+          npm run exe 2>&1 | Tee-Object -FilePath $logFile
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content $logFile -Tail 60 | ForEach-Object {
+              $line = $_ -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+              Write-Output "::error::$line"
+            }
+            exit $LASTEXITCODE
+          }
           if (-not (Test-Path "$env:RUNNER_TEMP\kb-release\*.exe")) {
             throw 'Windows installer was not generated.'
           }
