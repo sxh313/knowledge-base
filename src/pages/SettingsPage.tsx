@@ -15,6 +15,7 @@ import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, D
 import { useViewModeStore } from '../stores/viewModeStore';
 
 const isAndroidApp = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
+const isElectronApp = !!window.electronAPI?.isElectron;
 const androidReleaseUrl = 'https://github.com/sxh313/knowledge-base/releases/latest';
 
 const PROVIDER_INFO: { key: ProviderName; label: string; desc: string; icon: string }[] = [
@@ -558,7 +559,7 @@ export default function SettingsPage() {
                 <Download className="h-4 w-4 shrink-0" />
                 下载最新版 APK
               </button>
-            ) : needRefresh ? (
+            ) : isElectronApp ? null : needRefresh ? (
               <button className="btn-primary text-sm" onClick={() => applyUpdate()}>
                 ✨ 发现新版本·立即更新
               </button>
@@ -592,20 +593,22 @@ export default function SettingsPage() {
                 <span className="flex h-8 items-center justify-center rounded-md bg-white/70 px-2 dark:bg-white/5">重新打开</span>
               </div>
             </div>
-          ) : needRefresh && (
+          ) : !isElectronApp && needRefresh ? (
             <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 p-3">
               <p className="text-sm text-indigo-700 dark:text-indigo-300">✨ 发现新版本，点击「立即更新」即可安装最新版本并刷新。</p>
               <button className="btn-primary text-xs mt-2" onClick={() => applyUpdate()}>立即更新</button>
             </div>
-          )}
-          {checkMsg && !needRefresh && !isAndroidApp && <p className="text-xs text-gray-500">{checkMsg}</p>}
-          {lastCheckAt && !isAndroidApp && (
+          ) : null}
+          {checkMsg && !needRefresh && !isAndroidApp && !isElectronApp && <p className="text-xs text-gray-500">{checkMsg}</p>}
+          {lastCheckAt && !isAndroidApp && !isElectronApp && (
             <p className="text-xs text-[var(--color-text-tertiary)]">上次检查：{new Date(lastCheckAt).toLocaleString('zh-CN')}</p>
           )}
           <p className="text-xs text-[var(--color-text-tertiary)]">
             {isAndroidApp
               ? '提示：更新前先完成一次云同步，跨设备恢复会更稳。'
-              : '提示：应用会在后台每小时自动检查更新，发现新版本时右下角会弹出提示。'}
+              : isElectronApp
+                ? '点击下方“检查并自动更新”后，应用会自动下载、重启并完成安装。'
+                : '提示：应用会在后台每小时自动检查更新，发现新版本时右下角会弹出提示。'}
           </p>
         </div>
         {/* 桌面端(Electron)自动更新:有更新时点按钮直接下载并重启安装 */}
