@@ -28,26 +28,22 @@ jobs:
 
       - name: Build Windows installer
         shell: pwsh
-        run: |
-          npx tsc -b
-          $env:BUILD_TARGET = 'electron'
-          npx vite build
-          npx electron-builder --win --config.directories.output="$env:RUNNER_TEMP\kb-release"
+        run: npm run exe
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: knowledge-base-windows
           path: |
-            ${{ runner.temp }}/kb-release/*.exe
-            ${{ runner.temp }}/kb-release/*.blockmap
+            release/*.exe
+            release/*.blockmap
 
       - name: Publish Windows installer to GitHub Releases
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ runner.temp }}/kb-release/*.exe
-            ${{ runner.temp }}/kb-release/*.blockmap
+            release/*.exe
+            release/*.blockmap
           draft: false
           prerelease: false
