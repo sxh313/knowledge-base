@@ -27,20 +27,33 @@ jobs:
         run: npm ci
 
       - name: Build Windows installer
+        id: package
+        continue-on-error: true
         shell: pwsh
         run: |
           $logFile = Join-Path $env:RUNNER_TEMP 'windows-build.log'
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
           npm run exe 2>&1 | Tee-Object -FilePath $logFile
-          if ($LASTEXITCODE -ne 0) {
-            Get-Content $logFile -Tail 60 | ForEach-Object {
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -eq 0 -and -not (Test-Path "$env:RUNNER_TEMP\kb-release\*.exe")) {
+            'Windows installer was not generated.' | Add-Content $logFile
+            $exitCode = 1
+          }
+          exit $exitCode
+
+      - name: Report packaging failure
+        if: steps.package.outcome == 'failure'
+        shell: pwsh
+        run: |
+          $logFile = Join-Path $env:RUNNER_TEMP 'windows-build.log'
+          if (Test-Path $logFile) {
+            Get-Content $logFile -Tail 80 | ForEach-Object {
               $line = $_ -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
               Write-Output "::error::$line"
             }
-            exit $LASTEXITCODE
           }
-          if (-not (Test-Path "$env:RUNNER_TEMP\kb-release\*.exe")) {
-            throw 'Windows installer was not generated.'
-          }
+          throw 'Windows installer packaging failed; see annotations above.'
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
