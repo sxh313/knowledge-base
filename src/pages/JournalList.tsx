@@ -6,6 +6,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { useViewModeStore } from '../stores/viewModeStore';
 import DocTree from '../components/DocTree';
 import ContextMenu, { type ContextMenuItem } from '../components/ContextMenu';
+import CategoryDialog from '../components/CategoryDialog';
 import type { JournalEntry } from '../lib/db/schema';
 import TemplatePicker from '../components/TemplatePicker';
 
@@ -17,6 +18,7 @@ export default function JournalList() {
   // 右键菜单：主菜单 + “移动到”分类子菜单
   const [ctx, setCtx] = useState<{ x: number; y: number; entry: JournalEntry } | null>(null);
   const [moveCtx, setMoveCtx] = useState<{ x: number; y: number; entry: JournalEntry } | null>(null);
+  const [newCategoryForEntry, setNewCategoryForEntry] = useState<JournalEntry | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showTreeDrawer, setShowTreeDrawer] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -498,17 +500,19 @@ export default function JournalList() {
           items={[
             { key: 'none', label: '（无分类）', onClick: () => { update(moveCtx.entry.id, { subject: '' }); } },
             ...allSubjects.map((s) => ({ key: `subj-${s}`, label: s, onClick: () => { update(moveCtx.entry.id, { subject: s }); } })),
-            { key: 'new', label: '新建分类…', icon: <Plus className="h-4 w-4" />, divider: true, onClick: async () => {
-              const name = window.prompt('输入新的分类名称');
-              if (!name?.trim()) return;
-              try {
-                const category = await createCategory(name);
-                await update(moveCtx.entry.id, { subject: category.name });
-              } catch (error) {
-                window.alert((error as Error).message);
-              }
-            } },
+            { key: 'new', label: '新建分类…', icon: <Plus className="h-4 w-4" />, divider: true, onClick: () => setNewCategoryForEntry(moveCtx.entry) },
           ]}
+        />
+      )}
+      {newCategoryForEntry && (
+        <CategoryDialog
+          title="新建分类"
+          confirmLabel="创建并移动"
+          onClose={() => setNewCategoryForEntry(null)}
+          onSubmit={async (name) => {
+            const category = await createCategory(name);
+            await update(newCategoryForEntry.id, { subject: category.name });
+          }}
         />
       )}
     </div>

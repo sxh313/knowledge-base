@@ -206,7 +206,6 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
   const lastEmittedRef = useRef(value);
   // 合并 onUpdate 的 rAF 句柄：连续输入时只做一次 turndown 转换
   const rafRef = useRef<number>(0);
-  const collapseRafRef = useRef<number>(0);
 
   const editor = useEditor({
     extensions: [
@@ -369,49 +368,6 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
     return () => cancelAnimationFrame(raf);
   }, [editor, value]);
 
-  // 折叠标题：把「已折叠标题之后、下一个同级或更高级标题之前」的内容标记为 data-hidden。
-  // 仅在存在折叠/隐藏状态时扫描 DOM，避免点击 H1-H5 时长文档全篇重算导致卡顿。
-  useEffect(() => {
-    if (!editor) return;
-    const syncCollapse = () => {
-      const root = getEditorDom(editor);
-      if (!root) return;
-      if (!root.querySelector('[data-hidden="true"], h1[data-collapsed="true"], h2[data-collapsed="true"], h3[data-collapsed="true"], h4[data-collapsed="true"], h5[data-collapsed="true"]')) {
-        return;
-      }
-      const headings = Array.from(root.querySelectorAll<HTMLElement>('h1[data-collapsed="true"], h2[data-collapsed="true"], h3[data-collapsed="true"], h4[data-collapsed="true"], h5[data-collapsed="true"]'));
-      root.querySelectorAll<HTMLElement>('[data-hidden]').forEach((el) => el.removeAttribute('data-hidden'));
-      for (const h of headings) {
-        const level = parseInt(h.tagName.slice(1), 10);
-        let el = h.nextElementSibling;
-        while (el) {
-          const tag = el.tagName;
-          if (/^H[1-5]$/.test(tag)) {
-            const elLevel = parseInt(tag.slice(1), 10);
-            // 遇到同级或更高级标题则停止
-            if (elLevel <= level) break;
-          }
-          el.setAttribute('data-hidden', 'true');
-          el = el.nextElementSibling;
-        }
-      }
-    };
-    const scheduleSyncCollapse = () => {
-      if (collapseRafRef.current) cancelAnimationFrame(collapseRafRef.current);
-      collapseRafRef.current = requestAnimationFrame(() => {
-        collapseRafRef.current = 0;
-        syncCollapse();
-      });
-    };
-    syncCollapse();
-    // update 已覆盖文档内容变化；避免同一笔事务同时触发 update/transaction 两次扫描。
-    editor.on('update', scheduleSyncCollapse);
-    return () => {
-      editor.off('update', scheduleSyncCollapse);
-      if (collapseRafRef.current) cancelAnimationFrame(collapseRafRef.current);
-    };
-  }, [editor]);
-
   // 折叠状态下输入内容自动展开：
   // 当光标落在被折叠隐藏（data-hidden）的内容里并发生内容变化（输入/回车/粘贴）时，
   // 自动展开包含该内容的折叠标题，避免新内容被隐藏看不到。
@@ -468,52 +424,6 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
     };
     editor.on('transaction', onTransaction);
     return () => { editor.off('transaction', onTransaction); };
-  }, [editor]);
-
-  // 折叠标题：点击标题左侧箭头区域切换折叠状态
-  useEffect(() => {
-    if (!editor || editor.isDestroyed || !editor.isInitialized) return;
-    const onClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      // 找到被点击的标题元素
-      const headingEl = target.closest<HTMLElement>('h1.collapsible-heading, h2.collapsible-heading, h3.collapsible-heading, h4.collapsible-heading, h5.collapsible-heading');
-      if (!headingEl) return;
-      // 仅当点击落在左侧箭头区域（约 1rem 宽）时切换折叠；
-      // 文字/编号从 padding-left(1.25rem) 之后开始，点击文字开头可正常放置光标
-      const rect = headingEl.getBoundingClientRect();
-      const arrowWidth = 16; // px，与 CSS 中箭头宽度(1rem)一致
-      if (e.clientX - rect.left > arrowWidth) return;
-      e.preventDefault();
-      e.stopPropagation();
-      // 从 DOM 定位标题节点，再换算成 ProseMirror 位置
-      if (editor.isDestroyed || !editor.isInitialized) return;
-      let view: any;
-      try { view = editor.view; } catch { return; }
-      if (!view) return;
-      const pos = view.posAtDOM(headingEl, 0);
-      if (pos == null) return;
-      const $pos = view.state.doc.resolve(pos);
-      let headingDepth = -1;
-      for (let d = $pos.depth; d > 0; d--) {
-        if ($pos.node(d).type.name === 'heading') { headingDepth = d; break; }
-      }
-      if (headingDepth < 0) return;
-      const headingNode = $pos.node(headingDepth);
-      const collapsed = !(headingNode.attrs as { collapsed?: boolean }).collapsed;
-      view.dispatch(view.state.tr.setNodeMarkup($pos.before(headingDepth), undefined, {
-        ...headingNode.attrs,
-        collapsed,
-      }));
-    };
-    let dom: HTMLElement | null = null;
-    const stop = whenEditorDomReady(editor, (readyDom) => {
-      dom = readyDom;
-      dom.addEventListener('click', onClick);
-    });
-    return () => {
-      stop();
-      dom?.removeEventListener('click', onClick);
-    };
   }, [editor]);
 
   // 飞书式：粘贴（Ctrl+V 截图）/ 拖拽图片自动插入（DOM 级监听，HMR 友好）
@@ -796,7 +706,6 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
   useEffect(() => {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      if (collapseRafRef.current) cancelAnimationFrame(collapseRafRef.current);
     };
   }, []);
 
