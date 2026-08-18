@@ -1,7 +1,7 @@
 {
   "name": "knowledge-base",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.3.0",
   "type": "module",
   "main": "electron/main.cjs",
   "author": "sxh313",
@@ -19,6 +19,7 @@
     "electron:build": "tsc -b && cross-env BUILD_TARGET=electron vite build && electron-builder --win",
     "electron:build:portable": "tsc -b && cross-env BUILD_TARGET=electron vite build && electron-builder --win portable",
     "exe": "powershell -ExecutionPolicy Bypass -File deploy-exe.ps1",
+    "apk": "powershell -ExecutionPolicy Bypass -File deploy-apk.ps1",
     "android:sync": "cross-env BUILD_TARGET=android vite build && cap sync android",
     "android:build": "cross-env BUILD_TARGET=android vite build && cap sync android && cd android && gradlew.bat assembleDebug"
   },

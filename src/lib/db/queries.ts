@@ -22,6 +22,8 @@ import {
 // ──── Settings ────
 
 // 同步凭据在构建时注入安装包，设置页不展示或回显。
+// 读取构建时注入的环境变量 VITE_SYNC_TOKEN（安卓 CI 由 GitHub Secret 注入，本地由 .env.local 提供），
+// 这样安卓/桌面安装包开箱即用，无需用户手动填写用户名/仓库/token，且源码不含明文密钥。
 const BUILT_IN_SYNC_TOKEN = import.meta.env.VITE_SYNC_TOKEN ?? '';
 
 export async function getSettings(): Promise<AppSettings> {
@@ -73,7 +75,7 @@ export async function getSettings(): Promise<AppSettings> {
         repo: env.VITE_SYNC_REPO ?? 'knowledge-base',
         branch: env.VITE_SYNC_BRANCH ?? 'knowledge-base',
         path: 'data.json',
-        token: env.VITE_SYNC_TOKEN ?? BUILT_IN_SYNC_TOKEN,
+        token: env.VITE_SYNC_TOKEN ?? '',
         autoSync: true,
       },
     };
