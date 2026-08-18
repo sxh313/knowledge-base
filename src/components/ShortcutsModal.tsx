@@ -5,6 +5,7 @@ const SHORTCUTS = [
     group: '全局',
     items: [
       { keys: 'Ctrl+K', desc: '命令面板' },
+      { keys: 'Ctrl+F', desc: '全局搜索（编辑器内为查找替换）' },
       { keys: 'Ctrl+N', desc: '新建文档' },
       { keys: 'Ctrl+/', desc: '快捷键面板' },
       { keys: 'Esc', desc: '关闭面板' },

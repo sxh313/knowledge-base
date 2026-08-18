@@ -455,7 +455,15 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </button>
           <div className="flex-1" />
           <span className="text-xs text-[var(--color-text-tertiary)] tabular-nums hidden sm:inline">
-            {now.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}
+            {new Intl.DateTimeFormat('zh-CN', {
+              timeZone: 'Asia/Shanghai',
+              month: 'long',
+              day: 'numeric',
+              weekday: 'short',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false,
+            }).format(now)}
           </span>
           <button
             onClick={cycleMode}

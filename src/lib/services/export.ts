@@ -1,6 +1,34 @@
 import { db, type JournalEntry } from '../db/schema';
+import { getAttachment } from '../db/queries';
 import { markdownToHtml } from '../markdownUtils';
 import JSZip from 'jszip';
+
+/**
+ * 把 markdown 中 attachment://<id> 的图片引用解析为可渲染的 dataUrl。
+ * 已保存文档的图片以附件落库、正文用 attachment://id 引用；导出 HTML/PDF 前必须解析，
+ * 否则导出的 <img src="attachment://id"> 无法显示。
+ */
+async function resolveAttachmentMarkdown(markdown: string): Promise<string> {
+  if (!markdown || !markdown.includes('attachment://')) return markdown;
+  const ids = new Set<string>();
+  for (const m of markdown.matchAll(/attachment:\/\/([^\s)\]"']+)/g)) {
+    if (m[1]) ids.add(m[1]);
+  }
+  const cache = new Map<string, string>();
+  for (const id of ids) {
+    try {
+      const att = await getAttachment(id);
+      if (att?.dataUrl) cache.set(id, att.dataUrl);
+    } catch {
+      /* 附件缺失则保留原引用 */
+    }
+  }
+  if (cache.size === 0) return markdown;
+  return markdown.replace(/attachment:\/\/([^\s)\]"']+)/g, (raw, id: string) => {
+    const url = cache.get(id);
+    return url ? url : raw;
+  });
+}
 
 /** 下载文本为文件 */
 function downloadText(content: string, filename: string, mime: string) {
@@ -11,6 +39,19 @@ function downloadText(content: string, filename: string, mime: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** 生成导出文件名时间戳（yyyyMMdd-HHmmss），避免多次导出覆盖同名文件 */
+function exportTimestamp(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+/** 导出文件名（标题 + 时间戳，去非法字符） */
+function exportFilename(title: string, ext: string): string {
+  const base = safeFilename(title);
+  return `${base}-${exportTimestamp()}.${ext}`;
 }
 
 export async function exportAllData() {
@@ -132,8 +173,9 @@ function buildInlineStyles(): string {
 }
 
 /** 导出当前文档为独立 HTML 文件（含内联样式，可分享） */
-export function exportJournalHTML(title: string, markdown: string) {
-  const body = markdownToHtml(markdown);
+export async function exportJournalHTML(title: string, markdown: string) {
+  const resolved = await resolveAttachmentMarkdown(markdown);
+  const body = markdownToHtml(resolved);
   const dateStr = new Date().toLocaleString('zh-CN');
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -149,18 +191,19 @@ export function exportJournalHTML(title: string, markdown: string) {
 ${body}
 </body>
 </html>`;
-  downloadText(html, `${title || '未命名'}.html`, 'text/html;charset=utf-8');
+  downloadText(html, exportFilename(title, 'html'), 'text/html;charset=utf-8');
 }
 
 /** 导出当前文档为 PDF（通过浏览器打印，调用 window.print） */
-export function exportJournalPDF(title: string, markdown: string) {
+export async function exportJournalPDF(title: string, markdown: string) {
+  const resolved = await resolveAttachmentMarkdown(markdown);
   let root = document.getElementById('print-root');
   if (!root) {
     root = document.createElement('div');
     root.id = 'print-root';
     document.body.appendChild(root);
   }
-  const body = markdownToHtml(markdown);
+  const body = markdownToHtml(resolved);
   root.innerHTML = `<h1>${escapeHtml(title)}</h1>${body}`;
   // 等一帧让 DOM 渲染，再触发打印
   requestAnimationFrame(() => {
