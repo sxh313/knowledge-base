@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Star, PanelLeft, PanelRight, Maximize, Download, FileCode, ChevronDown, History, Trash2, Copy, Check, X, Loader2, Bot } from 'lucide-react';
+import { ArrowLeft, Star, PanelLeft, PanelRight, Maximize, Download, FileCode, ChevronDown, ChevronUp, History, Trash2, Copy, Check, X, Loader2, Bot } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
 import { useViewModeStore } from '../stores/viewModeStore';
@@ -67,6 +67,16 @@ export default function JournalEditor() {
   });
   const [saving, setSaving] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  // 顶部工具栏显示开关（持久化）
+  const [showToolbar, setShowToolbar] = useState<boolean>(() => {
+    const saved = localStorage.getItem('editor-toolbar-visible');
+    return saved === null ? true : saved === '1';
+  });
+  const toggleToolbar = () => setShowToolbar((s) => {
+    const next = !s;
+    localStorage.setItem('editor-toolbar-visible', next ? '1' : '0');
+    return next;
+  });
   // 字数统计：useMemo 缓存，避免每次渲染都重复计算 content.replace
   const charCount = useMemo(() => content.replace(/\s+/g, '').length, [content]);
   // 稳定的导航回调：避免每次渲染都创建新引用，配合子组件 React.memo 减少重渲染
@@ -321,8 +331,12 @@ export default function JournalEditor() {
 
   return (
     <div className="flex flex-col h-full animate-fade-in">
-      {/* 工具栏 */}
+      {/* 工具栏（可隐藏） */}
+      {showToolbar && (
       <div className="glass flex items-center gap-2 px-4 py-2 border-b border-[var(--color-border)] flex-wrap">
+        <button className="btn-ghost p-1.5" onClick={toggleToolbar} title="隐藏工具栏">
+          <ChevronUp className="h-4 w-4" />
+        </button>
         <button className="btn-ghost p-1.5" onClick={() => navigate('/')} title="返回">
           <ArrowLeft className="h-4 w-4" />
         </button>
@@ -452,6 +466,16 @@ export default function JournalEditor() {
           {saving ? '保存中...' : '保存'}
         </button>
       </div>
+      )}
+
+      {/* 工具栏隐藏时的展开按钮 */}
+      {!showToolbar && (
+        <div className="flex items-center px-2 py-1 border-b border-[var(--color-border)]">
+          <button className="btn-ghost p-1.5" onClick={toggleToolbar} title="显示工具栏">
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* 文档主体 */}
       <div className="flex flex-1 overflow-hidden gap-4">
