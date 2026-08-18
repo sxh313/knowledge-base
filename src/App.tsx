@@ -94,21 +94,30 @@ export default function App() {
     check();
   }, []);
 
-  // Ctrl+K 打开命令面板
+  // Ctrl+K 打开命令面板；Ctrl+F 在非编辑器页面也打开命令面板（编辑器内 Ctrl+F 由查找替换栏接管）
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key === 'k') {
         e.preventDefault();
         setPaletteOpen(prev => !prev);
       }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'n') {
+      // Ctrl+F：仅在非编辑器页面打开全局搜索，避免与编辑器内查找替换冲突
+      if (mod && !e.shiftKey && e.key.toLowerCase() === 'f') {
+        const path = window.location.hash.replace(/^#/, '') || window.location.pathname;
+        if (!path.startsWith('/edit/')) {
+          e.preventDefault();
+          setPaletteOpen(true);
+        }
+      }
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         goPath('/inbox');
-      } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'n') {
+      } else if (mod && !e.shiftKey && e.key === 'n') {
         e.preventDefault();
         goPath('/edit/new');
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+      if (mod && e.key === '/') {
         e.preventDefault();
         setShortcutsOpen(prev => !prev);
       }

@@ -28,8 +28,8 @@ export default function Manual() {
       </Section>
 
       {/* Ctrl+K 命令面板 */}
-      <Section icon={Search} title="命令面板（Ctrl+K）" color="text-brand-500">
-        <p>按 <kbd className="kbd">Ctrl</kbd> + <kbd className="kbd">K</kbd>（Mac 用 <kbd className="kbd">⌘</kbd> + <kbd className="kbd">K</kbd>）随时打开全局搜索面板。</p>
+      <Section icon={Search} title="命令面板（Ctrl+K / Ctrl+F）" color="text-brand-500">
+        <p>按 <kbd className="kbd">Ctrl</kbd> + <kbd className="kbd">K</kbd>（Mac 用 <kbd className="kbd">⌘</kbd> + <kbd className="kbd">K</kbd>）随时打开全局搜索面板；在非编辑器页面按 <kbd className="kbd">Ctrl</kbd> + <kbd className="kbd">F</kbd> 同样可打开（编辑器内 <kbd className="kbd">Ctrl</kbd> + <kbd className="kbd">F</kbd> 为查找替换）。</p>
         <ul>
           <li><b>搜索文档</b> — 输入关键词即可搜索所有文档的标题、内容、标签</li>
           <li><b>快捷操作</b> — 直接跳转到 AI 助手、复习、统计等页面</li>
@@ -240,8 +240,9 @@ export default function Manual() {
       <Section icon={Keyboard} title="快捷键速查" color="text-indigo-500">
         <ul className="list-disc pl-5 space-y-1">
           <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">K</kbd> — 命令面板（搜索/跳转/新建）</li>
+          <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">F</kbd> — 全局搜索（编辑器内为查找替换）</li>
           <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">S</kbd> — 保存文档</li>
-          <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">H</kbd> / <kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">F</kbd> — 查找替换</li>
+          <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">H</kbd> — 查找替换（编辑器内）</li>
           <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">Z</kbd> / <kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">Y</kbd> — 撤销 / 重做（富文本）</li>
           <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">X</kbd> → <kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">V</kbd> — 剪切 + 粘贴移动内容（编辑器禁用拖拽）</li>
           <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">V</kbd> — 粘贴图片（截图）</li>
