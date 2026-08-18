@@ -53,6 +53,12 @@ export interface FullData {
   propertyDefinitions: unknown[];
   categories: unknown[];
   attachments: unknown[];
+  /** Agent 会话（可选同步，含敏感内容时由 syncAgentData 控制） */
+  agentSessions?: unknown[];
+  /** Agent 消息（可选同步） */
+  agentMessages?: unknown[];
+  /** Agent 运行记录（可选同步，含撤销快照） */
+  agentRuns?: unknown[];
 }
 
 // Blob → dataURL（附件序列化用；settings 不参与同步，因其含 API Key）
@@ -66,7 +72,7 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 /** 收集本地全部数据（同步用）；附件 Blob 序列化为 dataUrl，settings 不同步（含密钥） */
-export async function collectAllData(): Promise<FullData> {
+export async function collectAllData(syncAgentData = false): Promise<FullData> {
   const [journals, notes, cards, graphNodes, graphEdges, aiConversations, savedSearches, journalVersions, propertyDefinitions, categories, rawAttachments] = await Promise.all([
     db.journals.toArray(),
     db.notes.toArray(),
@@ -80,6 +86,17 @@ export async function collectAllData(): Promise<FullData> {
     db.categories.toArray(),
     db.attachments.toArray(),
   ]);
+  // Agent 数据（会话/消息/运行记录）可选同步：含撤销快照等敏感内容，默认关闭
+  let agentSessions: unknown[] | undefined;
+  let agentMessages: unknown[] | undefined;
+  let agentRuns: unknown[] | undefined;
+  if (syncAgentData) {
+    [agentSessions, agentMessages, agentRuns] = await Promise.all([
+      db.agentSessions.toArray(),
+      db.agentMessages.toArray(),
+      db.agentRuns.toArray(),
+    ]);
+  }
   // 附件 Blob 无法直接 JSON 序列化，转成 dataUrl
   const attachments = await Promise.all(
     rawAttachments.map(async (a) => ({
@@ -93,6 +110,7 @@ export async function collectAllData(): Promise<FullData> {
     exportedAt: Date.now(),
     journals, notes, cards, graphNodes, graphEdges, aiConversations,
     savedSearches, journalVersions, propertyDefinitions, categories, attachments,
+    agentSessions, agentMessages, agentRuns,
   };
 }
 
@@ -139,6 +157,9 @@ export function mergeData(local: FullData, remote: FullData): FullData {
     propertyDefinitions: mergeByNewest(local.propertyDefinitions, r.propertyDefinitions ?? []),
     categories: mergeByNewest(local.categories, r.categories ?? []),
     attachments: mergeByNewest(local.attachments, r.attachments ?? []),
+    agentSessions: mergeByNewest(local.agentSessions ?? [], r.agentSessions ?? []),
+    agentMessages: mergeByNewest(local.agentMessages ?? [], r.agentMessages ?? []),
+    agentRuns: mergeByNewest(local.agentRuns ?? [], r.agentRuns ?? []),
   };
 }
 
@@ -149,7 +170,7 @@ export async function writeAllData(data: FullData): Promise<void> {
     [
       db.journals, db.notes, db.cards, db.graphNodes, db.graphEdges, db.aiConversations,
       db.savedSearches, db.journalVersions, db.propertyDefinitions, db.attachments,
-      db.categories,
+      db.categories, db.agentSessions, db.agentMessages, db.agentRuns,
     ],
     async () => {
       await Promise.all([
@@ -164,6 +185,9 @@ export async function writeAllData(data: FullData): Promise<void> {
         db.propertyDefinitions.bulkPut(data.propertyDefinitions as never),
         db.categories.bulkPut(data.categories as never),
         db.attachments.bulkPut(data.attachments as never),
+        db.agentSessions.bulkPut((data.agentSessions ?? []) as never),
+        db.agentMessages.bulkPut((data.agentMessages ?? []) as never),
+        db.agentRuns.bulkPut((data.agentRuns ?? []) as never),
       ]);
     },
   );
@@ -327,7 +351,7 @@ async function pullAndMerge(cfg: SyncConfig, local: FullData, baseline: Record<s
  */
 export async function syncNow(cfg: SyncConfig): Promise<SyncResult> {
   return withSyncLock(async () => {
-    const local = await collectAllData();
+    const local = await collectAllData(cfg.syncAgentData);
     const baseline = cfg.baselineHashes ?? {};
 
     // 首次拉取合并
@@ -370,7 +394,7 @@ export interface PullResult {
 
 export async function pullFromCloud(cfg: SyncConfig): Promise<PullResult | null> {
   return withSyncLock(async () => {
-    const local = await collectAllData();
+    const local = await collectAllData(cfg.syncAgentData);
     const remote = await ghGet(cfg);
     const baseline = cfg.baselineHashes ?? {};
     let pulled = 0;

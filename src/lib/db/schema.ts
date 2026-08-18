@@ -116,6 +116,8 @@ export interface SyncConfig {
   lastSyncSha?: string;
   /** 上次成功同步后各文档的 contentHash 基线（用于三方冲突检测；仅存本地，不同步） */
   baselineHashes?: Record<string, string>;
+  /** 是否同步 Agent 运行记录（含撤销快照，可能含敏感内容；默认关闭） */
+  syncAgentData?: boolean;
 }
 
 export interface AppSettings {
@@ -217,6 +219,83 @@ export interface SyncConflict {
   resolution?: 'local' | 'remote' | 'both';
 }
 
+// ──── Agent 会话持久化（Phase 3）────
+export type AgentSessionStatus = 'active' | 'archived';
+
+export interface AgentSession {
+  id: string;
+  title: string;
+  status: AgentSessionStatus;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
+}
+
+export type AgentMessageRole = 'user' | 'assistant' | 'tool';
+
+export interface AgentMessageRecord {
+  id: string;
+  sessionId: string;
+  role: AgentMessageRole;
+  content: string;
+  /** 关联的操作计划 id（assistant 消息） */
+  planId?: string;
+  /** 关联的运行记录 id（assistant 消息执行后） */
+  runId?: string;
+  createdAt: number;
+}
+
+export type AgentRunStatus =
+  | 'planned'
+  | 'approved'
+  | 'running'
+  | 'success'
+  | 'partial'
+  | 'failed'
+  | 'cancelled';
+
+export interface AgentRun {
+  id: string;
+  sessionId: string;
+  planId: string;
+  status: AgentRunStatus;
+  risk: 'low' | 'medium' | 'high';
+  /** 计划摘要 */
+  summary?: string;
+  /** 操作计划（JSON 序列化） */
+  operations: unknown[];
+  /** 执行结果（JSON 序列化） */
+  results?: unknown[];
+  /** 模型 / provider 信息 */
+  model?: string;
+  provider?: string;
+  /** 耗时（ms） */
+  durationMs?: number;
+  /** token 使用量 */
+  tokensInput?: number;
+  tokensOutput?: number;
+  /** 失败原因 */
+  error?: string;
+  /** 撤销信息（版本快照 + 新建文档 id），供运行历史一键撤销 */
+  undo?: {
+    versions: { journalId: string; title: string; content: string }[];
+    createdJournalIds: string[];
+  };
+  createdAt: number;
+  finishedAt?: number;
+}
+
+export interface AgentAuditLog {
+  id: string;
+  runId: string;
+  operation: string;
+  journalId?: string;
+  beforeHash?: string;
+  afterHash?: string;
+  result: 'success' | 'failed' | 'skipped';
+  createdAt: number;
+}
+
 // ──── Database Class ────
 
 export class StudyJournalDB extends Dexie {
@@ -235,6 +314,10 @@ export class StudyJournalDB extends Dexie {
   propertyDefinitions!: Table<PropertyDefinition>;
   categories!: Table<Category>;
   syncConflicts!: Table<SyncConflict>;
+  agentSessions!: Table<AgentSession>;
+  agentMessages!: Table<AgentMessageRecord>;
+  agentRuns!: Table<AgentRun>;
+  agentAuditLogs!: Table<AgentAuditLog>;
 
   constructor() {
     super('StudyJournalDB');
@@ -288,6 +371,13 @@ export class StudyJournalDB extends Dexie {
       }
     });
     // 说明：availableModels / shengsuanyun 等非索引字段由读取时兼容补全，无需单独升级版本。
+    // version(5): Agent 会话持久化（会话、消息、运行记录、审计日志）
+    this.version(5).stores({
+      agentSessions: 'id, status, updatedAt, deletedAt',
+      agentMessages: 'id, sessionId, role, planId, runId, createdAt, [sessionId+createdAt]',
+      agentRuns: 'id, sessionId, planId, status, createdAt, finishedAt, [sessionId+createdAt]',
+      agentAuditLogs: 'id, runId, journalId, result, createdAt',
+    });
   }
 }
 

@@ -430,6 +430,12 @@ export default function SettingsPage() {
                   className="h-4 w-4 rounded border-[var(--color-border)]" />
                 <span className="text-sm">编辑停顿 10 秒后自动同步</span>
               </label>
+              <label className="flex items-center gap-2 cursor-pointer" title="同步 Agent 会话、消息与运行记录（含撤销快照，可能含敏感内容）">
+                <input type="checkbox" checked={settings.sync.syncAgentData ?? false}
+                  onChange={e => updateSync({ syncAgentData: e.target.checked })}
+                  className="h-4 w-4 rounded border-[var(--color-border)]" />
+                <span className="text-sm">同步 Agent 运行记录（含敏感内容，默认关闭）</span>
+              </label>
               <div className="flex items-center gap-2 flex-wrap">
                 <button className="btn-secondary text-sm" onClick={handleTestConn} disabled={syncTesting}>
                   {syncTesting ? '测试中...' : '测试连接'}
