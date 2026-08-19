@@ -57,4 +57,40 @@ describe('routeAI failover', () => {
     await expect(routeAI('qa', [{ role: 'user', content: 'hi' }])).rejects.toThrow(/All AI endpoints failed/);
     expect(mockedChat).not.toHaveBeenCalled();
   });
+
+  it('主模型 provider 未配置时，应自动 fallback 到其他已配置的 provider', async () => {
+    // 胜算云未配置，但硅基流动已配置 → 应自动用硅基流动的默认模型
+    mockedGetSettings.mockResolvedValue(
+      makeSettings({
+        shengsuanyun: { baseUrl: 'https://a', apiKey: '', enabled: false },
+        siliconflow: { baseUrl: 'https://sf', apiKey: 'k2', enabled: true },
+      }),
+    );
+    mockedChat.mockResolvedValue({ content: 'ok', model: 'deepseek-ai/DeepSeek-V2.5', usage: undefined });
+
+    const res = await routeAI('qa', [{ role: 'user', content: 'hi' }]);
+    expect(res.content).toBe('ok');
+    expect(res.provider).toBe('siliconflow');
+    expect(mockedChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('主模型调用失败时，应自动 fallback 到其他已配置的 provider', async () => {
+    // 胜算云已配置但调用失败（如预算超限），DeepSeek 官方可用 → 应自动切换
+    mockedGetSettings.mockResolvedValue(
+      makeSettings({
+        shengsuanyun: { baseUrl: 'https://a', apiKey: 'k1', enabled: true },
+        deepseek: { baseUrl: 'https://ds', apiKey: 'k3', enabled: true },
+      }),
+    );
+    // qa 主序列为 [deepseek-v4-flash, deepseek-v4]（均指向胜算云），都失败后 fallback 到 deepseek
+    mockedChat
+      .mockRejectedValueOnce(new Error('budget_limit_exceeded'))
+      .mockRejectedValueOnce(new Error('budget_limit_exceeded'))
+      .mockResolvedValueOnce({ content: 'ok', model: 'deepseek-chat', usage: undefined });
+
+    const res = await routeAI('qa', [{ role: 'user', content: 'hi' }]);
+    expect(res.content).toBe('ok');
+    expect(res.provider).toBe('deepseek');
+    expect(mockedChat).toHaveBeenCalledTimes(3);
+  });
 });

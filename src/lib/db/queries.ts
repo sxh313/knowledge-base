@@ -84,6 +84,7 @@ export async function getSettings(): Promise<AppSettings> {
   // 兼容旧数据：补全新增字段
   if (!settings.availableModels) settings.availableModels = {};
   if (!settings.selectedModels) settings.selectedModels = ['deepseek-v4-flash'];
+  if (!settings.providerOrder) settings.providerOrder = ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek'];
   if (!settings.aiProviders.shengsuanyun) {
     settings.aiProviders.shengsuanyun = { baseUrl: 'https://beta-router.shengsuanyun.com/api/v1', apiKey: '', enabled: false };
   }
