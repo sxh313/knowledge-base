@@ -38,6 +38,9 @@ proguard/
 # Android Studio captures folder
 captures/
 
+# Release signing keystore（含私钥，绝不入库；base64 存于 GitHub Secret）
+keystore/
+
 # IntelliJ
 *.iml
 .idea/workspace.xml

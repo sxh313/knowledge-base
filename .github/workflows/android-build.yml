@@ -51,12 +51,30 @@ jobs:
           npx vite build
           npx cap sync android
 
+      # 解码固定 release keystore（base64 存于 GitHub Secret），保证每次构建签名一致，
+      # 从而支持安卓“覆盖安装”（否则每次 CI 用临时 keystore 签名不同，需先卸载才能装）。
+      - name: 还原 Release 签名 keystore
+        run: |
+          mkdir -p android/keystore
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/keystore/release.keystore
+          ls -la android/keystore/
+
       - name: 构建 Debug APK
         working-directory: android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/keystore/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: chmod +x gradlew && ./gradlew assembleDebug
 
-      - name: 构建 Release APK(未签名)
+      - name: 构建 Release APK(已签名)
         working-directory: android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/keystore/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: chmod +x gradlew && ./gradlew assembleRelease
 
       - name: 上传 APK 产物
@@ -67,13 +85,13 @@ jobs:
             android/app/build/outputs/apk/debug/*.apk
             android/app/build/outputs/apk/release/*.apk
 
-      # 若由 tag 触发,发布到 GitHub Releases
+      # 若由 tag 触发,发布到 GitHub Releases（只发布已签名的 release APK，可覆盖安装）
       - name: 发布 APK 到 GitHub Releases
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
             android/app/build/outputs/apk/debug/*.apk
-            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/apk/release/app-release.apk
           draft: false
           prerelease: false
