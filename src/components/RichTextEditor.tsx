@@ -245,17 +245,54 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
           if (type === 'tableCell' || type === 'tableHeader' || type === 'listItem' || type === 'taskItem') return false;
         }
         event.preventDefault();
-        if (event.shiftKey) {
-          if (from !== to) return true;
-          const before = state.doc.textBetween(Math.max(0, from - 4), from, '\n');
-          const indentation = before.match(/[ \u00a0\u3000]{1,4}$/)?.[0] || '';
-          if (indentation) view.dispatch(state.tr.delete(from - indentation.length, from));
-          return true;
-        }
         const inCodeBlock = $from.parent.type.name === 'codeBlock';
         // 正文使用两个全角空格，视觉约等于四个半角空格，Markdown 往返后也不会被合并或裁掉。
         const indentation = inCodeBlock ? '    ' : '\u3000'.repeat(2);
-        view.dispatch(state.tr.insertText(indentation, from, to));
+        // 有选区：给选区覆盖的每一行添加/减少缩进，而不是替换掉选中内容
+        if (from !== to) {
+          const doc = state.doc;
+          const tr = state.tr;
+          // 收集与选区相交的所有文本块（行）的起始位置。
+          // 用 doc.descendants 遍历，避免 resolve(from).start() 在 from 恰好位于
+          // 段落边界时 depth=0 而错误指向文档开头的问题。
+          const lineStarts: number[] = [];
+          doc.descendants((node, pos) => {
+            if (node.isTextblock) {
+              const nodeStart = pos + 1; // 文本块内第一个字符位置
+              const nodeEnd = pos + node.nodeSize - 1; // 文本块内最后一个字符位置
+              if (nodeEnd >= from && nodeStart <= to) lineStarts.push(nodeStart);
+              return false; // 不深入文本块内部
+            }
+            return true;
+          });
+          if (event.shiftKey) {
+            // Shift+Tab：减少每行缩进（从后往前删，避免位置偏移）
+            for (let i = lineStarts.length - 1; i >= 0; i--) {
+              const lineStart = lineStarts[i];
+              const lineText = doc.textBetween(lineStart, lineStart + 4, '\n');
+              const match = lineText.match(/^[ \u00a0\u3000]{1,4}/);
+              if (match) tr.delete(lineStart, lineStart + match[0].length);
+            }
+          } else {
+            // Tab：在每行开头插入缩进（从后往前插，避免位置偏移）
+            for (let i = lineStarts.length - 1; i >= 0; i--) {
+              tr.insertText(indentation, lineStarts[i]);
+            }
+          }
+          view.dispatch(tr);
+          return true;
+        }
+        if (event.shiftKey) {
+          const before = state.doc.textBetween(Math.max(0, from - 4), from, '\n');
+          const indentationBefore = before.match(/[ \u00a0\u3000]{1,4}$/)?.[0] || '';
+          if (indentationBefore) view.dispatch(state.tr.delete(from - indentationBefore.length, from));
+          return true;
+        }
+        // 无选区 Tab：在光标处插入缩进。
+        // 当光标恰好位于段落开头（$from.depth === 0）时，直接 insertText 会在边界
+        // 创建新段落，改为插入到段落内第一个字符位置（from + 1）。
+        const insertPos = $from.depth === 0 ? from + 1 : from;
+        view.dispatch(state.tr.insertText(indentation, insertPos, insertPos));
         return true;
       },
       handleDOMEvents: {
