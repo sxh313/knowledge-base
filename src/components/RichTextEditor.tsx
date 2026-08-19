@@ -8,6 +8,7 @@ import {
   type NodeViewProps,
 } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
+import { TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
@@ -279,6 +280,10 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
               tr.insertText(indentation, lineStarts[i]);
             }
           }
+          // 缩进后保留选区（映射到缩进后的位置），便于连续 Tab / Shift+Tab 操作
+          const newFrom = tr.mapping.map(from);
+          const newTo = tr.mapping.map(to);
+          tr.setSelection(TextSelection.create(tr.doc, newFrom, newTo));
           view.dispatch(tr);
           return true;
         }
