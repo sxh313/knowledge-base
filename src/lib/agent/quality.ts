@@ -215,3 +215,170 @@ export async function createStudyPlanSuggestion(): Promise<StudyPlanItem[]> {
 
   return items.sort((a, b) => a.reviewInDays - b.reviewInDays).slice(0, 20);
 }
+
+// ──── 文档质量问题一键修复建议（Phase 5）────
+
+/** 修复建议的风险等级：低风险字段可自动修复，高风险字段需单独确认 */
+export type FixRisk = 'low' | 'high';
+
+/** 单条修复建议 */
+export interface QualityFixSuggestion {
+  journalId: string;
+  title: string;
+  /** 问题类型（与 QualityIssue.type 对应） */
+  issueType: string;
+  /** 修复风险：low=可自动修复，high=需单独确认 */
+  risk: FixRisk;
+  /** 修复字段 */
+  field: 'summary' | 'tags' | 'link' | 'title' | 'content';
+  /** 修复前值 */
+  before: string;
+  /** 修复后值 */
+  after: string;
+  /** 修复说明 */
+  message: string;
+}
+
+/**
+ * 为文档质量问题生成「一键修复」建议。
+ * 只读，返回修复前后对比。仅低风险字段（摘要、标签、双链）进入自动修复计划；
+ * 标题、正文整体替换和删除仍要求单独确认（标记为 high 风险）。
+ */
+export async function suggestQualityFixes(): Promise<QualityFixSuggestion[]> {
+  const journals = (await getAllJournals()).filter((j) => !j.deletedAt);
+  const issues = await reviewJournalQuality();
+  const suggestions: QualityFixSuggestion[] = [];
+
+  for (const j of journals) {
+    const journalIssues = issues.filter((i) => i.journalId === j.id);
+    if (journalIssues.length === 0) continue;
+
+    // 1. 缺少摘要：根据正文生成 1-3 句摘要（低风险，可自动修复）
+    const noSummary = journalIssues.find((i) => i.type === 'no-summary');
+    if (noSummary && j.content && j.content.trim().length > 200) {
+      const summary = generateSummary(j.content);
+      if (summary && summary !== j.summary) {
+        suggestions.push({
+          journalId: j.id,
+          title: j.title || '（无标题）',
+          issueType: 'no-summary',
+          risk: 'low',
+          field: 'summary',
+          before: j.summary || '',
+          after: summary,
+          message: '根据正文生成摘要',
+        });
+      }
+    }
+
+    // 2. 标签缺失或过少：只推荐标签，不覆盖已有标签（低风险）
+    const tagCount = j.tags?.length ?? 0;
+    if (tagCount === 0 && j.content && j.content.trim().length > 50) {
+      const recommended = recommendTags(j.title, j.content);
+      if (recommended.length > 0) {
+        suggestions.push({
+          journalId: j.id,
+          title: j.title || '（无标题）',
+          issueType: 'no-tags',
+          risk: 'low',
+          field: 'tags',
+          before: '',
+          after: recommended.join('、'),
+          message: `推荐标签：${recommended.join('、')}`,
+        });
+      }
+    }
+
+    // 3. 失效双链：根据现有标题和别名推荐可能的目标文档（低风险）
+    const broken = await getBrokenOutgoingLinks(j.id);
+    if (broken.length > 0) {
+      for (const link of broken) {
+        const target = findLinkTarget(link.targetTitle, journals);
+        if (target) {
+          suggestions.push({
+            journalId: j.id,
+            title: j.title || '（无标题）',
+            issueType: 'broken-link',
+            risk: 'low',
+            field: 'link',
+            before: link.targetTitle,
+            after: target.title,
+            message: `失效链接「${link.targetTitle}」可能指向「${target.title}」`,
+          });
+        }
+      }
+    }
+
+    // 4. 空标题 / 空内容：标记为待处理，不自动生成（高风险，需单独确认）
+    const emptyTitle = journalIssues.find((i) => i.type === 'empty-title');
+    if (emptyTitle) {
+      suggestions.push({
+        journalId: j.id,
+        title: j.title || '（无标题）',
+        issueType: 'empty-title',
+        risk: 'high',
+        field: 'title',
+        before: j.title || '',
+        after: '',
+        message: '文档标题为空，需人工补充标题',
+      });
+    }
+    const emptyContent = journalIssues.find((i) => i.type === 'empty-content');
+    if (emptyContent) {
+      suggestions.push({
+        journalId: j.id,
+        title: j.title || '（无标题）',
+        issueType: 'empty-content',
+        risk: 'high',
+        field: 'content',
+        before: '',
+        after: '',
+        message: '文档内容为空，需人工补充内容',
+      });
+    }
+  }
+
+  return suggestions;
+}
+
+/** 根据正文生成 1-3 句摘要（取开头非空段落，最多 3 句） */
+function generateSummary(content: string): string {
+  const plain = content
+    .replace(/```[\s\S]*?```/g, ' ') // 去掉代码块
+    .replace(/[#>*_`~\-\[\]()!]/g, ' ') // 去掉 markdown 符号
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!plain) return '';
+  // 按句号/问号/感叹号切句
+  const sentences = plain.split(/(?<=[。！？.!?])\s*/).filter((s) => s.trim().length > 0);
+  const picked = sentences.slice(0, 3).join(' ');
+  return picked.length > 120 ? picked.slice(0, 120) + '…' : picked;
+}
+
+/** 根据标题和内容推荐标签（从标题关键词 + 常见主题词中提取） */
+function recommendTags(title: string, content: string): string[] {
+  const text = `${title} ${content}`.toLowerCase();
+  const candidates = [
+    '笔记', '学习', '总结', '教程', '指南', '心得', '方法', '技巧',
+    '前端', '后端', '算法', '数据库', '设计', '产品', '管理', '英语',
+    '数学', '物理', '化学', '生物', '历史', '地理', '编程', 'AI',
+  ];
+  const found = candidates.filter((c) => text.includes(c));
+  return found.slice(0, 3);
+}
+
+/** 根据失效链接的标题，在现有文档中查找可能的目标（精确或包含匹配） */
+function findLinkTarget(targetTitle: string, journals: JournalEntry[]): JournalEntry | null {
+  const t = targetTitle.trim().toLowerCase();
+  if (!t) return null;
+  // 精确匹配
+  const exact = journals.find((j) => j.title.trim().toLowerCase() === t);
+  if (exact) return exact;
+  // 包含匹配（标题包含目标，或目标包含标题）
+  return (
+    journals.find((j) => {
+      const jt = j.title.trim().toLowerCase();
+      return jt.includes(t) || t.includes(jt);
+    }) ?? null
+  );
+}

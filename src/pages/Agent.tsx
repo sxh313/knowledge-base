@@ -6,7 +6,7 @@ import MarkdownContent from '../components/MarkdownContent';
 import {
   Send, Paperclip, Check, X, FileText, Plus, Pencil, ArrowDownToLine,
   ArrowUpFromLine, CornerDownRight, Search, Loader2, Trash2, ExternalLink, MessageSquare,
-  Tag, FolderInput, Layers, Undo2, ShieldAlert, ShieldCheck, Shield,
+  Tag, FolderInput, Layers, Undo2, ShieldAlert, ShieldCheck, Shield, Wrench, Network, Link2,
 } from 'lucide-react';
 import type { AgentOp, AgentOpResult } from '../lib/agent/tools';
 import { diffLines } from '../lib/agent/diff';
@@ -34,6 +34,9 @@ const OP_META: Record<string, { label: string; icon: typeof FileText; color: str
   findDuplicates: { label: '查重', icon: Search, color: 'text-gray-500' },
   reviewQuality: { label: '质量检查', icon: ShieldCheck, color: 'text-gray-500' },
   createStudyPlan: { label: '学习计划', icon: Layers, color: 'text-gray-500' },
+  suggestQualityFixes: { label: '一键修复建议', icon: Wrench, color: 'text-gray-500' },
+  analyzeJournalImpact: { label: '影响分析', icon: Network, color: 'text-gray-500' },
+  repairDocumentLinks: { label: '链接修复计划', icon: Link2, color: 'text-gray-500' },
 };
 
 function OpBadge({ op }: { op: AgentOp }) {

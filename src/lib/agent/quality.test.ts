@@ -20,6 +20,7 @@ import {
   findDuplicateJournals,
   reviewJournalQuality,
   createStudyPlanSuggestion,
+  suggestQualityFixes,
 } from './quality';
 
 function makeJournal(overrides: Partial<any> = {}) {
@@ -140,5 +141,65 @@ describe('createStudyPlanSuggestion', () => {
     mocks.mockGetAllCards.mockResolvedValue([]);
     const plan = await createStudyPlanSuggestion();
     expect(plan[0].reviewInDays).toBe(3);
+  });
+});
+
+describe('suggestQualityFixes', () => {
+  it('长内容无摘要时生成低风险摘要修复建议', async () => {
+    mocks.mockGetAllJournals.mockResolvedValue([
+      makeJournal({
+        id: 'a',
+        title: '测试文档',
+        content: '这是第一句。这是第二句。这是第三句。'.repeat(30),
+        summary: '',
+      }),
+    ]);
+    mocks.mockGetBrokenOutgoingLinks.mockResolvedValue([]);
+    const fixes = await suggestQualityFixes();
+    const summaryFix = fixes.find((f) => f.field === 'summary');
+    expect(summaryFix).toBeDefined();
+    expect(summaryFix!.risk).toBe('low');
+    expect(summaryFix!.after.length).toBeGreaterThan(0);
+  });
+
+  it('无标签文档生成标签修复建议', async () => {
+    mocks.mockGetAllJournals.mockResolvedValue([
+      makeJournal({
+        id: 'a',
+        title: '前端学习笔记',
+        content: '这是一篇关于前端编程的学习笔记内容，介绍了前端开发的方法和技巧。'.repeat(5),
+        tags: [],
+      }),
+    ]);
+    mocks.mockGetBrokenOutgoingLinks.mockResolvedValue([]);
+    const fixes = await suggestQualityFixes();
+    const tagFix = fixes.find((f) => f.field === 'tags');
+    expect(tagFix).toBeDefined();
+    expect(tagFix!.risk).toBe('low');
+  });
+
+  it('失效链接能匹配到可能的目标文档', async () => {
+    mocks.mockGetAllJournals.mockResolvedValue([
+      makeJournal({ id: 'a', title: '源文档', content: '内容' }),
+      makeJournal({ id: 'b', title: '目标文档', content: '内容' }),
+    ]);
+    mocks.mockGetBrokenOutgoingLinks.mockResolvedValue([
+      { id: 'x', sourceId: 'a', targetTitle: '目标文档', linkText: '目标文档', broken: true },
+    ]);
+    const fixes = await suggestQualityFixes();
+    const linkFix = fixes.find((f) => f.field === 'link');
+    expect(linkFix).toBeDefined();
+    expect(linkFix!.after).toBe('目标文档');
+  });
+
+  it('空标题被标记为高风险需确认', async () => {
+    mocks.mockGetAllJournals.mockResolvedValue([
+      makeJournal({ id: 'a', title: '', content: '内容' }),
+    ]);
+    mocks.mockGetBrokenOutgoingLinks.mockResolvedValue([]);
+    const fixes = await suggestQualityFixes();
+    const titleFix = fixes.find((f) => f.field === 'title');
+    expect(titleFix).toBeDefined();
+    expect(titleFix!.risk).toBe('high');
   });
 });

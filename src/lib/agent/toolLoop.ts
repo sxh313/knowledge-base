@@ -9,7 +9,16 @@ import type { AgentPlan, AgentExecutionResult } from './tools';
 export const MAX_TOOL_ROUNDS = 5;
 
 /** 只读操作类型：可自动执行，无需用户确认 */
-const READ_ONLY_TYPES = new Set(['read', 'search', 'findDuplicates', 'reviewQuality', 'createStudyPlan']);
+const READ_ONLY_TYPES = new Set([
+  'read',
+  'search',
+  'findDuplicates',
+  'reviewQuality',
+  'createStudyPlan',
+  'suggestQualityFixes',
+  'analyzeJournalImpact',
+  'repairDocumentLinks',
+]);
 
 /** 判断计划是否只包含只读操作（read/search） */
 export function isReadOnlyPlan(plan: AgentPlan): boolean {
@@ -82,6 +91,48 @@ export function formatToolResults(preview: AgentExecutionResult): string {
       plan.forEach((p, i) => {
         lines.push(
           `${i + 1}. ${p.reviewInDays === 0 ? '今天' : `${p.reviewInDays} 天后`}复习「${p.title}」：${p.reason}`,
+        );
+      });
+    } else if (r.op.type === 'suggestQualityFixes') {
+      const fixes = r.qualityFixes ?? [];
+      if (fixes.length === 0) {
+        lines.push('[工具结果 suggestQualityFixes] 未发现可修复的质量问题。');
+        continue;
+      }
+      const low = fixes.filter((f) => f.risk === 'low');
+      const high = fixes.filter((f) => f.risk === 'high');
+      lines.push(
+        `[工具结果 suggestQualityFixes] 共 ${fixes.length} 条修复建议（低风险可自动修复 ${low.length} 条，高风险需确认 ${high.length} 条）：`,
+      );
+      fixes.slice(0, 20).forEach((f, i) => {
+        lines.push(
+          `${i + 1}. [${f.risk === 'low' ? '可自动修复' : '需确认'}] ${f.title}：${f.message}（${f.field}：${f.before || '（空）'} → ${f.after || '（待补充）'}）`,
+        );
+      });
+    } else if (r.op.type === 'analyzeJournalImpact') {
+      const impact = r.journalImpact;
+      if (!impact) {
+        lines.push('[工具结果 analyzeJournalImpact] 无法分析影响。');
+        continue;
+      }
+      const levelText =
+        impact.level === 'none' ? '无影响' : impact.level === 'affected' ? '有影响' : '无法确定';
+      lines.push(`[工具结果 analyzeJournalImpact] 「${impact.title}」影响等级：${levelText}。${impact.summary}`);
+      impact.items.slice(0, 20).forEach((it, i) => {
+        lines.push(`${i + 1}. [${it.kind}] ${it.title}：${it.detail}`);
+      });
+    } else if (r.op.type === 'repairDocumentLinks') {
+      const plan = r.linkRepairPlan;
+      if (!plan || plan.total === 0) {
+        lines.push('[工具结果 repairDocumentLinks] 未发现失效链接。');
+        continue;
+      }
+      lines.push(
+        `[工具结果 repairDocumentLinks] 共 ${plan.total} 条失效链接，可自动修复 ${plan.autoFixable} 条，需人工确认 ${plan.manualCount} 条：`,
+      );
+      plan.items.slice(0, 20).forEach((it, i) => {
+        lines.push(
+          `${i + 1}. [${it.autoFixable ? '可自动修复' : '需人工确认'}] ${it.sourceTitle}：「${it.linkText}」${it.autoFixable ? ` → 「${it.newLinkText}」` : '（无法匹配目标）'}`,
         );
       });
     }
