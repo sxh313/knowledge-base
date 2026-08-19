@@ -23,7 +23,10 @@ export type AgentOpType =
   | 'generateCards' // 从内容生成知识卡片
   | 'findDuplicates' // 检测重复文档（只读，返回候选）
   | 'reviewQuality' // 文档质量检查（只读，返回问题清单）
-  | 'createStudyPlan'; // 生成学习计划（只读，返回计划建议）
+  | 'createStudyPlan' // 生成学习计划（只读，返回计划建议）
+  | 'suggestQualityFixes' // 文档质量问题一键修复建议（只读，返回修复前后对比）
+  | 'analyzeJournalImpact' // 文档关系与变更影响分析（只读，返回影响范围）
+  | 'repairDocumentLinks'; // 失效链接修复计划（只读，返回逐条修复建议）
 
 /** 单个操作 */
 export interface AgentOp {
@@ -82,6 +85,12 @@ export function classifyRisk(op: AgentOp): AgentRisk {
       return 'medium';
     case 'read':
     case 'search':
+    case 'findDuplicates':
+    case 'reviewQuality':
+    case 'createStudyPlan':
+    case 'suggestQualityFixes':
+    case 'analyzeJournalImpact':
+    case 'repairDocumentLinks':
     default:
       return 'low';
   }
@@ -158,6 +167,7 @@ export function validateAgentOp(op: AgentOp, index: number): { errors: string[];
     'create', 'edit', 'append', 'prepend', 'insertAfter', 'read', 'search',
     'rename', 'delete', 'move', 'addTags', 'removeTags', 'generateCards',
     'findDuplicates', 'reviewQuality', 'createStudyPlan',
+    'suggestQualityFixes', 'analyzeJournalImpact', 'repairDocumentLinks',
   ];
   if (!op.type || !validTypes.includes(op.type)) {
     errors.push(`${label}: 未知操作类型「${String(op.type)}」`);
@@ -308,6 +318,44 @@ export interface AgentOpResult {
     reviewInDays: number;
     reason: string;
   }[];
+  /** 质量问题一键修复建议（suggestQualityFixes 操作） */
+  qualityFixes?: {
+    journalId: string;
+    title: string;
+    issueType: string;
+    risk: 'low' | 'high';
+    field: 'summary' | 'tags' | 'link' | 'title' | 'content';
+    before: string;
+    after: string;
+    message: string;
+  }[];
+  /** 文档关系与变更影响分析（analyzeJournalImpact 操作） */
+  journalImpact?: {
+    journalId: string;
+    title: string;
+    level: 'none' | 'affected' | 'unknown';
+    items: {
+      journalId: string;
+      title: string;
+      kind: 'backlink' | 'broken-link' | 'card';
+      detail: string;
+    }[];
+    summary: string;
+  };
+  /** 失效链接修复计划（repairDocumentLinks 操作） */
+  linkRepairPlan?: {
+    total: number;
+    autoFixable: number;
+    manualCount: number;
+    items: {
+      sourceId: string;
+      sourceTitle: string;
+      linkText: string;
+      newLinkText: string;
+      targetId?: string;
+      autoFixable: boolean;
+    }[];
+  };
 }
 
 /** 结构化搜索结果条目（供 AI 引用来源） */

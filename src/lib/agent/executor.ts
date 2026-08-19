@@ -29,8 +29,10 @@ import {
   findDuplicateJournals,
   reviewJournalQuality,
   createStudyPlanSuggestion,
+  suggestQualityFixes,
   type QualityIssue,
 } from './quality';
+import { analyzeJournalImpact, repairDocumentLinks } from './impact';
 
 /** 按 id 或标题精确定位文档（不做模糊匹配，避免误命中） */
 async function resolveJournal(op: AgentOp): Promise<JournalEntry | null> {
@@ -298,6 +300,64 @@ async function previewOp(op: AgentOp): Promise<AgentOpResult> {
         studyPlan: plan,
       };
     }
+    case 'suggestQualityFixes': {
+      const fixes = await suggestQualityFixes();
+      const low = fixes.filter((f) => f.risk === 'low');
+      const high = fixes.filter((f) => f.risk === 'high');
+      return {
+        op: { ...op, risk },
+        ok: true,
+        content: fixes.length
+          ? [
+              `共 ${fixes.length} 条修复建议（低风险可自动修复 ${low.length} 条，高风险需确认 ${high.length} 条）：`,
+              '',
+              ...low.slice(0, 20).map(
+                (f) => `- [可自动修复] ${f.title}：${f.message}\n  ${f.field}：${f.before || '（空）'} → ${f.after || '（待补充）'}`,
+              ),
+              ...high.slice(0, 10).map(
+                (f) => `- [需确认] ${f.title}：${f.message}`,
+              ),
+            ].join('\n')
+          : '（未发现可修复的质量问题）',
+        qualityFixes: fixes,
+      };
+    }
+    case 'analyzeJournalImpact': {
+      const target = await resolveJournal(op);
+      if (!target) return { op: { ...op, risk }, ok: false, error: '未找到目标文档' };
+      const impact = await analyzeJournalImpact(target.id);
+      return {
+        op: { ...op, risk },
+        ok: true,
+        journalId: target.id,
+        title: target.title,
+        content: [
+          `影响等级：${impact.level === 'none' ? '无影响' : impact.level === 'affected' ? '有影响' : '无法确定'}`,
+          impact.summary,
+          '',
+          ...impact.items.slice(0, 20).map((i) => `- [${i.kind}] ${i.title}：${i.detail}`),
+        ].join('\n'),
+        journalImpact: impact,
+      };
+    }
+    case 'repairDocumentLinks': {
+      const plan = await repairDocumentLinks();
+      return {
+        op: { ...op, risk },
+        ok: true,
+        content: plan.total
+          ? [
+              `共 ${plan.total} 条失效链接，可自动修复 ${plan.autoFixable} 条，需人工确认 ${plan.manualCount} 条：`,
+              '',
+              ...plan.items.slice(0, 20).map(
+                (i) =>
+                  `- [${i.autoFixable ? '可自动修复' : '需人工确认'}] ${i.sourceTitle}：「${i.linkText}」${i.autoFixable ? ` → 「${i.newLinkText}」` : '（无法匹配目标）'}`,
+              ),
+            ].join('\n')
+          : '（未发现失效链接）',
+        linkRepairPlan: plan,
+      };
+    }
     case 'rename': {
       const target = await resolveJournal(op);
       if (!target) return { op: { ...op, risk }, ok: false, error: '未找到目标文档' };
@@ -487,6 +547,43 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
               .join('\n')
           : '（暂无学习计划建议）',
         studyPlan: plan,
+      };
+    }
+    case 'suggestQualityFixes': {
+      const fixes = await suggestQualityFixes();
+      const low = fixes.filter((f) => f.risk === 'low');
+      const high = fixes.filter((f) => f.risk === 'high');
+      return {
+        op,
+        ok: true,
+        content: fixes.length
+          ? `共 ${fixes.length} 条修复建议（低风险 ${low.length} 条，高风险 ${high.length} 条）`
+          : '（未发现可修复的质量问题）',
+        qualityFixes: fixes,
+      };
+    }
+    case 'analyzeJournalImpact': {
+      const target = await resolveJournal(op);
+      if (!target) return { op, ok: false, error: '未找到目标文档' };
+      const impact = await analyzeJournalImpact(target.id);
+      return {
+        op,
+        ok: true,
+        journalId: target.id,
+        title: target.title,
+        content: `影响等级：${impact.level === 'none' ? '无影响' : impact.level === 'affected' ? '有影响' : '无法确定'}。${impact.summary}`,
+        journalImpact: impact,
+      };
+    }
+    case 'repairDocumentLinks': {
+      const plan = await repairDocumentLinks();
+      return {
+        op,
+        ok: true,
+        content: plan.total
+          ? `共 ${plan.total} 条失效链接，可自动修复 ${plan.autoFixable} 条，需人工确认 ${plan.manualCount} 条`
+          : '（未发现失效链接）',
+        linkRepairPlan: plan,
       };
     }
     case 'rename': {
