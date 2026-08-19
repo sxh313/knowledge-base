@@ -50,6 +50,15 @@ export const MODEL_MAP: Record<string, ModelEntry> = {
   'deepseek-official':  { provider: 'deepseek', model: 'deepseek-chat' },
 };
 
+// 每个 provider 的默认 fallback 模型（当主模型序列全部失败/未配置时，按已配置 provider 依次兜底）
+export const PROVIDER_FALLBACK_MODELS: Record<ProviderName, string> = {
+  shengsuanyun: 'deepseek-v4-flash',
+  relay: 'relay-deepseek',
+  siliconflow: 'siliconflow-ds',
+  zhipu: 'glm-4',
+  deepseek: 'deepseek-official',
+};
+
 // Task type → ordered list of model IDs (first = primary, rest = fallback)
 export type TaskType =
   | 'summarize'

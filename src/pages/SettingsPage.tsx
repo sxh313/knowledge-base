@@ -11,7 +11,7 @@ import { useUpdateStore, manualCheck, applyUpdate } from '../stores/updateStore'
 import { exportKeys, importKeys, type KeyBundle } from '../lib/utils/keyVault';
 import SyncConflicts from '../components/SyncConflicts';
 import DesktopUpdater from '../components/DesktopUpdater';
-import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck } from 'lucide-react';
+import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck, ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
 import { useViewModeStore } from '../stores/viewModeStore';
 
 const isAndroidApp = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
@@ -130,6 +130,17 @@ export default function SettingsPage() {
   const removeModel = (model: string) => {
     const current = settings.selectedModels ?? [];
     update({ selectedModels: current.filter(m => m !== model) });
+  };
+
+  // 来源顺序：上移/下移 provider 优先级
+  const moveProvider = (key: ProviderName, dir: -1 | 1) => {
+    const order = [...(settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek'])];
+    const idx = order.indexOf(key);
+    if (idx === -1) return;
+    const target = idx + dir;
+    if (target < 0 || target >= order.length) return;
+    [order[idx], order[target]] = [order[target], order[idx]];
+    update({ providerOrder: order });
   };
 
   const updateSync = (patch: Partial<SyncConfig>) => {
@@ -351,6 +362,59 @@ export default function SettingsPage() {
             </div>
           );
         })}
+
+        {/* 来源顺序：自定义 AI provider 优先级 */}
+        <div className="card space-y-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-medium text-sm">🔀 来源顺序</h3>
+              <p className="text-xs text-gray-400">调整 AI 服务商的优先级，排在前面的优先使用（故障时自动切换下一个）</p>
+            </div>
+            <button
+              className="text-[10px] text-gray-400 hover:text-red-500"
+              onClick={() => update({ providerOrder: ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek'] })}
+            >
+              恢复默认
+            </button>
+          </div>
+          <div className="space-y-1">
+            {(settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek']).map((key, i, arr) => {
+              const info = PROVIDER_INFO.find(p => p.key === key);
+              const prov = localProviders[key];
+              const configured = prov?.enabled && prov?.apiKey;
+              return (
+                <div key={key}
+                  className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
+                  <GripVertical className="h-4 w-4 flex-shrink-0 text-[var(--color-text-tertiary)]" />
+                  <span className="text-base">{info?.icon ?? '🔧'}</span>
+                  <span className="flex-1 text-sm font-medium">{info?.label ?? key}</span>
+                  {configured
+                    ? <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] text-green-500">已配置</span>
+                    : <span className="rounded-full bg-gray-500/10 px-2 py-0.5 text-[10px] text-gray-400">未配置</span>}
+                  <span className="text-[10px] tabular-nums text-[var(--color-text-tertiary)]">#{i + 1}</span>
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      className="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)] disabled:opacity-30 disabled:hover:bg-transparent"
+                      onClick={() => moveProvider(key, -1)}
+                      disabled={i === 0}
+                      title="上移"
+                    >
+                      <ArrowUp className="h-4 w-4" />
+                    </button>
+                    <button
+                      className="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)] disabled:opacity-30 disabled:hover:bg-transparent"
+                      onClick={() => moveProvider(key, 1)}
+                      disabled={i === arr.length - 1}
+                      title="下移"
+                    >
+                      <ArrowDown className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </section>
 
       {/* 模型偏好 */}

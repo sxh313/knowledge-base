@@ -40,7 +40,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const { settings } = get();
     if (!settings) return null;
     const providers = settings.aiProviders;
-    const order: (keyof AISettings)[] = ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek'];
+    // 使用用户自定义的 provider 顺序（缺省时按内置顺序）
+    const order = settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek'];
     for (const key of order) {
       const p = providers[key];
       if (p.enabled && p.apiKey) {

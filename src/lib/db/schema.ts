@@ -4,6 +4,9 @@ import Dexie, { type Table } from 'dexie';
 
 export type JournalStatus = 'inbox' | 'active' | 'archived';
 
+/** AI provider 名称（与 providers.ts 保持一致，避免循环依赖在此独立声明） */
+export type ProviderName = 'shengsuanyun' | 'relay' | 'siliconflow' | 'zhipu' | 'deepseek';
+
 export interface JournalSourceRef {
   url?: string;
   title?: string;
@@ -136,6 +139,8 @@ export interface AppSettings {
   reviewDailyGoal: number;   // cards per day
   /** 云同步配置（GitHub） */
   sync?: SyncConfig;
+  /** AI provider 优先级顺序（用户可自定义排序；缺省时按内置顺序） */
+  providerOrder?: ProviderName[];
 }
 
 // ──── 文档版本历史快照 ────
