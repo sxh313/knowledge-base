@@ -2,7 +2,7 @@ import type { Zero2Mastery, Zero2ReviewTask } from '../db/schema';
 import type { Zero2CatalogTopic } from './catalog';
 import type { Zero2TopicPriority } from './types';
 
-export interface PlanningInput { topics: Zero2CatalogTopic[]; mastery: Zero2Mastery[]; dailyMinutes: number; planId: string; date: string; }
+export interface PlanningInput { topics: Zero2CatalogTopic[]; mastery: Zero2Mastery[]; dailyMinutes: number; planId: string; date: string; now?: number; }
 
 function clamp(value: number): number { return Math.max(0, Math.min(1, value)); }
 
@@ -21,7 +21,8 @@ export function scoreTopic(topic: Zero2CatalogTopic, mastery: Zero2Mastery | und
 
 export function buildDailyPlan(input: PlanningInput): Zero2ReviewTask[] {
   const mastery = new Map(input.mastery.map((item) => [item.topicId, item]));
-  const priorities = input.topics.map((topic) => scoreTopic(topic, mastery.get(topic.id))).sort((a, b) => b.total - a.total || a.topicId.localeCompare(b.topicId));
+  const now = input.now ?? Date.now();
+  const priorities = input.topics.map((topic) => scoreTopic(topic, mastery.get(topic.id), now)).sort((a, b) => b.total - a.total || a.topicId.localeCompare(b.topicId));
   const budget = Math.max(1, Math.floor(input.dailyMinutes * 1.1));
   const tasks: Zero2ReviewTask[] = [];
   let used = 0;
@@ -31,7 +32,7 @@ export function buildDailyPlan(input: PlanningInput): Zero2ReviewTask[] {
     const minutes = Math.min(Math.max(5, topic.estimatedMinutes ?? 15), budget - used);
     if (minutes < 5) break;
     const m = mastery.get(topic.id);
-    const type = m && m.nextReviewAt <= Date.now() ? 'review' : m?.mastery == null ? 'learn' : 'quiz';
+    const type = m && m.nextReviewAt <= now ? 'review' : m?.mastery == null ? 'learn' : 'quiz';
     tasks.push({ id: `${input.planId}:${input.date}:${topic.id}:${type}`, planId: input.planId, topicId: topic.id, date: input.date, type, estimatedMinutes: minutes, sourceIds: [topic.id], status: 'todo', createdAt: 0, updatedAt: 0 });
     used += minutes;
   }
