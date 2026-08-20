@@ -1,5 +1,5 @@
 import type { Zero2EvaluationDraft } from './types';
-import type { Zero2Mastery } from '../db/schema';
+import type { Zero2Mastery, Zero2ReviewAttempt } from '../db/schema';
 import { scheduleZero2Mastery } from './scheduler';
 
 const WEIGHTS = { recall: 1, comparison: 1.15, boundary: 1.1, application: 1.25, diagnostic: 1 } as const;
@@ -39,4 +39,13 @@ export function isLowEvidence(mastery: Pick<Zero2Mastery, 'evidenceCount'>, mini
 
 export function applyManualScore(mastery: Zero2Mastery, score: 0 | 1 | 2 | 3 | 4, now = Date.now()): Zero2Mastery {
   return applyEvaluation(mastery, { score, correctPoints: [], missingPoints: [], mistakeTypes: [], evidenceChunkIds: ['manual-correction'], nextQuestionType: 'diagnostic' }, now);
+}
+
+export function recomputeMasteryFromAttempts(topicId: string, attempts: Zero2ReviewAttempt[], now = Date.now()): Zero2Mastery {
+  const ordered = attempts.filter((attempt) => attempt.topicId === topicId).sort((a, b) => a.answeredAt - b.answeredAt);
+  let mastery = createUnknownMastery(topicId, now);
+  for (const attempt of ordered) {
+    mastery = applyEvaluation(mastery, { score: attempt.score, correctPoints: [], missingPoints: [], mistakeTypes: attempt.mistakeTypes, evidenceChunkIds: attempt.evidenceChunkIds, nextQuestionType: 'diagnostic' }, attempt.answeredAt);
+  }
+  return { ...mastery, updatedAt: now };
 }
