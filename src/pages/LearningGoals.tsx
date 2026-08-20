@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Clock3, Plus, RotateCcw, SkipForward, Target } from 'lucide-react';
+import { Check, Clock3, Plus, RotateCcw, SkipForward, Target, Brain } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import {
   createLearningGoal,
   createTasksForGoal,
@@ -48,14 +49,14 @@ export default function LearningGoals() {
   };
 
   return (
-    <div className="animate-fade-in space-y-5 max-w-5xl mx-auto">
+    <div className="content-frame animate-fade-in space-y-5">
       <div className="page-hero">
         <div className="page-hero-copy">
           <div className="page-kicker">Make progress visible</div>
           <div className="flex items-center gap-2">
             <Target className="h-5 w-5 text-[var(--color-primary)]" />
             <div><h1 className="text-xl font-bold">学习目标</h1><p className="text-xs text-[var(--color-text-secondary)]">把目标拆成每天可调整的学习任务</p></div>
-          </div>
+          </div><Link className="btn-ghost inline-flex items-center gap-1 text-xs" to="/zero2-review"><Brain className="h-3.5 w-3.5" />用 zero2Agent 制定计划</Link>
         </div>
       </div>
       <div className="card p-4 grid gap-2 md:grid-cols-[1fr_120px_150px_auto]">

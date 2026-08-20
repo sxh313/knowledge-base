@@ -1,14 +1,24 @@
 # zero2Agent 复习 Agent 实施 TODO
 
-目标版本：v1.6.0  
-状态：v1.6.0 已实施核心闭环；高级计划与 UI 细分项持续迭代  
+目标版本：v1.6.0
+状态：v1.6.0 本地实现已完成；Windows 安装器和 Android 签名属于发布环境门禁
 原则：独立领域、固定知识源、先分类后检索、先证据后评分、确定性规划、无关问题零污染。
+当前产品范围：默认以 `learn-agent-interview/`（Agent 面试通关）作为问答和复习课程；如需开放完整 zero2Agent，只需调整 `DEFAULT_ZERO2_REVIEW_PATH_PREFIX`。
 
 ## v1.6.0 执行结果
 
-已完成并已验证：独立 `zero2review` 领域与 Dexie schema v9、zero2Agent-only 检索和来源闸门、无关问题隔离、课程索引元数据、Tutor/评价结构化输出、诊断题、掌握度与 FSRS 调度、确定性每日计划、独立路由和页面、JSON v5 备份、受控 GitHub 同步、移动端样式、帮助文档与发布元数据。后续增量补充了可注入依赖的 Orchestrator、幂等作答/任务操作、确定性时间参数、课程前置依赖校验、目录模块/依赖查询、掌握度辅助查询、评分纠正重算和 Store 的计划/任务状态。`npm ci --ignore-scripts`、Web 构建和 Android Web 资源同步均已通过；全量测试当前为 20 个测试文件、131 个用例通过。Electron-builder 已启动但长时间无输出，未生成 Windows 安装包，待单独处理。
+已完成并已验证：独立 `zero2review` 领域与 Dexie schema v10、zero2Agent-only 检索和来源闸门、无关问题隔离、课程索引元数据、Markdown 标题栈/问答单元切块、Tutor/评价结构化输出、诊断题、掌握度与 FSRS 调度、可解释的确定性每日计划、独立路由和页面、JSON v5 备份、受控 GitHub 同步、移动端样式、帮助文档与发布元数据。后续增量补充了可注入依赖的 Orchestrator、幂等作答/任务操作、确定性时间参数、课程前置依赖校验、目录模块/依赖查询、掌握度解释、评分纠正重算、原子消息写入、模型中心/Embedding 配置、关键词+向量混合检索、dsv4 候选重排、刷新恢复计划面板、计划暂停/恢复和来源隔离测试。`npm test`（23 个测试文件、142 个用例）、Web 构建、zero2Agent 索引重建和 Android Web 资源同步均已通过；Android Gradle 被本机缺少 Java/JAVA_HOME 阻塞，Electron-builder 在依赖扫描阶段超时，已保留 `win-unpacked`，未把未完成安装器视为成功。
 
-本 TODO 中未勾选的细分项是后续增强项（例如完整的多面板计划 UI、手动改评分、模型分类 Prompt 的独立调用和大规模分类样本集），不会阻塞 v1.6.0 的 zero2Agent 复习闭环，也不会改变隔离边界。
+本 TODO 中的历史细分 checkbox 没有逐项回写，但以上执行结果以当前代码和测试为准。剩余发布门禁主要是外部环境（Java、Windows 安装器签名、Android 签名、远端发布）。Embedding 服务属于可选增强：不部署时使用关键词检索；部署并启用后才生成向量索引并启用关键词+向量双路召回。
+
+## v1.6.1 增量审计结果+
+
+- [x] 模型中心支持分别填写 Chat、Embedding 端点，并将 dsv4 绑定到回答、重排、复习和评分角色。
+- [x] Embedding 服务/索引不可用时自动退回关键词检索，dsv4 重排失败时不阻塞回答。
+- [x] 页面刷新后恢复最近复习会话、活动计划、今日任务和掌握度。
+- [x] 计划面板支持暂停、恢复和重新规划；掌握度面板支持展开查看作答证据解释。
+- [x] 增加 zero2Agent 检索边界测试，验证个人/Web 来源拒绝、每文档两片段限制和 topic 聚合。
+- [x] BGE Embedding 设计为可选增强：未配置时关键词检索正常工作；配置并启用后才运行 `npm run generate:zero2agent-embeddings`，启用关键词+向量双路召回。
 
 ## 一、最终验收目标
 

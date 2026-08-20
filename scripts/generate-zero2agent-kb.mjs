@@ -25,7 +25,7 @@ function plainText(markdown) {
     .replace(/^---[\s\S]*?---\s*/m, '')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-    .replace(/\[[^\]]*\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/[#>*_`~|\[\]()\-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -39,21 +39,93 @@ function titleOf(markdown, filePath) {
   return path.basename(filePath, path.extname(filePath));
 }
 
+function slugifyHeading(value) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[`*_~]/g, '')
+    .replace(/[^\p{Letter}\p{Number}\s-]/gu, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function splitSection(content, startOffset, maxLength = 900, overlap = 120) {
+  const clean = content.trim();
+  if (!clean) return [];
+  if (clean.length <= maxLength) return [{ content: clean, startOffset }];
+
+  const chunks = [];
+  let cursor = 0;
+  while (cursor < clean.length) {
+    let end = Math.min(clean.length, cursor + maxLength);
+    if (end < clean.length) {
+      const paragraphBreak = clean.lastIndexOf('\n\n', end);
+      const sentenceBreak = clean.lastIndexOf('。', end);
+      const candidate = Math.max(paragraphBreak, sentenceBreak);
+      if (candidate > cursor + Math.floor(maxLength * 0.55)) end = candidate + (candidate === paragraphBreak ? 2 : 1);
+    }
+    const part = clean.slice(cursor, end).trim();
+    if (part) chunks.push({ content: part, startOffset: startOffset + cursor });
+    if (end >= clean.length) break;
+    const next = Math.max(cursor + 1, end - overlap);
+    cursor = next;
+  }
+  return chunks;
+}
+
+/**
+ * 将 Markdown 按标题层级切成可引用片段。
+ * 每个片段携带完整 headingPath，长章节在段落/句号边界切分，避免旧实现的重复片段。
+ */
 function sectionsOf(markdown) {
+  const normalized = markdown.replace(/\r\n?/g, '\n');
+  // Frontmatter is build metadata, never learning evidence. Strip it before
+  // heading parsing while retaining the original offsets for source links.
+  const frontmatter = /^---\n[\s\S]*?\n---\n?/.exec(normalized);
+  const contentStartOffset = frontmatter ? frontmatter[0].length : 0;
+  const source = frontmatter ? normalized.slice(contentStartOffset) : normalized;
+  const lines = source.split('\n');
   const sections = [];
-  let heading;
-  let lines = [];
-  let startOffset = 0;
-  let offset = 0;
+  const headingStack = [];
+  let body = [];
+  let bodyStart = 0;
+  let offset = contentStartOffset;
+
   const flush = () => {
-    const content = lines.join('\n').trim();
-    if (!content) return;
-    for (let i = 0; i < content.length; i += 700) sections.push({ heading, content: content.slice(i, i + 800).trim(), startOffset: startOffset + i });
+    const content = body.join('\n').trim();
+    if (content) {
+      // frontmatter 是构建元数据，不是学习内容，不应进入 RAG 上下文。
+      if (headingStack.length === 0 && /^---\s*[\s\S]*?---\s*$/.test(content)) {
+        body = [];
+        return;
+      }
+      const headingPath = headingStack.map((item) => item.title);
+      const heading = headingPath.at(-1);
+      const anchor = heading ? slugifyHeading(heading) : undefined;
+      const questionHeading = [...headingPath].reverse().find((item) => /^Q\s*[：:]/i.test(item));
+      const question = questionHeading ? questionHeading.replace(/^Q\s*[：:]\s*/i, '').trim() : undefined;
+      const unitType = question ? 'qa' : headingPath.length ? 'section' : 'root';
+      // 章节内按段落/句号切分，不制造重复上下文；标题路径会在每个片段中保留语义。
+      for (const part of splitSection(content, bodyStart, 900, 0)) {
+        sections.push({ heading, headingPath, anchor, question, unitType, content: part.content, startOffset: part.startOffset });
+      }
+    }
+    body = [];
   };
-  for (const line of markdown.replace(/\r\n?/g, '\n').split('\n')) {
+
+  for (const line of lines) {
     const match = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
-    if (match) { flush(); heading = match[2].trim(); lines = []; startOffset = offset + line.length + 1; }
-    else { if (lines.length === 0) startOffset = offset; lines.push(line); }
+    if (match) {
+      flush();
+      const level = match[1].length;
+      while (headingStack.length >= level) headingStack.pop();
+      headingStack.push({ level, title: match[2].trim() });
+      bodyStart = offset + line.length + 1;
+    } else {
+      if (body.length === 0) bodyStart = offset;
+      body.push(line);
+    }
     offset += line.length + 1;
   }
   flush();
@@ -88,6 +160,7 @@ const docs = walk(sourceRoot).map((filePath) => {
     sections: sectionsOf(content),
     sourceUrl: `https://onefly.top/zero2Agent/${webPath}`,
     localPath: `/zero2agent/${relativePath}`,
+    sourceKind: 'markdown',
     moduleOrder,
     topicOrder,
     keywords: custom.keywords || [],

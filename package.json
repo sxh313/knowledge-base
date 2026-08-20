@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "generate:zero2agent": "node scripts/generate-zero2agent-kb.mjs",
+    "generate:zero2agent-embeddings": "node scripts/generate-zero2agent-embeddings.mjs",
     "test:watch": "vitest",
     "deploy": "bash deploy.sh",
     "auto-deploy": "bash auto-deploy.sh",

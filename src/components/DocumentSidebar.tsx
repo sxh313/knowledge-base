@@ -138,7 +138,7 @@ function DocumentSidebar({ journalId, title, aliases, content, onNavigate, onOut
   ];
 
   return (
-    <div className="w-60 shrink-0 border-l border-[var(--color-border)] bg-[var(--color-surface)] flex flex-col">
+    <div className="w-[268px] shrink-0 border-l border-[var(--color-border)] bg-[var(--color-surface)] flex flex-col">
       {/* 页签头 */}
       <div className="flex border-b border-[var(--color-border)]">
         {tabs.map((t) => {

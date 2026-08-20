@@ -44,6 +44,12 @@ export async function listTopicsByModule(module: string): Promise<Zero2CatalogTo
   return (await loadZero2Catalog()).filter((topic) => topic.module === module).sort((a, b) => (a.topicOrder ?? a.order) - (b.topicOrder ?? b.order));
 }
 
+export async function listTopicsByPathPrefix(pathPrefix: string): Promise<Zero2CatalogTopic[]> {
+  return (await loadZero2Catalog())
+    .filter((topic) => topic.path.startsWith(pathPrefix))
+    .sort((a, b) => (a.moduleOrder ?? 0) - (b.moduleOrder ?? 0) || (a.topicOrder ?? a.order) - (b.topicOrder ?? b.order));
+}
+
 export async function listModules(): Promise<string[]> {
   const topics = await loadZero2Catalog();
   return Array.from(new Set([...topics].sort((a, b) => (a.moduleOrder ?? 0) - (b.moduleOrder ?? 0)).map((topic) => topic.module)));

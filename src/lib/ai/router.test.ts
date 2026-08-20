@@ -104,6 +104,36 @@ describe('routeAI failover', () => {
 
     const res = await routeAI('qa', [{ role: 'user', content: 'hi' }]);
     expect(res.provider).toBe('local');
-    expect(res.model).toBe('llama3.2');
+    expect(res.model).toBe('dsv4');
+  });
+
+  it('优先使用设置页选择的高质量模型', async () => {
+    const settings = makeSettings({
+      zhipu: { baseUrl: 'https://glm', apiKey: 'k', enabled: true },
+      shengsuanyun: { baseUrl: 'https://fallback', apiKey: 'k2', enabled: true },
+    });
+    settings.preferredModels.highQuality = 'glm-4';
+    mockedGetSettings.mockResolvedValue(settings);
+    mockedChat.mockResolvedValue({ content: 'preferred', model: 'glm-4', usage: undefined });
+
+    const res = await routeAI('qa', [{ role: 'user', content: 'hi' }]);
+    expect(res.provider).toBe('zhipu');
+    expect(res.model).toBe('glm-4');
+    expect(mockedChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('支持设置页保存的 local/<modelId> 本地模型名称', async () => {
+    const settings = makeSettings({
+      local: { baseUrl: 'http://61.172.167.64:4900/v1', apiKey: '', enabled: true },
+    });
+    settings.preferredModels.highQuality = 'local/dsv4';
+    settings.selectedModels = ['local/dsv4'];
+    mockedGetSettings.mockResolvedValue(settings);
+    mockedChat.mockResolvedValue({ content: 'local-preferred', model: 'dsv4', usage: undefined });
+
+    const res = await routeAI('qa', [{ role: 'user', content: 'hi' }]);
+    expect(res.provider).toBe('local');
+    expect(res.model).toBe('dsv4');
+    expect(mockedChat).toHaveBeenCalledTimes(1);
   });
 });

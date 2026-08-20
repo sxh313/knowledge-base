@@ -11,12 +11,15 @@ export interface Zero2ReviewRetrieval {
   dispersion: number;
 }
 
+/** 当前产品的复习域默认对应“Agent 面试通关”课程，可在此切换到完整 zero2Agent。 */
+export const DEFAULT_ZERO2_REVIEW_PATH_PREFIX = 'learn-agent-interview/';
+
 function topicIdForChunk(chunk: RetrievedChunk): string {
   return chunk.knowledgeDocId || chunk.sourceId;
 }
 
-export async function retrieveZero2Review(question: string, topK = 8): Promise<Zero2ReviewRetrieval> {
-  const chunks = await retrieve(question, { kind: 'zero2agent' }, Math.max(2, topK));
+export async function retrieveZero2Review(question: string, topK = 8, pathPrefix = DEFAULT_ZERO2_REVIEW_PATH_PREFIX): Promise<Zero2ReviewRetrieval> {
+  const chunks = await retrieve(question, { kind: 'zero2agent', pathPrefix }, Math.max(2, topK));
   if (chunks.some((chunk) => chunk.source !== 'zero2agent')) {
     throw new Error('复习 Agent 检索到了非法知识源');
   }
@@ -54,7 +57,11 @@ export async function retrieveZero2Review(question: string, topK = 8): Promise<Z
     title: chunk.title,
     path: chunk.path || '',
     heading: chunk.heading,
+    headingPath: chunk.headingPath,
     startOffset: chunk.offset?.start,
+    sourceUrl: chunk.sourceUrl,
+    sourceAnchor: chunk.sourceAnchor,
+    localUrl: chunk.localUrl,
   }));
 
   const sortedScores = candidates.map((candidate) => candidate.score).sort((a, b) => b - a);
@@ -70,8 +77,3 @@ export async function retrieveZero2Review(question: string, topK = 8): Promise<Z
   };
 }
 
-export function formatZero2Context(chunks: RetrievedChunk[]): string {
-  return chunks.map((chunk, index) => (
-    `[${index + 1}] ${chunk.title}${chunk.heading ? ` / ${chunk.heading}` : ''}\n${chunk.content}`
-  )).join('\n\n---\n\n');
-}

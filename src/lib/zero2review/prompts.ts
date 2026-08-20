@@ -2,7 +2,7 @@ import type { ChatMessage } from '../ai/client';
 import type { RetrievedChunk } from '../ai/retrieval';
 
 export function buildTutorMessages(question: string, chunks: RetrievedChunk[]): ChatMessage[] {
-  const context = chunks.map((chunk, index) => `[${index + 1}] ${chunk.title}${chunk.heading ? ` / ${chunk.heading}` : ''}\n${chunk.content}`).join('\n\n---\n\n');
+  const context = chunks.map((chunk) => `chunkId=${chunk.chunkId} ${chunk.title}${chunk.headingPath?.length ? ` / ${chunk.headingPath.join(' > ')}` : chunk.heading ? ` / ${chunk.heading}` : ''}\n${chunk.content}`).join('\n\n---\n\n');
   return [
     {
       role: 'system',

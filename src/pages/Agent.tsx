@@ -35,7 +35,6 @@ const OP_META: Record<string, { label: string; icon: typeof FileText; color: str
   move: { label: '移动分类', icon: FolderInput, color: 'text-orange-600' },
   addTags: { label: '添加标签', icon: Tag, color: 'text-teal-600' },
   removeTags: { label: '移除标签', icon: Tag, color: 'text-slate-500' },
-  generateCards: { label: '生成知识卡片', icon: Layers, color: 'text-rose-600' },
   findDuplicates: { label: '查重', icon: Search, color: 'text-gray-500' },
   reviewQuality: { label: '质量检查', icon: ShieldCheck, color: 'text-gray-500' },
   createStudyPlan: { label: '学习计划', icon: Layers, color: 'text-gray-500' },
@@ -352,7 +351,7 @@ export default function Agent() {
   const updatePreference = async (patch: Partial<AgentPreferences>) => setPreferences(await saveAgentPreferences(patch));
 
   return (
-    <div className="relative flex h-full min-h-0 md:h-[calc(100vh-6rem)]">
+    <div className="relative flex h-full min-h-0">
       {/* 左侧会话栏 */}
       {isMobile && showSessions && (
         <button
@@ -362,7 +361,7 @@ export default function Agent() {
           type="button"
         />
       )}
-      <aside className={`${isMobile ? 'absolute inset-y-0 left-0 z-30 w-[84vw] max-w-[280px] shadow-xl' : 'w-60'} shrink-0 border-r border-[var(--color-border)] flex flex-col ${showSessions ? '' : 'hidden'}`}>
+      <aside className={`${isMobile ? 'absolute inset-y-0 left-0 z-30 w-[84vw] max-w-[280px] shadow-xl' : 'w-64'} shrink-0 border-r border-[var(--color-border)] flex flex-col ${showSessions ? '' : 'hidden'}`}>
         <div className="p-2 border-b border-[var(--color-border)] flex items-center justify-between">
           <span className="text-xs font-semibold text-[var(--color-text-secondary)]">会话</span>
           <button
@@ -494,16 +493,16 @@ export default function Agent() {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.length === 0 && (
-          <div className="text-center text-sm text-[var(--color-text-tertiary)] py-16 space-y-2">
-            <div className="text-4xl">🤖</div>
-            <p>我是你的知屿 AI 助手，可以帮你操作文档。</p>
-            <p className="text-xs">例如：「把这段内容新建为一篇笔记」「在《React 笔记》末尾追加这段总结」「把下面内容整理后写入《算法笔记》」</p>
-            <p className="text-xs">支持粘贴或上传 .md / .txt 文件作为素材。</p>
+          <div className="empty-state mx-auto max-w-3xl space-y-2 text-sm text-[var(--color-text-tertiary)]">
+            <div className="empty-state-icon mb-2 text-2xl">🤖</div>
+            <p className="font-medium text-[var(--color-text)]">让 Agent 帮你执行文档任务</p>
+            <p className="max-w-xl text-xs">可以新建、编辑、追加或整理文档。执行前会展示操作计划，由你确认后再写入。</p>
+            <div className="mt-2 flex flex-wrap justify-center gap-1.5 text-[11px]"><span className="tag-gray">整理学习笔记</span><span className="tag-gray">生成卡片</span><span className="tag-gray">追加总结</span></div>
           </div>
         )}
 
         {messages.map((msg, i) => (
-          <div key={i} className={`agent-message-row mx-auto flex w-full max-w-3xl cv-auto ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={i} className={`agent-message-row mx-auto flex w-full max-w-4xl cv-auto ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[85%] px-4 py-3 text-sm leading-7 ${
               msg.role === 'user'
                 ? 'agent-user-bubble rounded-2xl'
@@ -545,16 +544,6 @@ export default function Agent() {
                             {preview?.content && (
                               <div className="mt-1 pl-5 text-xs text-[var(--color-text-tertiary)] whitespace-pre-wrap">
                                 {preview.content}
-                              </div>
-                            )}
-                            {preview?.cards && preview.cards.length > 0 && (
-                              <div className="mt-1 pl-5 space-y-1 text-[11px] text-[var(--color-text-secondary)]">
-                                {preview.cards.slice(0, 5).map((card, cardIndex) => (
-                                  <div key={cardIndex} className="rounded border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1">
-                                    <b>{card.front}</b><span className="ml-1">{card.back.slice(0, 100)}{card.back.length > 100 ? '…' : ''}</span>
-                                  </div>
-                                ))}
-                                {preview.cards.length > 5 && <span>其余 {preview.cards.length - 5} 张确认后生成</span>}
                               </div>
                             )}
                             <DiffView before={preview?.beforeContent} after={preview?.afterContent} />
@@ -611,7 +600,7 @@ export default function Agent() {
 
         {isProcessing && (
           <div className="flex justify-start">
-            <div className="agent-assistant-content mx-auto w-full max-w-3xl px-1 py-2 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+            <div className="agent-assistant-content mx-auto w-full max-w-4xl px-1 py-2 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
               <Loader2 className="h-4 w-4 animate-spin" />
               <span>AI 正在分析并生成操作计划…</span>
             </div>
@@ -680,7 +669,7 @@ export default function Agent() {
 
       {/* 运行历史面板 */}
       {showRuns && (
-        <aside className="w-72 shrink-0 border-l border-[var(--color-border)] flex flex-col">
+        <aside className="w-80 shrink-0 border-l border-[var(--color-border)] flex flex-col">
           <div className="p-2 border-b border-[var(--color-border)] flex items-center justify-between">
             <span className="text-xs font-semibold text-[var(--color-text-secondary)]">运行历史</span>
             <button className="btn-ghost text-xs p-1 rounded hover:bg-[var(--color-surface-2)]" onClick={() => setShowRuns(false)}>

@@ -25,7 +25,11 @@ export interface Zero2SourceReference {
   title: string;
   path: string;
   heading?: string;
+  headingPath?: string[];
   startOffset?: number;
+  sourceUrl?: string;
+  sourceAnchor?: string;
+  localUrl?: string;
 }
 
 /** Stable public names used by the zero2review boundary. */

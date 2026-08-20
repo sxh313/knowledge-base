@@ -10,6 +10,7 @@ import { useSyncStore } from '../stores/syncStore';
 import { useUpdateStore, manualCheck, applyUpdate } from '../stores/updateStore';
 import { exportKeys, importKeys, type KeyBundle } from '../lib/utils/keyVault';
 import SyncSettingsSection from '../components/settings/SyncSettingsSection';
+import AIModelCenter from '../components/settings/AIModelCenter';
 import DesktopUpdater from '../components/DesktopUpdater';
 import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck, ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
 import { useViewModeStore } from '../stores/viewModeStore';
@@ -209,8 +210,8 @@ export default function SettingsPage() {
   })();
 
   return (
-    <div className="mx-auto flex max-w-6xl items-start gap-8 p-2 sm:p-4">
-      <main className="min-w-0 max-w-2xl flex-1 space-y-6 sm:space-y-8">
+    <div className="settings-layout w-full p-1 sm:p-3">
+      <main className="min-w-0 space-y-5 sm:space-y-7">
       <header className="page-hero !items-start !flex-col !gap-0">
         <div className="page-kicker">Workspace preferences</div>
         <h1 className="text-2xl font-bold">设置</h1>
@@ -421,11 +422,13 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      <AIModelCenter settings={settings} onUpdate={update} />
+
       {/* 模型偏好 */}
       <section id="model-preferences" className="scroll-mt-6 space-y-3">
         <h2 className="text-lg font-semibold">🎯 模型偏好</h2>
         <p className="text-xs text-gray-400">
-          从上方勾选的模型中选择，默认：deepseek-v4-flash
+          从上方勾选的模型中选择，当前工作区默认：local/dsv4（DeepSeek-V4-Flash 本地部署）
           {(settings.selectedModels ?? []).length === 0 && '（尚未勾选模型，使用默认）'}
         </p>
 
@@ -530,7 +533,7 @@ export default function SettingsPage() {
       {/* 数据管理 */}
       <section id="data-management" className="scroll-mt-6 space-y-3">
         <h2 className="text-lg font-semibold">💾 数据管理</h2>
-        <p className="text-xs text-gray-400">JSON 备份包含文档、附件、卡片、对话、分类、版本、学习目标、业务偏好和 Agent 历史；不包含 API Key、GitHub Token 与设备级界面设置。</p>
+        <p className="text-xs text-gray-400">JSON 备份包含文档、附件、对话、分类、版本、学习目标、业务偏好和 Agent 历史；不包含 API Key、GitHub Token 与设备级界面设置。</p>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <button className="btn-secondary" onClick={() => import('../lib/services/export').then(m => m.exportAllData())}>
             📤 导出数据
@@ -642,11 +645,12 @@ export default function SettingsPage() {
         API Key 由当前设备保存，安装包不内置共享密钥；笔记数据默认本地，仅在启用云同步时推送到你自己的 GitHub 仓库
       </div>
       </main>
-      <aside className="sticky top-6 hidden w-44 shrink-0 lg:block">
-        <nav aria-label="设置分区" className="border-l border-[var(--color-border)] pl-3">
+      <aside className="sticky top-3 hidden lg:block">
+        <nav aria-label="设置分区" className="card !p-2">
           <p className="mb-2 px-2 text-sm font-semibold text-[var(--color-text-tertiary)]">设置导航</p>
           {[
             ['ai-services', 'AI 服务'],
+            ['model-center', '模型中心'],
             ['model-preferences', '模型偏好'],
             ['cloud-sync', '云同步'],
             ['key-migration', '密钥迁移'],

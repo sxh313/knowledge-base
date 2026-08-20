@@ -1,4 +1,5 @@
 import { db, type Zero2Mastery, type Zero2ReviewAttempt, type Zero2ReviewMessage, type Zero2ReviewPlan, type Zero2ReviewSession, type Zero2ReviewTask } from '../db/schema';
+import { assertZero2Source } from './isolation';
 
 export async function createReviewSession(title = 'zero2Agent 复习'): Promise<Zero2ReviewSession> {
   const now = Date.now();
@@ -22,15 +23,55 @@ export async function archiveReviewSession(id: string): Promise<void> {
   await db.zero2ReviewSessions.update(id, { status: 'archived', updatedAt: Date.now() });
 }
 
+export async function softDeleteReviewSession(id: string): Promise<void> {
+  const now = Date.now();
+  await db.zero2ReviewSessions.update(id, { status: 'archived', deletedAt: now, updatedAt: now });
+}
+
 export async function saveAcceptedMessage(input: Omit<Zero2ReviewMessage, 'id' | 'createdAt'>): Promise<Zero2ReviewMessage> {
-  const message: Zero2ReviewMessage = { ...input, id: crypto.randomUUID(), createdAt: Date.now() };
+  input.citations.forEach(assertZero2Source);
+  const now = Date.now();
+  const message: Zero2ReviewMessage = { ...input, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
   await db.zero2ReviewMessages.add(message);
   await db.zero2ReviewSessions.update(input.sessionId, { updatedAt: Date.now() });
   return message;
 }
 
+export async function saveAcceptedExchange(
+  user: Omit<Zero2ReviewMessage, 'id' | 'createdAt'>,
+  assistant: Omit<Zero2ReviewMessage, 'id' | 'createdAt'>,
+): Promise<[Zero2ReviewMessage, Zero2ReviewMessage]> {
+  user.citations.forEach(assertZero2Source);
+  assistant.citations.forEach(assertZero2Source);
+  const now = Date.now();
+  const userMessage: Zero2ReviewMessage = { ...user, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
+  const assistantMessage: Zero2ReviewMessage = { ...assistant, id: crypto.randomUUID(), createdAt: now + 1, updatedAt: now + 1 };
+  await db.transaction('rw', db.zero2ReviewSessions, db.zero2ReviewMessages, async () => {
+    await db.zero2ReviewMessages.bulkAdd([userMessage, assistantMessage]);
+    await db.zero2ReviewSessions.update(user.sessionId, { updatedAt: now + 1 });
+  });
+  return [userMessage, assistantMessage];
+}
+
+export async function saveAcceptedExchangeAndMastery(
+  user: Omit<Zero2ReviewMessage, 'id' | 'createdAt'>,
+  assistant: Omit<Zero2ReviewMessage, 'id' | 'createdAt'>,
+  mastery: Zero2Mastery[],
+): Promise<void> {
+  user.citations.forEach(assertZero2Source);
+  assistant.citations.forEach(assertZero2Source);
+  const now = Date.now();
+  const userMessage: Zero2ReviewMessage = { ...user, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
+  const assistantMessage: Zero2ReviewMessage = { ...assistant, id: crypto.randomUUID(), createdAt: now + 1, updatedAt: now + 1 };
+  await db.transaction('rw', db.zero2ReviewSessions, db.zero2ReviewMessages, db.zero2Mastery, async () => {
+    await db.zero2ReviewMessages.bulkAdd([userMessage, assistantMessage]);
+    if (mastery.length) await db.zero2Mastery.bulkPut(mastery);
+    await db.zero2ReviewSessions.update(user.sessionId, { updatedAt: now + 1 });
+  });
+}
+
 export async function listAcceptedMessages(sessionId: string): Promise<Zero2ReviewMessage[]> {
-  return db.zero2ReviewMessages.where('sessionId').equals(sessionId).sortBy('createdAt');
+  return (await db.zero2ReviewMessages.where('sessionId').equals(sessionId).sortBy('createdAt')).filter((message) => !message.deletedAt);
 }
 
 export async function getLatestReviewMessage(sessionId: string): Promise<Zero2ReviewMessage | undefined> {
@@ -58,17 +99,35 @@ export async function recordAttempt(input: Omit<Zero2ReviewAttempt, 'id' | 'answ
   const id = idempotencyKey || crypto.randomUUID();
   const existing = await db.zero2ReviewAttempts.get(id);
   if (existing) return { attempt: existing, created: false };
-  const attempt: Zero2ReviewAttempt = { ...input, id, answeredAt: Date.now() };
+  const now = Date.now();
+  const attempt: Zero2ReviewAttempt = { ...input, id, answeredAt: now, updatedAt: now };
   await db.zero2ReviewAttempts.add(attempt);
   return { attempt, created: true };
 }
 
+export async function recordAttemptAndMastery(
+  input: Omit<Zero2ReviewAttempt, 'id' | 'answeredAt'>,
+  mastery: Zero2Mastery,
+  idempotencyKey?: string,
+): Promise<{ attempt: Zero2ReviewAttempt; created: boolean }> {
+  const id = idempotencyKey || crypto.randomUUID();
+  const existing = await db.zero2ReviewAttempts.get(id);
+  if (existing) return { attempt: existing, created: false };
+  const now = Date.now();
+  const attempt: Zero2ReviewAttempt = { ...input, id, answeredAt: now, updatedAt: now };
+  await db.transaction('rw', db.zero2ReviewAttempts, db.zero2Mastery, async () => {
+    await db.zero2ReviewAttempts.add(attempt);
+    await db.zero2Mastery.put({ ...mastery, updatedAt: now });
+  });
+  return { attempt, created: true };
+}
+
 export async function listTopicAttempts(topicId: string): Promise<Zero2ReviewAttempt[]> {
-  return db.zero2ReviewAttempts.where('topicId').equals(topicId).sortBy('answeredAt');
+  return (await db.zero2ReviewAttempts.where('topicId').equals(topicId).sortBy('answeredAt')).filter((attempt) => !attempt.deletedAt);
 }
 
 export async function updateAttemptScore(id: string, score: Zero2ReviewAttempt['score'], mistakeTypes?: Zero2ReviewAttempt['mistakeTypes']): Promise<void> {
-  await db.zero2ReviewAttempts.update(id, { score, ...(mistakeTypes ? { mistakeTypes } : {}) });
+  await db.zero2ReviewAttempts.update(id, { score, ...(mistakeTypes ? { mistakeTypes } : {}), updatedAt: Date.now() });
 }
 
 export async function createReviewPlan(input: Omit<Zero2ReviewPlan, 'id' | 'createdAt' | 'updatedAt'>): Promise<Zero2ReviewPlan> {
@@ -82,8 +141,21 @@ export async function updateReviewPlan(id: string, patch: Partial<Zero2ReviewPla
   await db.zero2ReviewPlans.update(id, { ...patch, updatedAt: Date.now() });
 }
 
+export async function getReviewPlan(id: string): Promise<Zero2ReviewPlan | undefined> {
+  return db.zero2ReviewPlans.get(id);
+}
+
 export async function listActiveReviewPlans(): Promise<Zero2ReviewPlan[]> {
   return db.zero2ReviewPlans.where('status').equals('active').filter((plan) => !plan.deletedAt).toArray();
+}
+
+export async function getActiveReviewPlan(goalId: string): Promise<Zero2ReviewPlan | undefined> {
+  return db.zero2ReviewPlans.where('goalId').equals(goalId).filter((plan) => plan.status === 'active' && !plan.deletedAt).first();
+}
+
+export async function softDeleteReviewPlan(id: string): Promise<void> {
+  const now = Date.now();
+  await db.zero2ReviewPlans.update(id, { status: 'paused', deletedAt: now, updatedAt: now });
 }
 
 export async function saveReviewTasks(tasks: Zero2ReviewTask[]): Promise<void> {
@@ -99,4 +171,17 @@ export async function listReviewTasks(planId: string, fromDate?: string): Promis
 
 export async function updateReviewTask(id: string, patch: Partial<Pick<Zero2ReviewTask, 'date' | 'status' | 'estimatedMinutes'>>): Promise<void> {
   await db.zero2ReviewTasks.update(id, { ...patch, updatedAt: Date.now() });
+}
+
+/** 已完成/跳过任务不可被重新规划覆盖；只更新仍待执行的同 id 任务。 */
+export async function saveReviewTasksPreservingCompleted(tasks: Zero2ReviewTask[]): Promise<void> {
+  if (!tasks.length) return;
+  const ids = tasks.map((task) => task.id);
+  const existing = await db.zero2ReviewTasks.bulkGet(ids);
+  const safe = tasks.map((task, index) => {
+    const old = existing[index];
+    if (old && old.status !== 'todo') return old;
+    return { ...task, updatedAt: Date.now(), createdAt: old?.createdAt ?? Date.now() };
+  });
+  await db.zero2ReviewTasks.bulkPut(safe);
 }

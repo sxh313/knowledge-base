@@ -1,11 +1,16 @@
 import { db } from '../db/schema';
 import type { JournalEntry } from '../db/schema';
 import { getChunksForJournalIds } from './chunker';
+import { getSettings } from '../db/queries';
+import { embedQuery } from './embeddings';
+import { getEmbeddingProfile, getRetrievalSettings } from './modelProfiles';
+import { rerankChunks } from './reranker';
+import { routeBoundAI } from './router';
 
 export type KnowledgeScope =
   | { kind: 'all' } // 兼容旧调用：仅个人文档
   | { kind: 'personal' }
-  | { kind: 'zero2agent' }
+  | { kind: 'zero2agent'; module?: string; pathPrefix?: string }
   | { kind: 'combined' }
   | { kind: 'none' }
   | { kind: 'subject'; subject: string }
@@ -29,6 +34,12 @@ export interface RetrievedChunk {
   module?: string;
   sourceUrl?: string;
   localPath?: string;
+  headingPath?: string[];
+  question?: string;
+  unitType?: 'root' | 'section' | 'qa';
+  sourceAnchor?: string;
+  /** 应用内来源查看器地址，优先于直接打开静态 Markdown。 */
+  localUrl?: string;
 }
 
 interface Zero2AgentDocument {
@@ -40,10 +51,16 @@ interface Zero2AgentDocument {
   contentPlain: string;
   sourceUrl: string;
   localPath?: string;
-  sections?: { heading?: string; content: string; startOffset: number }[];
+  sections?: { heading?: string; headingPath?: string[]; anchor?: string; question?: string; unitType?: 'root' | 'section' | 'qa'; content: string; startOffset: number }[];
 }
 
 let zero2AgentDocsPromise: Promise<Zero2AgentDocument[]> | null = null;
+interface Zero2AgentEmbeddingIndex {
+  model?: string;
+  dimension?: number;
+  items?: { chunkId: string; textHash?: string; vector: number[] }[];
+}
+let zero2AgentEmbeddingsPromise: Promise<Zero2AgentEmbeddingIndex | null> | null = null;
 
 function zero2AgentDocs(): Promise<Zero2AgentDocument[]> {
   if (!zero2AgentDocsPromise) {
@@ -94,6 +111,20 @@ export function rewriteQuery(question: string): string {
   ];
   for (const [pattern, replacement] of aliases) query = query.replace(pattern, replacement);
   return query || question.trim();
+}
+async function buildRetrievalQuery(question: string, queryRewriteEnabled: boolean): Promise<string> {
+  const localQuery = rewriteQuery(question);
+  if (!queryRewriteEnabled) return localQuery;
+  try {
+    const result = await routeBoundAI('queryRewriteModelId', 'qa', [
+      { role: 'system', content: '你是检索查询改写器。只输出适合知识库检索的关键词和同义词，不要回答问题，不要编造知识。' },
+      { role: 'user', content: `原问题：${question}\n本地改写：${localQuery}` },
+    ]);
+    const modelQuery = result.content.replace(/^```(?:text|json)?\s*/i, '').replace(/\s*```$/, '').trim().slice(0, 500);
+    return modelQuery ? `${question} ${localQuery} ${modelQuery}` : localQuery;
+  } catch {
+    return localQuery;
+  }
 }
 
 function scoreText(haystack: string, terms: string[]): number {
@@ -157,20 +188,21 @@ async function retrievePersonal(question: string, scope: KnowledgeScope, topK: n
   return selected;
 }
 
-function splitExternal(doc: Zero2AgentDocument): { heading?: string; content: string; startOffset: number }[] {
-  const sections: { heading?: string; content: string; startOffset: number }[] = [];
+function splitExternal(doc: Zero2AgentDocument): { heading?: string; headingPath?: string[]; anchor?: string; question?: string; unitType?: 'root' | 'section' | 'qa'; content: string; startOffset: number }[] {
+  const sections: { heading?: string; headingPath?: string[]; anchor?: string; question?: string; unitType?: 'root' | 'section' | 'qa'; content: string; startOffset: number }[] = [];
   let heading: string | undefined;
+  let headingPath: string[] = [];
   let lines: string[] = [];
   let startOffset = 0;
   let offset = 0;
   const flush = () => {
     const content = lines.join('\n').trim();
     if (!content) return;
-    for (let i = 0; i < content.length; i += 700) sections.push({ heading, content: content.slice(i, i + 800).trim(), startOffset: startOffset + i });
+    for (let i = 0; i < content.length; i += 900) sections.push({ heading, headingPath, content: content.slice(i, i + 900).trim(), startOffset: startOffset + i });
   };
   for (const line of doc.content.replace(/\r\n?/g, '\n').split('\n')) {
     const match = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
-    if (match) { flush(); heading = match[2].trim(); lines = []; startOffset = offset + line.length + 1; }
+    if (match) { flush(); heading = match[2].trim(); headingPath = [heading]; lines = []; startOffset = offset + line.length + 1; }
     else { if (lines.length === 0) startOffset = offset; lines.push(line); }
     offset += line.length + 1;
   }
@@ -178,40 +210,96 @@ function splitExternal(doc: Zero2AgentDocument): { heading?: string; content: st
   return sections;
 }
 
-async function retrieveZero2Agent(question: string, topK: number): Promise<RetrievedChunk[]> {
-  const rewritten = rewriteQuery(question);
-  const terms = extractTerms(`${question} ${rewritten}`);
-  if (!terms.length) return [];
-  const docs = await zero2AgentDocs();
-  const scored: RetrievedChunk[] = [];
-  for (const doc of docs) {
-    for (const section of doc.sections ?? splitExternal(doc)) {
-      const score = scoreText(section.content, terms) + scoreText(section.heading ?? '', terms) * 2 + scoreText(doc.title, terms) * 3 + scoreText(doc.module, terms);
-      if (score > 0) scored.push({ source: 'zero2agent', sourceId: doc.id, chunkId: `${doc.id}:${section.startOffset}`, offset: { start: section.startOffset, end: section.startOffset + section.content.length }, knowledgeDocId: doc.id, title: doc.title, heading: section.heading, content: section.content, score, confidence: Math.min(0.99, score / Math.max(1, terms.length * 3)), path: doc.path, module: doc.module, sourceUrl: doc.sourceUrl, localPath: doc.localPath });
-    }
-  }
-  scored.sort((a, b) => b.score - a.score);
+function cosine(a: number[], b: number[]): number {
+  if (a.length !== b.length || !a.length) return 0;
+  let score = 0;
+  for (let i = 0; i < a.length; i++) score += a[i] * b[i];
+  return Math.max(-1, Math.min(1, score));
+}
+
+function selectPerDocument(chunks: RetrievedChunk[], topK: number): RetrievedChunk[] {
   const selected: RetrievedChunk[] = [];
   const perDoc = new Map<string, number>();
-  for (const chunk of scored) {
-    const count = perDoc.get(chunk.knowledgeDocId!) ?? 0;
+  for (const chunk of chunks) {
+    const sourceKey = chunk.knowledgeDocId ?? chunk.journalId ?? chunk.sourceId;
+    const count = perDoc.get(sourceKey) ?? 0;
     if (count >= 2) continue;
-    perDoc.set(chunk.knowledgeDocId!, count + 1);
+    perDoc.set(sourceKey, count + 1);
     selected.push(chunk);
     if (selected.length >= topK) break;
   }
   return selected;
 }
 
+async function retrieveZero2Agent(question: string, topK: number, scope: Extract<KnowledgeScope, { kind: 'zero2agent' }> = { kind: 'zero2agent' }): Promise<RetrievedChunk[]> {
+  const settings = await getSettings();
+  const retrievalSettings = getRetrievalSettings(settings);
+  const rewritten = await buildRetrievalQuery(question, retrievalSettings.queryRewriteEnabled);
+  const terms = extractTerms(`${question} ${rewritten}`);
+  if (!terms.length) return [];
+  const docs = await zero2AgentDocs();
+  const scored: RetrievedChunk[] = [];
+  const filteredDocs = docs.filter((doc) => {
+    if (scope.module && doc.module !== scope.module) return false;
+    if (scope.pathPrefix && !doc.path.startsWith(scope.pathPrefix)) return false;
+    return true;
+  });
+  for (const doc of filteredDocs) {
+    for (const section of doc.sections ?? splitExternal(doc)) {
+      const score = scoreText(section.content, terms) + scoreText(section.question ?? '', terms) * 4 + scoreText(section.heading ?? '', terms) * 2 + scoreText(doc.title, terms) * 3 + scoreText(doc.module, terms);
+      const chunkId = `${doc.id}:${section.startOffset}`;
+      const sourceAnchor = section.anchor || (section.heading ? section.heading.toLowerCase().replace(/[^\p{Letter}\p{Number}\s-]/gu, '').replace(/\s+/g, '-') : undefined);
+      scored.push({ source: 'zero2agent', sourceId: doc.id, chunkId, offset: { start: section.startOffset, end: section.startOffset + section.content.length }, knowledgeDocId: doc.id, title: doc.title, heading: section.heading, headingPath: section.headingPath, question: section.question, unitType: section.unitType, content: section.content, score, confidence: Math.min(0.99, score / Math.max(1, terms.length * 3)), path: doc.path, module: doc.module, sourceUrl: doc.sourceUrl, localPath: doc.localPath, sourceAnchor, localUrl: `/source/zero2agent?chunkId=${encodeURIComponent(chunkId)}` });
+    }
+  }
+  let queryVector: number[] | null = null;
+  let vectorByChunk = new Map<string, number[]>();
+  if (retrievalSettings.vectorEnabled && getEmbeddingProfile(settings)) {
+    const index = await zero2AgentEmbeddings();
+    if (index?.items?.length) {
+      vectorByChunk = new Map(index.items.map((item) => [item.chunkId, item.vector]));
+      try {
+        queryVector = await embedQuery(question, { timeoutMs: 15000 });
+      } catch (error) {
+        console.warn('RAG vector retrieval skipped:', (error as Error).message);
+      }
+    }
+  }
+
+  const maxLexical = Math.max(1, ...scored.map((chunk) => chunk.score));
+  const blended = scored
+    .map((chunk) => {
+      const vectorScore = queryVector ? Math.max(0, cosine(queryVector, vectorByChunk.get(chunk.chunkId) ?? [])) : 0;
+      const lexicalScore = chunk.score / maxLexical;
+      const useVector = !!queryVector && vectorScore > 0;
+      const score = useVector
+        ? retrievalSettings.lexicalWeight * lexicalScore + retrievalSettings.vectorWeight * vectorScore
+        : chunk.score;
+      return { ...chunk, score, confidence: useVector ? Math.min(0.99, score) : chunk.confidence };
+    })
+    .filter((chunk) => chunk.score > 0)
+    .sort((a, b) => b.score - a.score);
+  return selectPerDocument(blended, topK);
+}
+
 export async function retrieve(question: string, scope: KnowledgeScope, topK = 8): Promise<RetrievedChunk[]> {
   if (scope.kind === 'none' || !question.trim()) return [];
-  if (scope.kind === 'zero2agent') return retrieveZero2Agent(question, topK);
+  const settings = await getSettings();
+  const retrievalSettings = getRetrievalSettings(settings);
+  const candidateTopK = retrievalSettings.rerankEnabled
+    ? Math.max(topK, Math.min(50, retrievalSettings.candidateTopK))
+    : topK;
+  if (scope.kind === 'zero2agent') {
+    const candidates = await retrieveZero2Agent(question, candidateTopK, scope);
+    return rerankChunks(question, candidates, topK);
+  }
   if (scope.kind === 'combined') {
     const [personal, external] = await Promise.all([
       retrievePersonal(question, { kind: 'personal' }, topK),
-      retrieveZero2Agent(question, topK),
+      retrieveZero2Agent(question, candidateTopK),
     ]);
-    return [...personal, ...external].sort((a, b) => b.score - a.score).slice(0, topK);
+    const reranked = await rerankChunks(question, external, Math.min(topK, external.length));
+    return [...personal, ...reranked].sort((a, b) => b.score - a.score).slice(0, topK);
   }
   return retrievePersonal(question, scope, topK);
 }
@@ -219,8 +307,26 @@ export async function retrieve(question: string, scope: KnowledgeScope, topK = 8
 export function formatContextForPrompt(chunks: RetrievedChunk[]): string {
   return chunks.map((c, i) => {
     const source = c.source === 'zero2agent' ? `zero2Agent / ${c.path}` : `个人文档 / ${c.title}`;
-    return `[${i + 1}] 来源：${source}${c.heading ? ` / 章节：${c.heading}` : ''}\n${c.content}`;
+    const headingPath = c.headingPath?.length ? ` / 章节：${c.headingPath.join(' > ')}` : c.heading ? ` / 章节：${c.heading}` : '';
+    return `[${i + 1}] chunkId=${c.chunkId}\n来源：${source}${headingPath}\n${c.content}`;
   }).join('\n\n---\n\n');
+}
+
+function zero2AgentEmbeddings(): Promise<Zero2AgentEmbeddingIndex | null> {
+  if (!zero2AgentEmbeddingsPromise) {
+    const url = `${import.meta.env.BASE_URL || '/'}zero2agent-embeddings.json`;
+    zero2AgentEmbeddingsPromise = fetch(url)
+      .then(async (response) => {
+        if (response.status === 404) return null;
+        if (!response.ok) throw new Error(`zero2Agent 向量索引加载失败: ${response.status}`);
+        return response.json() as Promise<Zero2AgentEmbeddingIndex>;
+      })
+      .catch((error) => {
+        console.warn('zero2Agent vector index unavailable:', (error as Error).message);
+        return null;
+      });
+  }
+  return zero2AgentEmbeddingsPromise;
 }
 
 export type RAGAnswerMode = 'strict' | 'hybrid';
