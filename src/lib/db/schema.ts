@@ -116,6 +116,9 @@ export interface AIConversation {
     module?: string;
     sourceUrl?: string;
     localPath?: string;
+    headingPath?: string[];
+    sourceAnchor?: string;
+    localUrl?: string;
   }[];
   tokensInput: number;
   tokensOutput: number;
@@ -133,6 +136,48 @@ export interface AISettings {
   zhipu: { baseUrl: string; apiKey: string; enabled: boolean };
   deepseek: { baseUrl: string; apiKey: string; enabled: boolean };
   local: { baseUrl: string; apiKey: string; enabled: boolean };
+}
+
+/**
+ * 独立模型中心中的模型配置。一个配置可以被多个业务角色复用，避免
+ * 在“回答 / 重排 / 复习 / 评分”等页面重复填写同一个端点。
+ */
+export type AIModelProfileKind = 'chat' | 'embedding';
+
+export interface AIModelProfile {
+  id: string;
+  name: string;
+  kind: AIModelProfileKind;
+  baseUrl: string;
+  modelId: string;
+  apiKey: string;
+  enabled: boolean;
+  dimension?: number;
+}
+
+export interface AIModelBindings {
+  /** 最终回答、普通 AI 任务和 zero2Agent 回答使用的对话模型。 */
+  answerModelId: string;
+  /** 向量召回模型；没有配置时自动退回关键词检索。 */
+  embeddingModelId?: string;
+  /** 可选的 LLM 重排模型，通常绑定 chat 模型（例如 dsv4）。 */
+  rerankerModelId?: string;
+  /** 可选的查询改写模型。默认关闭，避免增加一次网络请求。 */
+  queryRewriteModelId?: string;
+  reviewTutorModelId: string;
+  evaluatorModelId: string;
+  plannerModelId: string;
+}
+
+export interface RetrievalSettings {
+  vectorEnabled: boolean;
+  rerankEnabled: boolean;
+  queryRewriteEnabled: boolean;
+  lexicalWeight: number;
+  vectorWeight: number;
+  candidateTopK: number;
+  rerankTopK: number;
+  rerankTimeoutMs: number;
 }
 
 export interface SyncConfig {
@@ -171,6 +216,12 @@ export interface AppSettings {
   sync?: SyncConfig;
   /** AI provider 优先级顺序（用户可自定义排序；缺省时按内置顺序） */
   providerOrder?: ProviderName[];
+  /** 独立模型中心；与旧的 provider 配置并存，逐步迁移不破坏旧用户设置。 */
+  modelProfiles?: AIModelProfile[];
+  /** 各业务角色实际绑定的模型配置。 */
+  modelBindings?: AIModelBindings;
+  /** 向量召回与 dsv4 重排开关。 */
+  retrieval?: RetrievalSettings;
 }
 
 // ──── 文档版本历史快照 ────
@@ -384,9 +435,11 @@ export interface Zero2ReviewMessage {
   intent: 'review_question' | 'review_command' | 'review_meta';
   content: string;
   topicIds: string[];
-  citations: { sourceId: string; chunkId: string; path: string; title: string; heading?: string }[];
+  citations: { source: 'zero2agent'; sourceId: string; chunkId: string; path: string; title: string; heading?: string; headingPath?: string[]; sourceUrl?: string; localUrl?: string; sourceAnchor?: string }[];
   diagnosticQuestion?: { id: string; topicId: string; type: 'recall' | 'comparison' | 'boundary' | 'application' | 'diagnostic'; prompt: string; sourceChunkIds: string[] };
   createdAt: number;
+  updatedAt?: number;
+  deletedAt?: number;
 }
 
 export interface Zero2Mastery {
@@ -430,6 +483,8 @@ export interface Zero2ReviewTask {
   type: 'learn' | 'recall' | 'quiz' | 'practice' | 'review';
   estimatedMinutes: number;
   sourceIds: string[];
+  recommendationReason?: string;
+  priority?: { total: number; weakness: number; prerequisiteGap: number; overdue: number; recentInterest: number; lowEvidence: number };
   status: 'todo' | 'done' | 'skipped';
   createdAt: number;
   updatedAt: number;
@@ -446,6 +501,8 @@ export interface Zero2ReviewAttempt {
   mistakeTypes: ('concept' | 'boundary' | 'comparison' | 'application' | 'terminology')[];
   evidenceChunkIds: string[];
   answeredAt: number;
+  updatedAt?: number;
+  deletedAt?: number;
 }
 
 // ──── Database Class ────
@@ -572,11 +629,24 @@ export class StudyJournalDB extends Dexie {
     // version(9): zero2Agent 复习教练独立数据域，不与通用 Agent、个人文档和卡片混用。
     this.version(9).stores({
       zero2ReviewSessions: 'id, goalId, status, updatedAt, deletedAt',
-      zero2ReviewMessages: 'id, sessionId, intent, createdAt, [sessionId+createdAt]',
+      zero2ReviewMessages: 'id, sessionId, intent, createdAt, updatedAt, deletedAt, [sessionId+createdAt]',
       zero2Mastery: 'topicId, state, nextReviewAt, updatedAt, deletedAt',
       zero2ReviewPlans: 'id, goalId, status, updatedAt, deletedAt',
       zero2ReviewTasks: 'id, planId, topicId, date, status, updatedAt, [planId+date]',
-      zero2ReviewAttempts: 'id, sessionId, topicId, answeredAt, [topicId+answeredAt]',
+      zero2ReviewAttempts: 'id, sessionId, topicId, answeredAt, updatedAt, deletedAt, [topicId+answeredAt]',
+    });
+    // version(10): 为复习消息/作答增加同步时间与删除墓碑，旧数据按创建时间补齐。
+    this.version(10).stores({
+      zero2ReviewMessages: 'id, sessionId, intent, createdAt, updatedAt, deletedAt, [sessionId+createdAt]',
+      zero2ReviewAttempts: 'id, sessionId, topicId, answeredAt, updatedAt, deletedAt, [topicId+answeredAt]',
+    }).upgrade(async (tx) => {
+      const now = Date.now();
+      await tx.table('zero2ReviewMessages').toCollection().modify((row: { createdAt?: number; updatedAt?: number }) => {
+        row.updatedAt ??= row.createdAt ?? now;
+      });
+      await tx.table('zero2ReviewAttempts').toCollection().modify((row: { answeredAt?: number; updatedAt?: number }) => {
+        row.updatedAt ??= row.answeredAt ?? now;
+      });
     });
   }
 }

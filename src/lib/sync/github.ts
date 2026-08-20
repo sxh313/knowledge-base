@@ -372,7 +372,7 @@ export async function pullFromCloud(cfg: SyncConfig): Promise<PullResult | null>
     let conflicts = 0;
     let baselineHashes: Record<string, string> = {};
     if (remote?.content) {
-      const remoteData = JSON.parse(b64decode(remote.content)) as FullData;
+      const remoteData = applyZero2HistoryBoundary(JSON.parse(b64decode(remote.content)) as FullData, !!cfg.syncZero2ReviewHistory);
       const conflictedIds = detectConflictedIds(local.journals, remoteData.journals, baseline);
       conflicts = await recordConflicts(local.journals, remoteData.journals, conflictedIds);
       const merged = keepLocalForConflicts(mergeData(local, remoteData), local, conflictedIds);

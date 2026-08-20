@@ -21,11 +21,8 @@ const navItems = [
   { to: '/', icon: FileText, label: '文档' },
   { to: '/inbox', icon: Inbox, label: '收集箱' },
   { to: '/ai', icon: MessageSquare, label: '知屿 AI' },
-  { to: '/review', icon: BookOpen, label: '复习' },
   { to: '/zero2-review', icon: Brain, label: 'zero2 复习' },
   { to: '/learning', icon: Target, label: '学习目标' },
-  { to: '/cards', icon: Layers, label: '卡片库' },
-  { to: '/knowledge', icon: Brain, label: '知识图谱' },
   { to: '/stats', icon: BarChart3, label: '统计' },
   { to: '/tags', icon: Tag, label: '标签' },
   { to: '/settings', icon: Settings, label: '设置' },
@@ -88,13 +85,13 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
 
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     const saved = Number(localStorage.getItem('sidebar-width'));
-    return Number.isFinite(saved) && saved > 0 ? saved : 176;
+    return Number.isFinite(saved) && saved >= 216 && saved <= 360 ? saved : 240;
   });
 
   const startResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const onMove = (ev: MouseEvent) => {
-      const w = Math.max(150, Math.min(360, ev.clientX));
+      const w = Math.max(216, Math.min(360, ev.clientX));
       setSidebarWidth(w);
     };
     const onUp = () => {
@@ -115,6 +112,8 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
 
   const location = useLocation();
   const navigate = useNavigate();
+  const isEditorPage = location.pathname.startsWith('/edit/');
+  const isWorkspacePage = isEditorPage || location.pathname === '/ai' || location.pathname === '/agent';
   const previousPathRef = useRef('/');
   const isManualPage = location.pathname === '/manual';
   useEffect(() => {
@@ -174,7 +173,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
       <div className="flex min-h-[100dvh] flex-col overflow-hidden">
         {showTemplates && <TemplatePicker onClose={() => setShowTemplates(false)} />}
 
-        <div className="glass flex items-center gap-2 border-b border-[var(--color-border)] px-3 h-12 shrink-0">
+        <div className="glass flex h-11 shrink-0 items-center gap-1.5 border-b border-[var(--color-border)] px-2.5">
           <button
             onClick={onOpenPalette}
             className="flex flex-1 items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)] transition-colors"
@@ -211,21 +210,21 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </button>
         </div>
 
-        <main className="app-main flex-1 min-h-0 overflow-y-auto px-3 py-4">
-          <div key={location.pathname} className="min-h-full animate-slide-up">
+        <main className={`app-main flex-1 min-h-0 ${isWorkspacePage ? 'overflow-hidden p-0' : 'overflow-y-auto px-2.5 py-3'}`}>
+          <div key={location.pathname} className={`min-h-full animate-slide-up ${isWorkspacePage ? `workspace-mobile-content ${isEditorPage ? 'workspace-mobile-content-editor' : ''}` : ''}`}>
             <Outlet />
           </div>
         </main>
 
-        {!location.pathname.startsWith('/edit') && (
+        {!isWorkspacePage && (
           <button
             onClick={() => setShowNewSheet(true)}
-            className="fixed bottom-[4.75rem] right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-primary)] text-white shadow-lg active:scale-90 transition-transform"
+            className="fixed bottom-[4.35rem] right-3.5 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-[var(--color-primary)] text-white shadow-lg active:scale-90 transition-transform"
             title="新建文档"
             aria-label="新建文档"
             type="button"
           >
-            <Plus className="h-6 w-6" />
+            <Plus className="h-5 w-5" />
           </button>
         )}
 
@@ -260,7 +259,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </div>
         )}
 
-        <nav className="glass flex items-center border-t border-[var(--color-border)] shrink-0 pb-[env(safe-area-inset-bottom)]">
+        {!isEditorPage && <nav className="mobile-bottom-nav glass flex shrink-0 items-center border-t border-[var(--color-border)] pb-[env(safe-area-inset-bottom)]">
           {mobileTabItems.map((item) => {
             const isActive = item.to === '/'
               ? location.pathname === '/'
@@ -270,7 +269,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
                 key={item.to}
                 to={item.to}
                 end={item.to === '/'}
-                className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
+                className={`mobile-tab flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors ${
                   isActive ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-tertiary)]'
                 }`}
               >
@@ -281,13 +280,13 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           })}
           <button
             onClick={() => { setShowMoreSheet(true); setIsEditingMobileNav(false); }}
-            className="flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium text-[var(--color-text-tertiary)]"
+            className="mobile-tab flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium text-[var(--color-text-tertiary)]"
             type="button"
           >
             <MoreHorizontal className="h-5 w-5" />
             更多
           </button>
-        </nav>
+        </nav>}
 
         {showMoreSheet && (
           <div className="fixed inset-0 z-50 flex min-h-[100dvh] flex-col justify-end" onClick={() => setShowMoreSheet(false)}>
@@ -526,7 +525,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </button>
         </div>
 
-        <div key={location.pathname} className="app-content px-5 py-6 animate-slide-up flex-1 min-h-0 overflow-y-auto">
+        <div key={location.pathname} className={`app-content animate-slide-up flex-1 min-h-0 overflow-y-auto ${isWorkspacePage ? 'app-content-workspace p-0' : 'px-5 py-5 xl:px-7'}`}>
           <Outlet />
         </div>
       </main>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RetrievedChunk } from '../ai/retrieval';
-import { assertCitationAllowList, assertZero2Sources, classifyLocalIntent, rejectOutOfScope, shouldPersistMessage } from './isolation';
+import { assertCitationAllowList, assertZero2Source, assertZero2Sources, classifyLocalIntent, rejectOutOfScope, shouldPersistMessage } from './isolation';
 
 const zeroChunk: RetrievedChunk = {
   source: 'zero2agent',
@@ -28,7 +28,9 @@ describe('zero2 review isolation', () => {
 
   it('accepts only zero2Agent sources', () => {
     expect(() => assertZero2Sources([zeroChunk])).not.toThrow();
+    expect(() => assertZero2Source(zeroChunk)).not.toThrow();
     expect(() => assertZero2Sources([{ ...zeroChunk, source: 'personal' } as unknown as RetrievedChunk])).toThrow();
+    expect(() => assertZero2Source({ ...zeroChunk, source: 'web' } as unknown as RetrievedChunk)).toThrow();
   });
 
   it('filters citations through the current retrieval allow list', () => {

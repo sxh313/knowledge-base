@@ -14,6 +14,7 @@ import {
   rewriteQuery,
   type RAGAnswerMode,
 } from '../lib/ai/retrieval';
+import { answerGroundedQuestion } from '../lib/ai/groundedAnswer';
 import { getConversations, getConversation, upsertConversation, deleteConversation } from '../lib/db/queries';
 import { useSyncStore } from '../stores/syncStore';
 import { useViewModeStore } from '../stores/viewModeStore';
@@ -29,6 +30,7 @@ const GREETING: ChatMessage = { role: 'assistant', content: '👋 你好！我�
 function parseScope(s: string): KnowledgeScope {
   if (s === 'none') return { kind: 'none' };
   if (s === 'zero2agent') return { kind: 'zero2agent' };
+  if (s === 'zero2agent-interview') return { kind: 'zero2agent', pathPrefix: 'learn-agent-interview/' };
   if (s === 'all') return { kind: 'combined' };
   if (s === 'personal' || !s) return { kind: 'personal' };
   if (s.startsWith('subject:')) return { kind: 'subject', subject: decodeURIComponent(s.slice(8)) };
@@ -54,7 +56,7 @@ export default function AIChat() {
   const [modelChoice, setModelChoice] = useState<string>('auto');
   const [citations, setCitations] = useState<RetrievedChunk[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => localStorage.getItem('ai-sidebar') !== '0');
-  const [sidebarWidth, setSidebarWidth] = useState<number>(() => { const s = Number(localStorage.getItem('ai-sidebar-width')); return Number.isFinite(s) && s > 0 ? s : 224; });
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => { const s = Number(localStorage.getItem('ai-sidebar-width')); return Number.isFinite(s) && s > 0 ? Math.max(200, Math.min(320, s)) : 248; });
   const [webSearch, setWebSearch] = useState(false);
   const [showAnswerSettings, setShowAnswerSettings] = useState(false);
   const [retrievalMeta, setRetrievalMeta] = useState<{ ms: number; query: string } | null>(null);
@@ -125,7 +127,7 @@ export default function AIChat() {
       sysPrefix = buildRAGSystemPrompt(formatContextForPrompt(newCitations), newCitations.length > 0, ragMode);
     }
     // 联网搜索（维基百科，CORS 友好）
-    if (webSearch) {
+    if (webSearch && scope.kind !== 'zero2agent') {
       try {
         const wr = await searchWeb(userText, 5);
         const wf = formatWebResults(wr);
@@ -140,6 +142,13 @@ export default function AIChat() {
     const callMsgs: ChatMessage[] = [{ role: 'system', content: sysPrefix ? timeSys + '\n\n' + sysPrefix : timeSys }, ...baseMsgs, userMsg];
     setMessages((prev) => [...prev, userMsg]);
     try {
+      let finalContent = '';
+      if (scope.kind === 'zero2agent') {
+        // 课程知识库始终走结构化、可校验的严格回答，不允许联网或混合常识。
+        const grounded = await answerGroundedQuestion(userText, newCitations);
+        finalContent = grounded.answer;
+        newCitations = grounded.citations;
+      } else {
       const onToken = (token: string) => {
         streamBufferRef.current += token;
         if (!streamFlushRef.current) {
@@ -164,8 +173,9 @@ export default function AIChat() {
       // flush 剩余缓冲的 token
       if (streamFlushRef.current) { clearTimeout(streamFlushRef.current); streamFlushRef.current = null; }
       if (streamBufferRef.current) { useAIStore.setState({ streamingContent: useAIStore.getState().streamingContent + streamBufferRef.current }); streamBufferRef.current = ''; }
-      const finalContent = useAIStore.getState().streamingContent || '(空回复)';
+      finalContent = useAIStore.getState().streamingContent || '(空回复)';
       useAIStore.setState({ streamingContent: '' });
+      }
       const assistantMsg: ChatMessage = { role: 'assistant', content: finalContent };
       const storedMsgs = [...baseMsgs, userMsg, assistantMsg].filter((m) => m.role !== 'system');
       setMessages((prev) => [...prev, assistantMsg]);
@@ -206,7 +216,7 @@ export default function AIChat() {
   if (searchParams.get('mode') === 'agent') return <Agent />;
 
   return (
-    <div className="relative flex h-full min-h-0 md:h-[calc(100vh-6rem)]">
+    <div className="relative flex h-full min-h-0">
       {/* 左侧对话列表（可隐藏） */}
       {isMobile && sidebarOpen && (
         <button
@@ -243,7 +253,7 @@ export default function AIChat() {
             onMouseDown={(e) => {
               e.preventDefault();
               const sx = e.clientX; const sw = sidebarWidth;
-              const mv = (ev: MouseEvent) => setSidebarWidth(Math.max(160, Math.min(400, sw + (ev.clientX - sx))));
+              const mv = (ev: MouseEvent) => setSidebarWidth(Math.max(200, Math.min(320, sw + (ev.clientX - sx))));
               const up = () => { setSidebarWidth(w => { localStorage.setItem('ai-sidebar-width', String(w)); return w; }); document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); document.body.style.cursor = ''; document.body.style.userSelect = ''; };
               document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none';
               document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
@@ -272,7 +282,7 @@ export default function AIChat() {
       {/* Messages */}
       <div ref={scrollContainerRef} className="ai-doubao-messages flex-1 overflow-y-auto px-4 py-6 space-y-6">
         {messages.filter((m) => m.role !== 'system').map((msg, i) => (
-          <div key={i} className={`ai-message-row mx-auto flex w-full max-w-3xl cv-auto ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={i} className={`ai-message-row mx-auto flex w-full max-w-4xl cv-auto ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`text-sm leading-7 ${
               msg.role === 'user'
                 ? 'ai-user-bubble max-w-[82%] rounded-2xl px-4 py-2.5 text-[var(--color-text)]'
@@ -284,7 +294,7 @@ export default function AIChat() {
         ))}
         {isProcessing && streamingContent && (
           <div className="flex justify-start">
-          <div className="ai-assistant-content mx-auto w-full max-w-3xl rounded-xl px-1 py-2 text-sm leading-7 text-[var(--color-text)]">
+          <div className="ai-assistant-content mx-auto w-full max-w-4xl rounded-xl px-1 py-2 text-sm leading-7 text-[var(--color-text)]">
               <MarkdownContent>{streamingContent}</MarkdownContent>
               <span className="inline-block w-2 h-4 bg-indigo-500 animate-pulse ml-1" />
             </div>
@@ -292,7 +302,7 @@ export default function AIChat() {
         )}
         {isProcessing && !streamingContent && (
           <div className="flex justify-start">
-            <div className="ai-assistant-content mx-auto w-full max-w-3xl rounded-xl px-1 py-2 bg-transparent">
+            <div className="ai-assistant-content mx-auto w-full max-w-4xl rounded-xl px-1 py-2 bg-transparent">
               <div className="flex gap-1">
                 <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
                 <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.15s' }} />
@@ -305,9 +315,10 @@ export default function AIChat() {
         {/* 本次回答的参考来源 + 保存为新文档 */}
         {!isProcessing && citations.length > 0 && (
           <div className="flex justify-start">
-            <div className="mx-auto w-full max-w-3xl">
+            <div className="mx-auto w-full max-w-4xl">
               <CitationList citations={citations} onNavigate={(citation) => {
-                if ((citation.source === 'zero2agent' || citation.source === 'web') && (citation.localPath || citation.sourceUrl)) window.open(citation.localPath || citation.sourceUrl, '_blank', 'noopener,noreferrer');
+                if (citation.source === 'zero2agent') navigate(citation.localUrl || `/source/zero2agent?chunkId=${encodeURIComponent(citation.chunkId)}`);
+                else if (citation.source === 'web' && citation.sourceUrl) window.open(citation.sourceUrl, '_blank', 'noopener,noreferrer');
                 else if (citation.journalId) navigate(`/edit/${citation.journalId}${citation.offset ? `?offset=${citation.offset.start}` : ''}`);
               }} />
               <button
@@ -329,7 +340,7 @@ export default function AIChat() {
 
       {/* Input + controls */}
       <div className="ai-composer-wrap px-4 pb-4 pt-3">
-        <div className={`ai-composer mx-auto w-full max-w-3xl ${showAnswerSettings ? 'ai-composer-settings-open' : ''}`}>
+        <div className={`ai-composer mx-auto w-full max-w-4xl ${showAnswerSettings ? 'ai-composer-settings-open' : ''}`}>
         <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5 flex-wrap">
           <button className="ai-setting-trigger btn-ghost p-1.5 md:hidden" onClick={() => setShowAnswerSettings((v) => !v)} title="回答设置" aria-label="回答设置" type="button">
             <SlidersHorizontal className="h-4 w-4" />
@@ -344,6 +355,7 @@ export default function AIChat() {
             title="选择 AI 回答时参考的知识库范围"
           >
             <option value="personal">📘 自己的文档</option>
+            <option value="zero2agent-interview">🎯 Agent 面试通关</option>
             <option value="zero2agent">🧠 zero2Agent</option>
             <option value="all">📚 全部知识库</option>
             <option value="none">🚫 不使用知识库</option>
@@ -374,6 +386,7 @@ export default function AIChat() {
             className={`${showAnswerSettings ? 'block' : 'hidden md:block'} input-field text-xs py-1 max-w-[150px]`}
             value={ragMode}
             onChange={(e) => changeRagMode(e.target.value as RAGAnswerMode)}
+            disabled={scopeStr === 'zero2agent' || scopeStr === 'zero2agent-interview'}
             title="严格模式只使用知识库；混合模式允许补充常识"
           >
             <option value="strict">🔒 仅知识库</option>

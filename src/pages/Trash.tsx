@@ -36,15 +36,17 @@ export default function Trash() {
   };
 
   return (
-    <div className="animate-fade-in space-y-4 max-w-4xl mx-auto">
+    <div className="content-frame-reading animate-fade-in space-y-4">
       <div className="page-hero">
-        <div className="flex items-center gap-2">
+        <div className="page-hero-copy">
+          <div className="flex items-center gap-2">
           <button className="btn-ghost" onClick={() => navigate('/')} title="返回">
             <ArrowLeft className="h-4 w-4" />
           </button>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Trash2 className="h-6 w-6" /> 回收站
           </h1>
+          </div>
           <p className="page-subtitle">已删除的内容会暂时保留，可恢复或永久清理。</p>
         </div>
       </div>
@@ -52,8 +54,8 @@ export default function Trash() {
       {loading ? (
         <div className="flex items-center justify-center py-20 text-[var(--color-text-secondary)]">加载中...</div>
       ) : items.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-surface-2)] mb-4">
+        <div className="empty-state">
+          <div className="empty-state-icon mb-3">
             <Trash2 className="h-8 w-8 text-[var(--color-text-tertiary)]" />
           </div>
           <p className="text-[var(--color-text-secondary)] text-sm">回收站是空的</p>

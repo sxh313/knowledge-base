@@ -9,8 +9,10 @@ const CONTROL_PATTERNS = [
 
 const OUT_OF_SCOPE_PATTERNS = [
   /(改|修改|删除|重命名|移动|整理|写入|创建).{0,20}(简历|笔记|文档|知识库|卡片|会话)/i,
-  /(天气|股票|新闻|价格|请假|邮件|祝福|翻译|普通写作|写一篇|润色|改写)/i,
+  /(天气|股票|新闻|价格|请假|邮件|祝福|翻译|普通写作|写一篇|润色|改写|日记|网页|图片|数学题|旅游|餐厅|诗)/i,
   /(忽略|绕过|关闭|切换|调用).{0,20}(规则|确认|权限|安全|个人知识库|删除工具|工具)/i,
+  /^(帮我|请帮我|给我|推荐|生成|做一个|发一封|解释|搜索|查询|写|总结|查看|制定).{0,30}(简历|笔记|文档|知识库|卡片|会话|新闻|天气|股票|邮件|代码|网页|图片|数学|旅游|餐厅|诗|个人)/i,
+  /(搜索|查询|写|总结|修改|删除|重命名|查看).{0,20}(个人|简历|笔记|文档|知识库|卡片|会话)/i,
 ];
 
 export function classifyLocalIntent(question: string): Zero2ReviewIntent | null {
@@ -38,6 +40,13 @@ export function assertZero2Sources(chunks: RetrievedChunk[]): void {
   }
 }
 
+/** 单条/批量来源的公共边界断言，供 Tutor、Evaluator 和外部调用方复用。 */
+export function assertZero2Source(source: RetrievedChunk | Zero2SourceReference): void {
+  if (source.source !== 'zero2agent' || ('journalId' in source && source.journalId)) {
+    throw new Error('来源不是 zero2Agent');
+  }
+}
+
 export function assertValidTopicIds(topicIds: string[], validTopicIds: ReadonlySet<string>): void {
   if (topicIds.some((id) => !validTopicIds.has(id))) throw new Error('复习上下文包含非法 topicId');
 }
@@ -52,13 +61,21 @@ export function sanitizeReviewContext(context: Zero2ReviewContext, validTopicIds
 export function filterPersistableMessages(messages: PersistableReviewMessage[]): PersistableReviewMessage[] {
   return messages.filter((message) => {
     if (!message.content.trim()) return false;
-    return message.citations.every((citation) => citation.source === 'zero2agent');
+    if (!isLearningAffectingIntent(message.intent) && message.topicIds.length > 0) return false;
+    return message.citations.every((citation) => {
+      try { assertZero2Source(citation); return true; } catch { return false; }
+    });
   });
 }
 
 export function assertReviewIsolation(input: { context?: unknown; plan?: unknown; task?: unknown; stage?: Zero2ReviewStage }): void {
   const serialized = JSON.stringify(input);
   if (/journalId|personal|web/i.test(serialized)) throw new Error('复习数据包含个人文档或 Web 字段');
+  for (const value of [input.plan, input.task]) {
+    if (value && typeof value === 'object' && 'source' in value && (value as { source?: string }).source !== 'zero2agent') {
+      throw new Error('复习计划来源必须是 zero2Agent');
+    }
+  }
 }
 
 export function assertCitationAllowList(citations: Zero2SourceReference[], allowedChunkIds: Set<string>): Zero2SourceReference[] {

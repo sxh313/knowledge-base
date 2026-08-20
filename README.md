@@ -4,7 +4,7 @@
 
 当前版本：**v1.6.0**
 
-新增 zero2Agent 复习教练：复习页只检索 zero2Agent 原文，用户提问只记录兴趣证据，完成带来源的诊断题后才更新掌握度。无关问题不会进入复习数据；复习问答历史默认不同步。
+新增 zero2Agent 复习教练：复习页只检索 `learn-agent-interview/` 原文，按 Markdown H1-H6 标题和 Q/A 单元切块；回答必须经过 Citation 白名单校验，并可在应用内打开对应原文。用户提问只记录兴趣证据，完成带来源的诊断题后才更新掌握度。无关问题不会进入复习数据；复习问答历史默认不同步。
 
 ## 核心能力
 
@@ -44,7 +44,9 @@ Windows 和 Android 的环境要求、发布方式见 [发布指南](docs/发布
 
 在应用内“设置 → AI 服务配置”填写当前设备自己的 API 地址和 Key，也可以连接 Ollama、LM Studio、vLLM、LocalAI 等 OpenAI-compatible 本地服务。项目不会从 `VITE_*` 环境变量读取或向构建产物预置共享凭据。
 
-API Key 保存在当前设备的 IndexedDB。它不会进入普通业务数据备份或 GitHub 同步；如需搬迁，可在设置页用主密码生成 AES-GCM 加密密钥包。浏览器存储本身不是密码保险箱，请使用受信任设备并保护系统账户。
+API Key 保存在当前设备的 IndexedDB。它不会进入普通业务数据备份或 GitHub 同步；如需搬迁，可在设置页用主密码生成 AES-GCM 加密密钥包。已部署的 OpenAI-compatible 本地服务可在设置中填写 `http://61.172.167.64:4900/v1`，模型选择 `local/dsv4`；本地模型不需要 API Key。浏览器存储本身不是密码保险箱，请使用受信任设备并保护系统账户。
+
+Embedding 和重排在“设置 → 模型中心”配置。Embedding 是可选增强：不添加时使用关键词检索；添加并启用 OpenAI-compatible Embedding 端点（例如 `http://61.172.167.64:4901/v1`，模型 `BAAI/bge-small-zh-v1.5`）并生成索引后，系统才启用关键词 + 向量双路召回。`dsv4` 可绑定到回答、重排和复习角色。没有索引、Embedding 服务失败或 dsv4 重排超时时，系统自动降级，不影响严格问答。
 
 ### GitHub 同步
 

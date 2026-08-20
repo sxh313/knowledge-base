@@ -18,6 +18,11 @@ import {
   rebuildDocumentIndexes,
   type JournalCreateInput,
 } from '../indexing/documents';
+import {
+  DEFAULT_MODEL_BINDINGS,
+  DEFAULT_MODEL_PROFILES,
+  DEFAULT_RETRIEVAL_SETTINGS,
+} from '../ai/modelProfiles';
 
 // ──── Settings ────
 
@@ -53,19 +58,19 @@ export async function getSettings(): Promise<AppSettings> {
           enabled: false,
         },
         local: {
-          baseUrl: 'http://127.0.0.1:11434/v1',
+          baseUrl: 'http://61.172.167.64:4900/v1',
           apiKey: '',
-          enabled: false,
+          enabled: true,
         },
       },
       preferredModels: {
-        // 默认走胜算云中转别名 deepseek-v4-flash；详见 providers.ts 中 MODEL_MAP 的别名说明
-        highQuality: 'deepseek-v4-flash',
-        codeTask: 'deepseek-v4-flash',
-        fastTask: 'deepseek-v4-flash',
+        // 当前工作区默认走本地 vLLM 的 dsv4；用户可在设置页切换云端模型。
+        highQuality: 'local/dsv4',
+        codeTask: 'local/dsv4',
+        fastTask: 'local/dsv4',
       },
       availableModels: {},
-      selectedModels: ['deepseek-v4-flash'],
+      selectedModels: ['local/dsv4'],
       theme: 'auto',
       reviewDailyGoal: 20,
       sync: {
@@ -78,20 +83,70 @@ export async function getSettings(): Promise<AppSettings> {
         autoSync: true,
         syncZero2ReviewHistory: false,
       },
+      modelProfiles: DEFAULT_MODEL_PROFILES.map((profile) => ({ ...profile })),
+      modelBindings: { ...DEFAULT_MODEL_BINDINGS },
+      retrieval: { ...DEFAULT_RETRIEVAL_SETTINGS },
     };
     await db.settings.put(settings);
   }
   // 兼容旧数据：补全新增字段
   let backfilled = false;
-  if (!settings.availableModels) settings.availableModels = {};
-  if (!settings.selectedModels) settings.selectedModels = ['deepseek-v4-flash'];
+  if (!settings.availableModels) { settings.availableModels = {}; backfilled = true; }
+  if (!settings.preferredModels) {
+    settings.preferredModels = { highQuality: 'local/dsv4', codeTask: 'local/dsv4', fastTask: 'local/dsv4' };
+    backfilled = true;
+  }
+  if (!settings.selectedModels) { settings.selectedModels = ['local/dsv4']; backfilled = true; }
+  if (!settings.modelProfiles?.length) {
+    settings.modelProfiles = DEFAULT_MODEL_PROFILES.map((profile) => ({ ...profile }));
+    backfilled = true;
+  } else {
+    // 保留用户修改，同时为新增角色补充缺省值。
+    const existing = new Set(settings.modelProfiles.map((profile) => profile.id));
+    const missing = DEFAULT_MODEL_PROFILES.filter((profile) => !existing.has(profile.id));
+    if (missing.length) {
+      settings.modelProfiles = [...settings.modelProfiles, ...missing.map((profile) => ({ ...profile }))];
+      backfilled = true;
+    }
+  }
+  if (!settings.modelBindings) {
+    settings.modelBindings = { ...DEFAULT_MODEL_BINDINGS };
+    backfilled = true;
+  } else {
+    const merged = { ...DEFAULT_MODEL_BINDINGS, ...settings.modelBindings };
+    if (JSON.stringify(merged) !== JSON.stringify(settings.modelBindings)) backfilled = true;
+    settings.modelBindings = merged;
+  }
+  if (!settings.retrieval) {
+    settings.retrieval = { ...DEFAULT_RETRIEVAL_SETTINGS };
+    backfilled = true;
+  } else {
+    const merged = { ...DEFAULT_RETRIEVAL_SETTINGS, ...settings.retrieval };
+    if (JSON.stringify(merged) !== JSON.stringify(settings.retrieval)) backfilled = true;
+    settings.retrieval = merged;
+  }
   if (!settings.providerOrder) settings.providerOrder = ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek', 'local'];
   else if (!settings.providerOrder.includes('local')) { settings.providerOrder = [...settings.providerOrder, 'local']; backfilled = true; }
   if (!settings.aiProviders.shengsuanyun) {
     settings.aiProviders.shengsuanyun = { baseUrl: 'https://beta-router.shengsuanyun.com/api/v1', apiKey: '', enabled: false };
   }
   if (!settings.aiProviders.local) {
-    settings.aiProviders.local = { baseUrl: 'http://127.0.0.1:11434/v1', apiKey: '', enabled: false };
+    settings.aiProviders.local = { baseUrl: 'http://61.172.167.64:4900/v1', apiKey: '', enabled: false };
+    backfilled = true;
+  }
+  // 将从未启用过的旧 Ollama 默认地址迁移到当前工作区的 DeepSeek-V4-Flash vLLM 地址；
+  // 如果用户已经启用并自定义了本地服务，则保留用户配置不覆盖。
+  if (settings.aiProviders.local.baseUrl === 'http://127.0.0.1:11434/v1' && !settings.aiProviders.local.enabled) {
+    settings.aiProviders.local.baseUrl = 'http://61.172.167.64:4900/v1';
+    backfilled = true;
+  }
+  // 当前工作区明确提供 dsv4 时，首次迁移将高质量任务指向本地模型；用户仍可在设置页改回云端模型。
+  if (settings.aiProviders.local.baseUrl === 'http://61.172.167.64:4900/v1'
+      && settings.preferredModels?.highQuality === 'deepseek-v4-flash'
+      && !(settings.selectedModels ?? []).includes('local/dsv4')) {
+    settings.preferredModels = { ...settings.preferredModels, highQuality: 'local/dsv4' };
+    settings.selectedModels = [...(settings.selectedModels ?? []), 'local/dsv4'];
+    settings.aiProviders.local.enabled = true;
     backfilled = true;
   }
   // 兼容旧数据：补全云同步配置

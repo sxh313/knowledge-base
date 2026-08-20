@@ -62,7 +62,7 @@ export default function Tags() {
   };
 
   return (
-    <div className="flex flex-col h-full animate-fade-in max-w-6xl mx-auto">
+    <div className="content-frame flex h-full flex-col animate-fade-in">
       {/* Header */}
       <div className="page-hero">
         <div className="page-hero-copy">
@@ -91,17 +91,17 @@ export default function Tags() {
 
       {/* 标签云 */}
       {allTags.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-surface-2)] mb-4">
+        <div className="empty-state">
+          <div className="empty-state-icon mb-3">
             <Tag className="h-8 w-8 text-[var(--color-text-tertiary)]" />
           </div>
           <p className="text-[var(--color-text)] font-medium text-sm">还没有任何标签</p>
           <p className="text-xs text-[var(--color-text-secondary)] mt-1">在文档里添加标签后会在这里汇总</p>
         </div>
       ) : filtered.length === 0 ? (
-        <p className="text-center text-sm text-[var(--color-text-secondary)] py-12">没有匹配的标签</p>
+        <div className="empty-state"><p className="text-sm text-[var(--color-text-secondary)]">没有匹配的标签</p></div>
       ) : (
-        <>
+        <div className="tags-layout flex-1">
           <div className="card p-5 mb-4">
             <p className="text-xs font-medium text-[var(--color-text-secondary)] mb-3">🏷️ 标签云（字号代表使用频次，点击进入对应文档）</p>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
@@ -123,7 +123,7 @@ export default function Tags() {
           </div>
 
           {/* 列表 */}
-          <div className="flex-1 overflow-y-auto space-y-1.5">
+          <div className="min-h-0 overflow-y-auto space-y-1.5">
             <p className="text-xs font-medium text-[var(--color-text-secondary)] mb-2 px-1">📋 按使用频次排序</p>
             {filtered.map((t, i) => (
               <button
@@ -153,7 +153,7 @@ export default function Tags() {
               </button>
             ))}
           </div>
-        </>
+        </div>
       )}
     </div>
   );

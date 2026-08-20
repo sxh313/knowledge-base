@@ -314,7 +314,7 @@ export default function JournalList() {
               <div className="flex-1">
                 <h3 className="font-medium text-sm text-[var(--color-primary)]">欢迎来到知屿！</h3>
                 <p className="text-xs text-[var(--color-text-secondary)] mt-1">
-                  配置 AI API 入口后，即可使用智能总结、自动生成卡片、代码分析等功能。
+                  配置 AI API 入口后，即可使用智能总结、代码分析等功能。
                 </p>
                 <div className="flex gap-2 mt-3">
                   <button className="btn-primary text-xs px-3 py-1.5" onClick={() => navigate('/settings')}>
@@ -382,8 +382,8 @@ export default function JournalList() {
               <p className="text-[var(--color-text-secondary)]">加载中...</p>
             </div>
           ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center px-8">
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-primary-light)] mb-4">
+            <div className="empty-state">
+              <div className="empty-state-icon mb-3">
                 <span className="text-3xl">📝</span>
               </div>
               {searchQuery || selectedSubject ? (

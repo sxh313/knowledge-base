@@ -6,7 +6,7 @@ import {
 
 export default function Manual() {
   return (
-    <div className="animate-fade-in space-y-8 max-w-3xl mx-auto">
+    <div className="content-frame-reading animate-fade-in space-y-7">
       <div className="page-hero !items-start !flex-col !gap-0">
         <div className="page-kicker">Learn the workflow</div>
         <h1 className="text-2xl font-bold text-gradient flex items-center gap-2">
@@ -23,7 +23,7 @@ export default function Manual() {
         <ol className="list-decimal pl-5 space-y-1">
           <li><b>配置 AI</b> — 「设置 → AI 服务配置」填入自己的服务地址和 API Key；本地 OpenAI-compatible 服务可不填 Key</li>
           <li><b>写第一篇笔记</b> — 文档列表点「新建文档」，支持富文本/Markdown 双模式，可粘贴截图</li>
-          <li><b>让 AI 帮忙</b> — 编辑页点「总结」提炼要点，或「卡片」自动生成复习卡</li>
+          <li><b>让 AI 帮忙</b> — 编辑页点「总结」提炼要点，或使用代码分析和解释功能</li>
           <li><b>复习巩固</b> — 去「复习」页翻面评分，算法自动安排下次复习</li>
         </ol>
       </Section>
@@ -109,15 +109,6 @@ export default function Manual() {
         </ul>
       </Section>
 
-      {/* 知识图谱 */}
-      <Section icon={Brain} title="知识图谱（双链派生）" color="text-indigo-500">
-        <ul className="list-disc pl-5 space-y-1">
-          <li><b>实时派生</b> — 节点 = 文档，边 = 双链；节点大小 = 入链数</li>
-          <li><b>交互</b> — 搜索节点、按分类过滤、显示/隐藏孤立文档；点节点聚焦一跳关系，再点打开文档</li>
-          <li><b>失效链接</b> — 指向不存在目标的 <code className="font-mono">[[链接]]</code> 单独统计，不作为正常节点</li>
-        </ul>
-      </Section>
-
       {/* 番茄钟 */}
       <Section icon={Timer} title="番茄钟（专注计时）" color="text-red-500">
         <ul className="list-disc pl-5 space-y-1">
@@ -156,12 +147,13 @@ export default function Manual() {
       <Section icon={Brain} title="AI 问答与 Agent" color="text-purple-500">
         <ul>
           <li><b>AI 总结</b> — 在编辑器中点击「📝 AI 总结」，自动提炼核心要点</li>
-          <li><b>生成卡片</b> — 点击「🃏 卡片」，AI 自动从文档生成知识卡片（保存到复习库）</li>
           <li><b>代码分析</b> — 点击「🔍 代码」，AI 审查代码质量和安全</li>
           <li><b>代码解释</b> — 点击「📖 解释」，AI 逐行解释代码逻辑</li>
           <li><b>AI 对话（RAG）</b> — 在同一入口选择个人文档、zero2Agent、全部知识库或不使用知识库；回答附可定位的参考来源</li>
           <li><b>Agent 模式</b> — 切换到 Agent 后可让 AI 规划知识库操作；写入前会展示风险、影响和 diff，必须由你确认，并支持撤销</li>
           <li><b>本地模型</b> — 「设置 → AI 服务配置 → 本地模型」可连接 Ollama、LM Studio、vLLM、LocalAI 等 OpenAI 兼容服务；API 地址填写本地 <code className="font-mono">/v1</code> 入口，API Key 可留空，并确保本地服务允许浏览器 CORS。</li>
+          <li><b>模型中心</b> — 「设置 → 模型中心」可分别填写 dsv4 Chat 和 BGE Embedding 端点，再绑定回答、向量召回、重排、复习辅导和评分角色。Embedding 不配置也可以使用。</li>
+          <li><b>混合检索</b> — 默认使用关键词检索；开启并配置 Embedding、生成向量索引后，才启用关键词 + 向量双路召回，随后可由 dsv4 对候选片段重排。</li>
           <li><b>多模型路由</b> — 支持胜算云、中转站、硅基流动、智谱、DeepSeek 和本地服务，已启用模型之间可故障转移</li>
         </ul>
       </Section>
@@ -170,19 +162,18 @@ export default function Manual() {
       <Section icon={BookCheck} title="复习系统（FSRS 算法）" color="text-green-500">
         <ul className="list-disc pl-5 space-y-1">
           <li><b>间隔重复</b> — 基于遗忘曲线，自动安排每张卡的最佳复习时间</li>
-          <li><b>翻面评分</b> — 点卡片翻面看答案，4 级评分：<b>忘了 / 困难 / 良好 / 轻松</b></li>
+          <li><b>Agent 面试诊断</b> — 在独立复习教练中基于“Agent 面试通关”原文回答问题并完成诊断</li>
           <li><b>间隔规则</b> — 良好/轻松 → 下次间隔变长（少打扰）；忘了/困难 → 很快再复习</li>
-          <li><b>卡片库</b> — 管理所有卡片：搜索、按状态/标签筛选、编辑、删除、重置进度</li>
-          <li><b>右键菜单</b> — 卡片库中<b>右键卡片</b>：编辑 / 复制 / 置顶 / 删除（快速操作）</li>
           <li><b>状态流转</b> — 🆕新 → 🔶学习中 → ✅复习中（忘了变 🔁重学）</li>
         </ul>
       </Section>
-      <Section icon={Brain} title="zero2Agent 复习教练" color="text-cyan-500">
+      <Section icon={Brain} title="Agent 面试复习教练" color="text-cyan-500">
         <ul>
-          <li><b>独立入口</b> — 从侧栏进入「zero2 复习」，与普通 AI、通用 Agent 和个人卡片复习分开</li>
-          <li><b>固定来源</b> — 只检索内置 zero2Agent 原文；每个知识回答显示可验证的章节和 Citation</li>
+          <li><b>独立入口</b> — 从侧栏进入「zero2 复习」，与普通 AI 和通用 Agent 分开</li>
+          <li><b>固定来源</b> — 默认只检索内置“Agent 面试通关”原文；每个知识回答显示可验证的章节和 Citation</li>
           <li><b>提问不等于掌握</b> — 只有完成带来源证据的诊断题，才会更新掌握度和 FSRS 调度</li>
           <li><b>隐私边界</b> — 无关问题不会进入复习数据；问答历史默认不同步，可在云同步设置中主动开启</li>
+          <li><b>计划控制</b> — 计划面板支持重新规划、暂停和恢复；掌握度条目可以展开查看作答证据和评分依据</li>
         </ul>
       </Section>
 
@@ -212,7 +203,7 @@ export default function Manual() {
       {/* 数据管理 */}
       <Section icon={Database} title="数据管理" color="text-emerald-500">
         <ul className="list-disc pl-5 space-y-1">
-          <li><b>导出</b> — 「设置 → 数据管理 → 导出数据」下载业务数据 JSON，包括文档、附件、卡片、历史、AI/Agent 数据、偏好、学习目标和任务</li>
+          <li><b>导出</b> — 「设置 → 数据管理 → 导出数据」下载文档、附件、历史、AI/Agent 数据、偏好、学习目标和任务</li>
           <li><b>导入</b> — 选择 JSON 文件合并恢复，完成后自动重建文档索引</li>
           <li><b>凭据边界</b> — 普通备份不含 AI Key、GitHub Token 和设备级设置；凭据请使用独立的“密钥迁移”</li>
           <li><b>本地优先</b> — 业务数据和凭据默认存当前设备 IndexedDB；启用 AI、联网搜索或 GitHub 同步时，相关内容会发往你配置的服务</li>
@@ -222,7 +213,7 @@ export default function Manual() {
       {/* 统计 */}
       <Section icon={BarChart3} title="统计面板" color="text-cyan-500">
         <ul>
-          <li><b>数据概览</b> — 查看文档数、卡片数、知识点数</li>
+          <li><b>数据概览</b> — 查看文档数量、活动热度和分类分布</li>
           <li><b>活动热力图</b> — 近 30 天的文档创建活动（GitHub 风格）</li>
           <li><b>分类分布</b> — 各分类的文档数量占比</li>
         </ul>
@@ -234,7 +225,7 @@ export default function Manual() {
           <li><b>AI 服务配置</b> — 各服务商填 Key + 刷新模型 + 勾选；模型搜索框实时筛选可用模型</li>
           <li><b>模型偏好</b> — 为高质量/代码/快速任务分别指定模型</li>
           <li><b>主题</b> — 白天 / 夜晚 / 跟随系统（侧栏底部一键切换）</li>
-          <li><b>复习目标</b> — 设置每日复习卡片数</li>
+          <li><b>复习目标</b> — 设置每日学习时间和 zero2Agent 复习计划</li>
           <li><b>学习目标</b> — 在侧栏进入学习目标，把目标拆为可调整的每日任务</li>
         </ul>
       </Section>

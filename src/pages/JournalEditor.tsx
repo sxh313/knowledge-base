@@ -111,14 +111,14 @@ export default function JournalEditor() {
   // 可拖拽调整编辑页文档列表侧栏宽度（持久化）
   const [docListWidth, setDocListWidth] = useState<number>(() => {
     const saved = Number(localStorage.getItem('editor-doctree-width'));
-    return Number.isFinite(saved) && saved > 0 ? saved : 208;
+    return Number.isFinite(saved) && saved > 0 ? Math.max(180, Math.min(340, saved)) : 232;
   });
   const startDocListResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
     const startW = docListWidth;
     const onMove = (ev: MouseEvent) => {
-      const w = Math.max(160, Math.min(420, startW + (ev.clientX - startX)));
+      const w = Math.max(180, Math.min(340, startW + (ev.clientX - startX)));
       setDocListWidth(w);
     };
     const onUp = () => {
@@ -231,7 +231,7 @@ export default function JournalEditor() {
     return () => window.removeEventListener('keydown', handler);
   }, [title, content]);
 
-  const handleAIAction = async (action: 'summarize' | 'generateCards' | 'codeReview' | 'codeExplain') => {
+  const handleAIAction = async (action: 'summarize' | 'codeReview' | 'codeExplain') => {
     if (!content.trim()) return;
     setShowAIPanel(true);
     const messages = buildMessages(action, { content, title });
@@ -362,7 +362,7 @@ export default function JournalEditor() {
     <div className="flex flex-col h-full animate-fade-in">
       {/* 工具栏（可隐藏） */}
       {showToolbar && (
-      <div className="glass relative z-30 flex items-center gap-2 px-4 py-2 border-b border-[var(--color-border)] flex-wrap">
+      <div className="editor-toolbar glass relative z-30 flex items-center gap-1.5 px-3 py-1.5 border-b border-[var(--color-border)] flex-wrap">
         <button className="btn-ghost p-1.5" onClick={toggleToolbar} title="隐藏工具栏">
           <ChevronUp className="h-4 w-4" />
         </button>
@@ -404,7 +404,6 @@ export default function JournalEditor() {
         {/* AI 快捷按钮 */}
         <div className="flex items-center gap-1 ml-2 pl-2 border-l border-[var(--color-border)]">
           <button className="btn-ghost text-xs" onClick={() => handleAIAction('summarize')} disabled={!content.trim() || isProcessing} title="AI 总结">总结</button>
-          <button className="btn-ghost text-xs" onClick={() => handleAIAction('generateCards')} disabled={!content.trim() || isProcessing} title="AI 生成知识卡片">卡片</button>
           <button className="btn-ghost text-xs" onClick={() => setShowAIPanel(!showAIPanel)} title="展开/收起 AI 面板">
             {showAIPanel ? '关闭 AI' : 'AI 助手'}
           </button>
@@ -507,7 +506,7 @@ export default function JournalEditor() {
       )}
 
       {/* 文档主体 */}
-      <div className="flex flex-1 overflow-hidden gap-4">
+      <div className="flex flex-1 overflow-hidden">
         {showDocList && (
           <div
             className="relative shrink-0 shadow-md"
@@ -525,12 +524,12 @@ export default function JournalEditor() {
           </div>
         )}
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8 2xl:px-12">
+          <div className="editor-reading-column mx-auto w-full max-w-[900px] px-4 py-5 sm:px-7 sm:py-7 lg:px-10">
             {/* 标题 */}
             <textarea
               ref={titleRef}
               rows={1}
-              className="block w-full resize-none overflow-hidden bg-transparent border-none outline-none text-[2rem] sm:text-[2.5rem] font-bold placeholder:text-[var(--color-text-tertiary)] tracking-normal leading-[1.18]"
+              className="block w-full resize-none overflow-hidden bg-transparent border-none outline-none text-[1.8rem] sm:text-[2.15rem] font-bold placeholder:text-[var(--color-text-tertiary)] tracking-[-0.025em] leading-[1.18]"
               placeholder="无标题"
               value={title}
               onChange={e => setTitle(e.target.value.replace(/[\r\n]+/g, ' '))}
@@ -596,7 +595,7 @@ export default function JournalEditor() {
           <div className={isMobile ? 'fixed inset-0 z-50 bg-[var(--color-bg)]' : undefined}>
             <AIChatPanel
               journalId={currentEntry?.id}
-              onAction={(action) => handleAIAction(action as 'summarize' | 'generateCards' | 'codeReview' | 'codeExplain')}
+              onAction={(action) => handleAIAction(action as 'summarize' | 'codeReview' | 'codeExplain')}
               onClose={isMobile ? () => setShowAIPanel(false) : undefined}
               onAccept={(c) => {
                 if (currentEntry?.id) update(currentEntry.id, { summary: c });

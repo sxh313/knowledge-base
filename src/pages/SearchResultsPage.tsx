@@ -99,7 +99,7 @@ export default function SearchResultsPage() {
   };
 
   return (
-    <div className="animate-fade-in flex flex-col h-full">
+    <div className="content-frame flex h-full flex-col animate-fade-in">
       <div className="page-hero px-1">
         <div className="page-hero-copy">
           <div className="page-kicker">Find anything</div>
@@ -215,14 +215,10 @@ export default function SearchResultsPage() {
           ))}
 
           {!loading && activeQuery.trim() && results.length === 0 && (
-            <p className="text-center text-sm text-[var(--color-text-tertiary)] py-10">
-              没有匹配的文档。试试简化关键词，或检查字段语法。
-            </p>
+            <div className="empty-state"><p className="text-sm text-[var(--color-text-tertiary)]">没有匹配的文档。试试简化关键词，或检查字段语法。</p></div>
           )}
           {!activeQuery.trim() && (
-            <p className="text-center text-sm text-[var(--color-text-tertiary)] py-10">
-              输入关键词或使用字段语法开始搜索。
-            </p>
+            <div className="empty-state"><div className="empty-state-icon mb-3"><Search className="h-6 w-6" /></div><p className="text-sm text-[var(--color-text-tertiary)]">输入关键词或使用字段语法开始搜索。</p></div>
           )}
         </div>
       </div>

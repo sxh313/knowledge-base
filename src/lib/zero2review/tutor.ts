@@ -1,4 +1,4 @@
-import { routeAI } from '../ai/router';
+import { routeBoundAI } from '../ai/router';
 import type { RetrievedChunk } from '../ai/retrieval';
 import { assertCitationAllowList, assertZero2Sources } from './isolation';
 import { buildTutorMessages } from './prompts';
@@ -26,7 +26,11 @@ function referencesFromChunks(chunks: RetrievedChunk[]): Zero2SourceReference[] 
     title: chunk.title,
     path: chunk.path || '',
     heading: chunk.heading,
+    headingPath: chunk.headingPath,
     startOffset: chunk.offset?.start,
+    sourceUrl: chunk.sourceUrl,
+    sourceAnchor: chunk.sourceAnchor,
+    localUrl: chunk.localUrl,
   }));
 }
 
@@ -35,7 +39,7 @@ export async function answerZero2Question(question: string, topicIds: string[], 
   const allowed = new Set(chunks.map((chunk) => chunk.chunkId));
   const citations = referencesFromChunks(chunks);
   try {
-    const result = await routeAI('qa', buildTutorMessages(question, chunks));
+    const result = await routeBoundAI('reviewTutorModelId', 'qa', buildTutorMessages(question, chunks));
     const parsed = parseObject(result.content);
     const answer = typeof parsed?.answer === 'string' ? parsed.answer.trim() : '';
     if (!answer) throw new Error('Tutor 未返回有效回答');
@@ -51,11 +55,14 @@ export async function answerZero2Question(question: string, topicIds: string[], 
     const sourceChunkIds = Array.isArray(questionDraft?.sourceChunkIds)
       ? questionDraft.sourceChunkIds.filter((id): id is string => typeof id === 'string' && allowed.has(id))
       : [];
+    if (validCitations.length === 0) throw new Error('Tutor 返回了没有合法 Citation 的回答');
     return {
       answer,
       topicIds,
-      citations: validCitations.length > 0 ? validCitations : citations,
-      diagnosticQuestion: prompt ? { id: crypto.randomUUID(), topicId: topicIds[0] || 'unknown', type, prompt, sourceChunkIds } : undefined,
+      citations: validCitations,
+      diagnosticQuestion: prompt ? { id: crypto.randomUUID(), topicId: topicIds[0] || 'unknown', type, prompt, sourceChunkIds: sourceChunkIds.length ? sourceChunkIds : [chunks[0]?.chunkId].filter(Boolean) as string[] } : {
+        id: crypto.randomUUID(), topicId: topicIds[0] || 'unknown', type: 'diagnostic', prompt: `请用自己的话总结“${chunks[0]?.heading || chunks[0]?.title || question}”，并说明一个适用边界。`, sourceChunkIds: chunks.slice(0, 2).map((chunk) => chunk.chunkId),
+      },
     };
   } catch {
     const fallback = chunks[0];
@@ -63,6 +70,7 @@ export async function answerZero2Question(question: string, topicIds: string[], 
       answer: fallback ? `我在 zero2Agent 资料中找到相关内容：\n\n${fallback.content}` : 'zero2Agent 资料中没有足够内容回答这个问题。',
       topicIds,
       citations,
+      diagnosticQuestion: fallback ? { id: crypto.randomUUID(), topicId: topicIds[0] || 'unknown', type: 'diagnostic', prompt: `请用自己的话总结“${fallback.heading || fallback.title}”，并说明一个适用边界。`, sourceChunkIds: [fallback.chunkId] } : undefined,
     };
   }
 }

@@ -25,8 +25,7 @@ function nextStability(s: number, d: number, r: Rating, elapsed: number): number
   return s * (1 + W[10] * Math.exp(W[11] * (10 - d)) * Math.pow(elapsed, -W[12]) * (1 + (r === 4 ? W[15] : 1)));
 }
 
-export function scheduleFSRS(card: CardState, rating: Rating): Partial<CardState> {
-  const now = Date.now();
+export function scheduleFSRS(card: CardState, rating: Rating, now = Date.now()): Partial<CardState> {
   const elapsed = card.lastReviewAt
     ? Math.max(1, Math.floor((now - card.lastReviewAt) / 86400000))
     : 1;

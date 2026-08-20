@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { db } from '../lib/db/schema';
-import { BarChart3, CalendarDays, BookOpen, Brain, Loader2 } from 'lucide-react';
+import { CalendarDays, BookOpen, Loader2 } from 'lucide-react';
 import Heatmap from '../components/Heatmap';
 
 interface DailyCount {
@@ -10,8 +10,6 @@ interface DailyCount {
 
 export default function Stats() {
   const [totalJournals, setTotalJournals] = useState(0);
-  const [totalCards, setTotalCards] = useState(0);
-  const [totalNodes, setTotalNodes] = useState(0);
   const [loading, setLoading] = useState(true);
   const [dailyData, setDailyData] = useState<DailyCount[]>([]);
   const [subjectStats, setSubjectStats] = useState<{ subject: string; count: number }[]>([]);
@@ -22,15 +20,9 @@ export default function Stats() {
 
   async function loadStats() {
     setLoading(true);
-    const [journals, cards, nodes] = await Promise.all([
-      db.journals.filter(j => !j.deletedAt).toArray(),
-      db.cards.toArray(),
-      db.graphNodes.toArray(),
-    ]);
+    const journals = await db.journals.filter(j => !j.deletedAt).toArray();
 
     setTotalJournals(journals.length);
-    setTotalCards(cards.length);
-    setTotalNodes(nodes.length);
 
     // Daily counts (last 30 days)
     const counts: Record<string, number> = {};
@@ -69,7 +61,7 @@ export default function Stats() {
   }
 
   return (
-    <div className="animate-fade-in space-y-6 max-w-6xl mx-auto">
+    <div className="content-frame animate-fade-in space-y-5">
       <div className="page-hero">
         <div className="page-hero-copy">
         <div className="page-kicker">Your learning pulse</div>
@@ -87,20 +79,11 @@ export default function Stats() {
           <p className="text-2xl font-bold text-[var(--color-text)]">{totalJournals}</p>
           <p className="text-xs text-[var(--color-text-secondary)]">文档</p>
         </div>
-        <div className="card stat-card">
-          <Brain className="mx-auto h-6 w-6 text-accent-500 mb-2" />
-          <p className="text-2xl font-bold text-[var(--color-text)]">{totalCards}</p>
-          <p className="text-xs text-[var(--color-text-secondary)]">知识卡片</p>
-        </div>
-        <div className="card stat-card">
-          <BarChart3 className="mx-auto h-6 w-6 text-green-500 mb-2" />
-          <p className="text-2xl font-bold text-[var(--color-text)]">{totalNodes}</p>
-          <p className="text-xs text-[var(--color-text-secondary)]">知识点</p>
-        </div>
       </div>
 
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.55fr)]">
       {/* Heatmap */}
-      <div className="card">
+      <div className="card min-w-0">
         <div className="flex items-center gap-2 mb-4">
           <CalendarDays className="h-4 w-4 text-[var(--color-text-secondary)]" />
           <h2 className="text-sm font-semibold text-[var(--color-text)]">近 30 天活动</h2>
@@ -130,6 +113,7 @@ export default function Stats() {
             );
           })}
         </div>
+      </div>
       </div>
     </div>
   );

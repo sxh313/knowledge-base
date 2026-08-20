@@ -6,7 +6,7 @@ import { useJournalStore } from './stores/journalStore';
 import { useThemeStore } from './stores/themeStore';
 import { useSyncStore } from './stores/syncStore';
 import { buildSearchIndex } from './lib/search/fuse';
-import { getCardsDueToday, ensureIndexesRebuilt } from './lib/db/queries';
+import { ensureIndexesRebuilt } from './lib/db/queries';
 
 import Layout from './components/Layout';
 import CommandPalette from './components/CommandPalette';
@@ -19,10 +19,7 @@ const JournalList = lazy(() => import('./pages/JournalList'));
 const JournalEditor = lazy(() => import('./pages/JournalEditor'));
 const AIChat = lazy(() => import('./pages/AIChat'));
 const Agent = lazy(() => import('./pages/Agent'));
-const ReviewPage = lazy(() => import('./pages/ReviewPage'));
-const Cards = lazy(() => import('./pages/Cards'));
 const Stats = lazy(() => import('./pages/Stats'));
-const KnowledgeMap = lazy(() => import('./pages/KnowledgeMap'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const Manual = lazy(() => import('./pages/Manual'));
 const Trash = lazy(() => import('./pages/Trash'));
@@ -31,6 +28,7 @@ const SearchResultsPage = lazy(() => import('./pages/SearchResultsPage'));
 const Inbox = lazy(() => import('./pages/Inbox'));
 const LearningGoals = lazy(() => import('./pages/LearningGoals'));
 const Zero2Review = lazy(() => import('./pages/Zero2Review'));
+const Zero2Source = lazy(() => import('./pages/Zero2Source'));
 
 // Electron/Capacitor 容器使用 HashRouter；普通浏览器使用 BrowserRouter。
 const isElectron = typeof navigator !== 'undefined' && /Electron/.test(navigator.userAgent);
@@ -78,25 +76,6 @@ export default function App() {
     };
   }, [syncEnabled, doSync]);
 
-  // 复习提醒：加载后检查到期卡片，浏览器通知
-  useEffect(() => {
-    if (!('Notification' in window)) return;
-    const check = async () => {
-      try {
-        const cards = await getCardsDueToday();
-        if (cards.length === 0) return;
-        if (Notification.permission === 'granted') {
-          new Notification('📅 复习提醒', { body: `有 ${cards.length} 张卡片待复习，去复习吧！` });
-        } else if (Notification.permission === 'default') {
-          const perm = await Notification.requestPermission();
-          if (perm === 'granted') {
-            new Notification('📅 复习提醒', { body: `有 ${cards.length} 张卡片待复习，去复习吧！` });
-          }
-        }
-      } catch { /* 忽略 */ }
-    };
-    check();
-  }, []);
 
   // Ctrl+K 打开命令面板；Ctrl+F 在非编辑器页面也打开命令面板（编辑器内 Ctrl+F 由查找替换栏接管）
   useEffect(() => {
@@ -159,9 +138,6 @@ export default function App() {
           <Route path="/edit/:id" element={<JournalEditor />} />
           <Route path="/ai" element={<AIChat />} />
           <Route path="/agent" element={<Agent />} />
-          <Route path="/review" element={<ReviewPage />} />
-          <Route path="/cards" element={<Cards />} />
-          <Route path="/knowledge" element={<KnowledgeMap />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/tags" element={<Tags />} />
@@ -169,6 +145,7 @@ export default function App() {
           <Route path="/inbox" element={<Inbox />} />
           <Route path="/learning" element={<LearningGoals />} />
           <Route path="/zero2-review" element={<Zero2Review />} />
+          <Route path="/source/zero2agent" element={<Zero2Source />} />
           <Route path="/search" element={<SearchResultsPage />} />
           <Route path="/trash" element={<Trash />} />
         </Route>

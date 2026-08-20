@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, FileText, Plus, Brain, BookOpen, BarChart3, Settings, MessageSquare, CalendarDays, Tag } from 'lucide-react';
+import { Search, FileText, Plus, BarChart3, Settings, MessageSquare, CalendarDays, Tag } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { searchJournals } from '../lib/search/fuse';
 
@@ -48,8 +48,6 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
         navigate(`/edit/${entry.id}`);
       } },
       { type: 'action' as const, icon: MessageSquare, label: 'AI 助手', desc: '与 AI 对话', action: () => navigate('/ai') },
-      { type: 'action' as const, icon: BookOpen, label: '复习', desc: '复习知识卡片', action: () => navigate('/review') },
-      { type: 'action' as const, icon: Brain, label: '知识图谱', desc: '查看知识关联', action: () => navigate('/knowledge') },
       { type: 'action' as const, icon: BarChart3, label: '统计', desc: '查看学习数据', action: () => navigate('/stats') },
       { type: 'action' as const, icon: Tag, label: '标签管理', desc: '标签云与按标签筛选', action: () => navigate('/tags') },
       { type: 'action' as const, icon: Settings, label: '设置', desc: 'API 配置和数据管理', action: () => navigate('/settings') },

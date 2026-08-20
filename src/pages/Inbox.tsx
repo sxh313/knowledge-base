@@ -92,7 +92,7 @@ export default function Inbox() {
   };
 
   return (
-    <div className="animate-fade-in space-y-4 max-w-5xl mx-auto">
+    <div className="content-frame animate-fade-in space-y-4">
       <div className="page-hero">
         <div className="page-hero-copy">
           <div className="page-kicker">Capture now, organize later</div>
@@ -105,8 +105,13 @@ export default function Inbox() {
         <span className="tag-brand">待整理 {inboxItems.length}</span>
       </div>
 
+      <div className="inbox-layout">
       {/* 快速收集 / 网页剪藏表单 */}
-      <div className="card p-4 space-y-2">
+      <div className="inbox-capture card space-y-2">
+        <div className="mb-3">
+          <p className="text-sm font-semibold text-[var(--color-text)]">快速收集</p>
+          <p className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">先记录，之后再补分类和标签</p>
+        </div>
         <input
           className="input-field text-sm"
           placeholder="标题（粘贴网址会自动识别为来源）"
@@ -138,11 +143,16 @@ export default function Inbox() {
       </div>
 
       {/* 收集箱列表 */}
-      <div className="space-y-2">
-        <p className="text-xs text-[var(--color-text-secondary)]">待整理（{inboxItems.length}）</p>
+      <div className="min-w-0 space-y-2">
+        <div className="flex items-center justify-between px-1">
+          <p className="text-sm font-semibold text-[var(--color-text)]">待整理</p>
+          <span className="text-xs text-[var(--color-text-tertiary)]">{inboxItems.length} 条</span>
+        </div>
         {inboxItems.length === 0 && (
-          <div className="card p-8 text-center text-sm text-[var(--color-text-tertiary)]">
-            收集箱已清空 🎉
+          <div className="empty-state">
+            <div className="empty-state-icon mb-3"><InboxIcon className="h-6 w-6" /></div>
+            <p className="text-sm font-medium text-[var(--color-text)]">收集箱已清空</p>
+            <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">新的想法可以从左侧快速记录。</p>
           </div>
         )}
         {inboxItems.map((item) => (
@@ -161,6 +171,7 @@ export default function Inbox() {
             onSkipSuggestion={(id) => setSuggestions((current) => ({ ...current, [id]: null }))}
           />
         ))}
+      </div>
       </div>
     </div>
   );

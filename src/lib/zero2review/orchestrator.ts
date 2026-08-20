@@ -1,16 +1,17 @@
-import { decideZero2Intent } from './intentGate';
+import { classifyReviewIntentWithModel, decideZero2Intent } from './intentGate';
 import { classifyLocalIntent } from './isolation';
-import { retrieveZero2Review, type Zero2ReviewRetrieval } from './retrieval';
+import { retrieveZero2Review, DEFAULT_ZERO2_REVIEW_PATH_PREFIX, type Zero2ReviewRetrieval } from './retrieval';
 import { answerZero2Question } from './tutor';
 import { evaluateZero2Answer } from './evaluator';
 import { createUnknownMastery, applyEvaluation, recordInterest, recomputeMasteryFromAttempts } from './mastery';
 import { buildDailyPlan } from './planner';
-import { loadZero2Catalog } from './catalog';
-import { createReviewPlan, createReviewSession, getLatestReviewMessage, getTopicMastery, listTopicMastery, listTopicAttempts, recordAttempt, saveAcceptedMessage, saveReviewTasks, saveTopicMastery, updateAttemptScore, updateReviewTask } from './repository';
-import type { Zero2ReviewQuestion, Zero2ReviewStage, Zero2TutorResponse } from './types';
+import { listTopicsByPathPrefix } from './catalog';
+import { createReviewPlan, createReviewSession, getActiveReviewPlan, getLatestReviewMessage, getTopicMastery, listReviewTasks, listTopicMastery, listTopicAttempts, recordAttemptAndMastery, saveAcceptedExchangeAndMastery, saveAcceptedMessage, saveReviewTasksPreservingCompleted, saveTopicMastery, updateAttemptScore, updateReviewTask } from './repository';
+import type { Zero2EvaluationDraft, Zero2ReviewQuestion, Zero2ReviewStage, Zero2TutorResponse } from './types';
 import type { Zero2ReviewTask } from '../db/schema';
+import type { Zero2Mastery } from '../db/schema';
 
-export interface OrchestratorState { sessionId: string; stage: Zero2ReviewStage; response?: Zero2TutorResponse; question?: Zero2ReviewQuestion; clarification?: string; error?: string; }
+export interface OrchestratorState { sessionId: string; stage: Zero2ReviewStage; response?: Zero2TutorResponse; question?: Zero2ReviewQuestion; evaluation?: Zero2EvaluationDraft; attemptId?: string; clarification?: string; error?: string; }
 export interface Zero2ReviewDependencies { retrieve: (question: string) => Promise<Zero2ReviewRetrieval>; tutor: typeof answerZero2Question; evaluator: typeof evaluateZero2Answer; now: () => number; }
 const defaults: Zero2ReviewDependencies = { retrieve: retrieveZero2Review, tutor: answerZero2Question, evaluator: evaluateZero2Answer, now: () => Date.now() };
 
@@ -21,21 +22,33 @@ export function createZero2ReviewOrchestrator(overrides: Partial<Zero2ReviewDepe
     const local = classifyLocalIntent(text);
     if (local === 'out_of_scope') return { sessionId: sessionId ?? '', stage: 'rejected', clarification: '该问题不属于 zero2Agent 复习范围，也不会写入复习记录。' };
     if (local === 'review_command' || local === 'review_meta') return { sessionId: sessionId ?? '', stage: 'complete', clarification: '这是复习控制或帮助请求，不会改变掌握度。' };
-    const session = sessionId ? { id: sessionId } : await createReviewSession();
-    if (!text) return { sessionId: session.id, stage: 'clarifying', clarification: '请说明你想复习的 zero2Agent 概念或章节。' };
+    // 在问题通过来源闸门前不创建 Session，保证空问题/模糊问题不会写入学习数据。
+    if (!text) return { sessionId: sessionId ?? '', stage: 'clarifying', clarification: '请说明你想复习的 zero2Agent 概念或章节。' };
     try {
       const retrieval = await deps.retrieve(text);
-      const decision = decideZero2Intent(text, retrieval.candidates, retrieval.sufficient);
-      if (decision.kind === 'out_of_scope') return { sessionId: session.id, stage: 'rejected', clarification: decision.reason };
-      if (decision.kind === 'ambiguous') return { sessionId: session.id, stage: 'clarifying', clarification: decision.clarification };
-      if (decision.kind !== 'review_question') return { sessionId: session.id, stage: 'complete', clarification: '这是复习控制或帮助请求，不会改变掌握度。' };
-      if (retrieval.citations.length === 0) return { sessionId: session.id, stage: 'clarifying', clarification: '没有可靠的 zero2Agent 来源，请换一个更具体的概念。' };
+      // 本地检索先做硬闸门；有可靠候选时再让模型做结构化 topic 分类，
+      // 模型失败或返回非法 ID 会自动回退到确定性的本地裁决。
+      const decision = retrieval.sufficient
+        ? await classifyReviewIntentWithModel(text, retrieval.candidates, retrieval.sufficient)
+        : decideZero2Intent(text, retrieval.candidates, retrieval.sufficient);
+      if (decision.kind === 'out_of_scope') return { sessionId: sessionId ?? '', stage: 'rejected', clarification: decision.reason };
+      if (decision.kind === 'ambiguous') return { sessionId: sessionId ?? '', stage: 'clarifying', clarification: decision.clarification };
+      if (decision.kind !== 'review_question') return { sessionId: sessionId ?? '', stage: 'complete', clarification: '这是复习控制或帮助请求，不会改变掌握度。' };
+      if (retrieval.citations.length === 0) return { sessionId: sessionId ?? '', stage: 'clarifying', clarification: '没有可靠的 zero2Agent 来源，请换一个更具体的概念。' };
+      const session = sessionId ? { id: sessionId } : await createReviewSession();
       const response = await deps.tutor(text, decision.topicIds, retrieval.chunks);
-      await saveAcceptedMessage({ sessionId: session.id, role: 'user', intent: 'review_question', content: text, topicIds: decision.topicIds, citations: response.citations });
-      await saveAcceptedMessage({ sessionId: session.id, role: 'assistant', intent: 'review_question', content: response.answer, topicIds: response.topicIds, citations: response.citations, diagnosticQuestion: response.diagnosticQuestion });
-      for (const topicId of decision.topicIds) { const current = await getTopicMastery(topicId) ?? createUnknownMastery(topicId, deps.now()); await saveTopicMastery(recordInterest(current, 1, deps.now())); }
+      const interestMastery: Zero2Mastery[] = [];
+      for (const topicId of decision.topicIds) {
+        const current = await getTopicMastery(topicId) ?? createUnknownMastery(topicId, deps.now());
+        interestMastery.push(recordInterest(current, 1, deps.now()));
+      }
+      await saveAcceptedExchangeAndMastery(
+        { sessionId: session.id, role: 'user', intent: 'review_question', content: text, topicIds: decision.topicIds, citations: response.citations },
+        { sessionId: session.id, role: 'assistant', intent: 'review_question', content: response.answer, topicIds: response.topicIds, citations: response.citations, diagnosticQuestion: response.diagnosticQuestion },
+        interestMastery,
+      );
       return { sessionId: session.id, stage: response.diagnosticQuestion ? 'awaiting_answer' : 'complete', response, question: response.diagnosticQuestion };
-    } catch (error) { return { sessionId: session.id, stage: 'error', error: error instanceof Error ? error.message : '复习流程失败' }; }
+    } catch (error) { return { sessionId: sessionId ?? '', stage: 'error', error: error instanceof Error ? error.message : '复习流程失败' }; }
   }
   async function submitAnswer(state: OrchestratorState, answer: string): Promise<OrchestratorState> {
     if (!state.question || !answer.trim()) return { ...state, stage: 'error', error: '请先提供答案。' };
@@ -44,19 +57,37 @@ export function createZero2ReviewOrchestrator(overrides: Partial<Zero2ReviewDepe
       const evaluation = await deps.evaluator(state.question.prompt, answer, retrieval.chunks);
       if (evaluation.evidenceChunkIds.length === 0) return { ...state, stage: 'error', error: '当前没有足够的 zero2Agent 证据，未更新掌握度。' };
       const current = await getTopicMastery(state.question.topicId) ?? createUnknownMastery(state.question.topicId, deps.now());
-      const recorded = await recordAttempt({ sessionId: state.sessionId, topicId: state.question.topicId, question: state.question.prompt, answer, score: evaluation.score, mistakeTypes: evaluation.mistakeTypes, evidenceChunkIds: evaluation.evidenceChunkIds }, `${state.sessionId}:${state.question.id}`);
-      if (recorded.created) await saveTopicMastery(applyEvaluation(current, evaluation, deps.now()));
-      return { ...state, stage: 'complete', question: undefined, response: state.response ? { ...state.response, diagnosticQuestion: undefined } : undefined };
+      const recorded = await recordAttemptAndMastery({ sessionId: state.sessionId, topicId: state.question.topicId, question: state.question.prompt, answer, score: evaluation.score, mistakeTypes: evaluation.mistakeTypes, evidenceChunkIds: evaluation.evidenceChunkIds }, applyEvaluation(current, evaluation, deps.now()), `${state.sessionId}:${state.question.id}`);
+      if (recorded.created) {
+        await saveAcceptedMessage({
+          sessionId: state.sessionId,
+          role: 'coach',
+          intent: 'review_question',
+          content: `本次作答评分：${evaluation.score}/4。${evaluation.missingPoints.join('；')}`,
+          topicIds: [state.question.topicId],
+          citations: retrieval.citations.filter((citation) => evaluation.evidenceChunkIds.includes(citation.chunkId)),
+        });
+      }
+      return { ...state, stage: 'complete', question: undefined, evaluation, attemptId: recorded.attempt.id, response: state.response ? { ...state.response, diagnosticQuestion: undefined } : undefined };
     } catch (error) { return { ...state, stage: 'error', error: error instanceof Error ? error.message : '评价失败' }; }
   }
   async function rebuildPlan(dailyMinutes: number, date: string, goalId?: string): Promise<Zero2ReviewTask[]> {
-    const plan = await createReviewPlan({ goalId: goalId ?? 'zero2agent', title: 'zero2Agent 每日复习', dailyMinutes, startDate: date, topicIds: [], status: 'active', version: 1 });
-    const [topics, mastery] = await Promise.all([loadZero2Catalog(), listTopicMastery()]);
-    const tasks = buildDailyPlan({ topics, mastery, dailyMinutes, planId: plan.id, date, now: deps.now() });
-    await saveReviewTasks(tasks);
+    const resolvedGoalId = goalId ?? 'learn-agent-interview';
+    const plan = await getActiveReviewPlan(resolvedGoalId) ?? await createReviewPlan({ goalId: resolvedGoalId, title: 'Agent 面试通关每日复习', dailyMinutes, startDate: date, topicIds: [], status: 'active', version: 1 });
+    const [topics, mastery] = await Promise.all([listTopicsByPathPrefix(DEFAULT_ZERO2_REVIEW_PATH_PREFIX), listTopicMastery()]);
+    const existingTasks = await listReviewTasks(plan.id, date);
+    const tasks = buildDailyPlan({ topics, mastery, dailyMinutes, planId: plan.id, date, now: deps.now(), existingTasks });
+    await saveReviewTasksPreservingCompleted(tasks);
     return tasks;
   }
-  return { handleInput, submitAnswer, rebuildPlan };
+  async function startReview(): Promise<OrchestratorState> {
+    const session = await createReviewSession('Agent 面试通关每日复习');
+    return { sessionId: session.id, stage: 'idle' };
+  }
+  async function continueReview(sessionId: string): Promise<OrchestratorState | null> {
+    return restoreZero2Session(sessionId);
+  }
+  return { handleInput, startReview, continueReview, submitAnswer, rebuildPlan, skipTask, finishTask };
 }
 
 const defaultOrchestrator = createZero2ReviewOrchestrator();

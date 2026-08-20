@@ -1,7 +1,8 @@
 import type { ChatMessage } from './client';
 import { chatCompletion } from './client';
 import { getSettings } from '../db/queries';
-import { MODEL_MAP, TASK_MODELS, PROVIDER_FALLBACK_MODELS, providerNeedsApiKey, type TaskType, type ProviderName } from './providers';
+import { MODEL_MAP, TASK_MODELS, PROVIDER_FALLBACK_MODELS, providerNeedsApiKey, type ModelEntry, type TaskType, type ProviderName } from './providers';
+import type { AIModelBindings, AIModelProfile } from '../db/schema';
 
 export interface RouteResult {
   content: string;
@@ -10,13 +11,36 @@ export interface RouteResult {
   usage?: { promptTokens: number; completionTokens: number };
 }
 
+export type ModelBindingRole = keyof Pick<AIModelBindings, 'answerModelId' | 'reviewTutorModelId' | 'evaluatorModelId' | 'plannerModelId' | 'queryRewriteModelId'>;
+
+function resolveModelEntry(modelId: string): ModelEntry | undefined {
+  const mapped = MODEL_MAP[modelId];
+  if (mapped) return mapped;
+  // 设置页对本地模型使用 local/<id> 命名空间，避免与云端同名模型冲突。
+  if (modelId.startsWith('local/') && modelId.length > 6) {
+    return { provider: 'local', model: modelId.slice(6) };
+  }
+  return undefined;
+}
+
 export async function routeAI(
   task: TaskType,
   messages: ChatMessage[],
   onToken?: (token: string) => void,
+  preferredModelId?: string,
 ): Promise<RouteResult> {
   const settings = await getSettings();
-  const modelIds = TASK_MODELS[task];
+  // 将设置页选择的模型放在任务专属 fallback 链最前面，避免 UI 选择与实际调用脱节。
+  const preferredKey = task === 'codeReview' || task === 'codeExplain'
+    ? 'codeTask'
+    : task === 'tagSuggest' || task === 'sentiment'
+      ? 'fastTask'
+      : 'highQuality';
+  const bindingOverride = preferredModelId && settings.modelBindings && preferredModelId in settings.modelBindings
+    ? settings.modelBindings[preferredModelId as keyof AIModelBindings]
+    : preferredModelId ?? (task === 'qa' ? settings.modelBindings?.answerModelId : undefined);
+  const preferred = bindingOverride ?? settings.preferredModels?.[preferredKey];
+  const modelIds = Array.from(new Set([preferred, ...TASK_MODELS[task]].filter((id): id is string => !!id)));
   let lastError: string | null = null;
 
   // 记录已尝试过的 (provider, model)，避免 fallback 阶段重复调用
@@ -50,9 +74,37 @@ export async function routeAI(
     }
   };
 
+  const tryProfile = async (profile: AIModelProfile): Promise<RouteResult | null> => {
+    const key = `profile/${profile.id}`;
+    if (tried.has(key)) return null;
+    tried.add(key);
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000);
+      const result = await chatCompletion(
+        { name: profile.id, baseUrl: profile.baseUrl, apiKey: profile.apiKey, enabled: profile.enabled },
+        profile.modelId,
+        messages,
+        { stream: !!onToken, onToken, signal: controller.signal },
+      );
+      clearTimeout(timeout);
+      return { content: result.content, model: profile.modelId, provider: profile.id, usage: result.usage };
+    } catch (err) {
+      lastError = `[${profile.id}/${profile.modelId}]: ${(err as Error).message}`;
+      console.warn(`AI failover: ${lastError}`);
+      return null;
+    }
+  };
+
   // 1) 主模型序列（用户可配置的模型，如 deepseek-v4-flash）
   for (const modelId of modelIds) {
-    const entry = MODEL_MAP[modelId];
+    const profile = settings.modelProfiles?.find((item) => item.id === modelId && item.kind === 'chat' && item.enabled);
+    if (profile) {
+      const profileResult = await tryProfile(profile);
+      if (profileResult) return profileResult;
+      continue;
+    }
+    const entry = resolveModelEntry(modelId);
     if (!entry) continue;
     const res = await tryModel(entry.provider, entry.model);
     if (res) return res;
@@ -65,9 +117,9 @@ export async function routeAI(
     settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek', 'local'];
   for (const provider of providerOrder) {
     const fallbackModelId = PROVIDER_FALLBACK_MODELS[provider];
-    const entry = fallbackModelId ? MODEL_MAP[fallbackModelId] : undefined;
+    const entry = fallbackModelId ? resolveModelEntry(fallbackModelId) : undefined;
     const model = provider === 'local'
-      ? (settings.availableModels?.local?.[0] ?? settings.selectedModels?.find((id) => id.startsWith('local/'))?.slice(6) ?? 'llama3.2').replace(/^local\//, '')
+      ? (settings.availableModels?.local?.[0] ?? settings.selectedModels?.find((id) => id.startsWith('local/'))?.slice(6) ?? entry?.model ?? 'dsv4').replace(/^local\//, '')
       : entry?.model;
     if (!model) continue;
     const res = await tryModel(provider, model);
@@ -75,6 +127,17 @@ export async function routeAI(
   }
 
   throw new Error(`All AI endpoints failed. Last error: ${lastError}`);
+}
+
+/** 使用设置页“角色绑定”的模型；找不到自定义配置时仍走原有 fallback。 */
+export async function routeBoundAI(
+  role: ModelBindingRole,
+  task: TaskType,
+  messages: ChatMessage[],
+  onToken?: (token: string) => void,
+): Promise<RouteResult> {
+  const settings = await getSettings();
+  return routeAI(task, messages, onToken, settings.modelBindings?.[role]);
 }
 
 export function getSystemPrompt(task: TaskType): string {

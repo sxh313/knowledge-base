@@ -1,4 +1,4 @@
-import { routeAI } from '../ai/router';
+import { routeBoundAI } from '../ai/router';
 import type { RetrievedChunk } from '../ai/retrieval';
 import { assertZero2Sources } from './isolation';
 import { buildEvaluatorMessages } from './prompts';
@@ -20,7 +20,7 @@ export async function evaluateZero2Answer(question: string, answer: string, chun
   assertZero2Sources(chunks);
   const allowed = new Set(chunks.map((chunk) => chunk.chunkId));
   try {
-    const result = await routeAI('qa', buildEvaluatorMessages(question, answer, chunks));
+    const result = await routeBoundAI('evaluatorModelId', 'qa', buildEvaluatorMessages(question, answer, chunks));
     const parsed = parseObject(result.content);
     const score = Number(parsed?.score);
     if (![0, 1, 2, 3, 4].includes(score)) throw new Error('invalid score');

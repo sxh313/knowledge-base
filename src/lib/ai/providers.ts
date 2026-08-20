@@ -16,7 +16,8 @@ export const DEFAULT_BASE_URLS: Record<ProviderName, string> = {
   siliconflow: 'https://api.siliconflow.cn/v1',
   zhipu: 'https://open.bigmodel.cn/api/paas/v4',
   deepseek: 'https://api.deepseek.com/v1',
-  local: 'http://127.0.0.1:11434/v1',
+  // 当前工作区的本地 vLLM OpenAI-compatible 服务；也可以在设置页覆盖。
+  local: 'http://61.172.167.64:4900/v1',
 };
 
 // Model definitions: which provider + model name to use
@@ -49,6 +50,8 @@ export const MODEL_MAP: Record<string, ModelEntry> = {
   'glm-4v':             { provider: 'zhipu', model: 'glm-4v' },
   // DeepSeek 官方
   'deepseek-official':  { provider: 'deepseek', model: 'deepseek-chat' },
+  // 本地 vLLM 暴露的 DeepSeek-V4-Flash，真实 /v1/models id 为 dsv4
+  'local-dsv4':         { provider: 'local', model: 'dsv4' },
 };
 
 // 每个 provider 的默认 fallback 模型（当主模型序列全部失败/未配置时，按已配置 provider 依次兜底）
@@ -58,7 +61,7 @@ export const PROVIDER_FALLBACK_MODELS: Record<ProviderName, string> = {
   siliconflow: 'siliconflow-ds',
   zhipu: 'glm-4',
   deepseek: 'deepseek-official',
-  local: '',
+  local: 'local-dsv4',
 };
 
 export function providerNeedsApiKey(provider: ProviderName): boolean {
@@ -77,7 +80,7 @@ export type TaskType =
   | 'sentiment'
   | 'imageAnalysis';
 
-// 全部默认 deepseek-v4-flash，备选 deepseek-v4
+// 任务 fallback 保留云端模型；当前工作区通过 settings.preferredModels 优先使用 local/dsv4。
 export const TASK_MODEL_MAP: Record<TaskType, string[]> = {
   summarize:     ['deepseek-v4-flash', 'deepseek-v4'],
   explain:       ['deepseek-v4-flash', 'deepseek-v4'],
