@@ -5,6 +5,10 @@ const sourceRoot = path.resolve(process.argv[2] || process.env.ZERO2AGENT_ROOT |
 const outputPath = path.resolve(process.argv[3] || 'public/zero2agent-kb.json');
 const copyRoot = path.resolve(process.argv[4] || 'public/zero2agent');
 const excluded = new Set(['AGENTS.md', 'THIRD_PARTY_NOTICES.md']);
+const curriculumPath = path.resolve('scripts/zero2agent-curriculum.json');
+const curriculum = fs.existsSync(curriculumPath)
+  ? JSON.parse(fs.readFileSync(curriculumPath, 'utf8'))
+  : {};
 
 function walk(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -67,6 +71,12 @@ const docs = walk(sourceRoot).map((filePath) => {
   const webPath = relativePath.endsWith('/index.md')
     ? relativePath.slice(0, -'index.md'.length)
     : relativePath;
+  const topicKey = relativePath.endsWith('/index.md')
+    ? relativePath.slice(0, -'/index.md'.length)
+    : relativePath.slice(0, -'.md'.length);
+  const custom = curriculum[topicKey] || {};
+  const moduleOrder = Number(custom.moduleOrder ?? 0);
+  const topicOrder = Number(custom.topicOrder ?? Number(relativePath.match(/(?:^|\/)0*(\d+)-/)?.[1] ?? 0));
   return {
     id: `zero2agent:${relativePath}`,
     path: relativePath,
@@ -78,6 +88,11 @@ const docs = walk(sourceRoot).map((filePath) => {
     sections: sectionsOf(content),
     sourceUrl: `https://onefly.top/zero2Agent/${webPath}`,
     localPath: `/zero2agent/${relativePath}`,
+    moduleOrder,
+    topicOrder,
+    keywords: custom.keywords || [],
+    prerequisiteIds: custom.prerequisites || [],
+    estimatedMinutes: Number(custom.estimatedMinutes ?? 30),
   };
 }).sort((a, b) => a.path.localeCompare(b.path));
 

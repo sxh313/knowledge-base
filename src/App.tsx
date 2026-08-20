@@ -30,6 +30,7 @@ const Tags = lazy(() => import('./pages/Tags'));
 const SearchResultsPage = lazy(() => import('./pages/SearchResultsPage'));
 const Inbox = lazy(() => import('./pages/Inbox'));
 const LearningGoals = lazy(() => import('./pages/LearningGoals'));
+const Zero2Review = lazy(() => import('./pages/Zero2Review'));
 
 // Electron/Capacitor 容器使用 HashRouter；普通浏览器使用 BrowserRouter。
 const isElectron = typeof navigator !== 'undefined' && /Electron/.test(navigator.userAgent);
@@ -167,6 +168,7 @@ export default function App() {
           <Route path="/manual" element={<Manual />} />
           <Route path="/inbox" element={<Inbox />} />
           <Route path="/learning" element={<LearningGoals />} />
+          <Route path="/zero2-review" element={<Zero2Review />} />
           <Route path="/search" element={<SearchResultsPage />} />
           <Route path="/trash" element={<Trash />} />
         </Route>

@@ -147,7 +147,7 @@ export default function SettingsPage() {
   };
 
   const updateSync = (patch: Partial<SyncConfig>) => {
-    const cur = settings?.sync ?? { enabled: false, owner: '', repo: '', branch: 'main', path: 'data.json', token: '', autoSync: true };
+    const cur = settings?.sync ?? { enabled: false, owner: '', repo: '', branch: 'main', path: 'data.json', token: '', autoSync: true, syncZero2ReviewHistory: false };
     update({ sync: { ...cur, ...patch } });
   };
 
@@ -209,9 +209,10 @@ export default function SettingsPage() {
   })();
 
   return (
-    <div className="mx-auto flex max-w-6xl items-start gap-8 p-4 sm:p-6">
+    <div className="mx-auto flex max-w-6xl items-start gap-8 p-2 sm:p-4">
       <main className="min-w-0 max-w-2xl flex-1 space-y-6 sm:space-y-8">
-      <header>
+      <header className="page-hero !items-start !flex-col !gap-0">
+        <div className="page-kicker">Workspace preferences</div>
         <h1 className="text-2xl font-bold">设置</h1>
         <p className="text-sm text-gray-500 mt-1">凭据由你在本机配置，不写入安装包；调用 AI 时直连你选择的服务商</p>
       </header>
