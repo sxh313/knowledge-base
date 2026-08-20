@@ -8,14 +8,20 @@ export default function ReviewPage() {
   const navigate = useNavigate();
   const {
     cards, index, isFlipped, isLoading, isComplete, stats,
-    load, flip, rate,
+    load, flip, rate, submitAnswer,
   } = useReviewStore();
   const [totalCardsInSystem, setTotalCardsInSystem] = useState(0);
 
   useEffect(() => {
-    load();
+    load().then(() => useReviewStore.getState().startSession());
     db.cards.count().then(setTotalCardsInSystem);
   }, []);
+
+  useEffect(() => {
+    if (isComplete && useReviewStore.getState().session?.status === 'active') {
+      useReviewStore.getState().finishSession();
+    }
+  }, [isComplete]);
 
   const card = cards[index] ?? null;
   const total = cards.length;
@@ -153,7 +159,7 @@ export default function ReviewPage() {
                 ]).map(({ rating: r, label, hint, color }) => (
                   <button
                     key={r}
-                    onClick={() => rate(r as 1 | 2 | 3 | 4)}
+                    onClick={() => { submitAnswer(`评分 ${r}`, r >= 3); rate(r as 1 | 2 | 3 | 4); }}
                     className={`rounded-lg px-4 py-3 text-sm font-semibold transition-all active:scale-95 flex flex-col items-center ${color}`}
                   >
                     <span>{label}</span>

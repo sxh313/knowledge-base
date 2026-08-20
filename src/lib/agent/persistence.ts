@@ -109,6 +109,7 @@ export async function createAgentRun(input: {
     model: input.model,
     provider: input.provider,
     createdAt: now,
+    updatedAt: now,
   };
   await db.agentRuns.add(run);
   return run;
@@ -131,7 +132,7 @@ export async function updateAgentRun(
     >
   >,
 ): Promise<void> {
-  await db.agentRuns.update(runId, patch);
+  await db.agentRuns.update(runId, { ...patch, updatedAt: Date.now() });
 }
 
 /** 获取会话的运行记录（按时间倒序） */

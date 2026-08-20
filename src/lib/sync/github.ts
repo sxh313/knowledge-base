@@ -7,6 +7,7 @@ import { db } from '../db/schema';
 import type { SyncConfig, JournalEntry } from '../db/schema';
 import { rebuildDocumentIndexes } from '../indexing/documents';
 import { pushJournalsAsMarkdown, pushConversationsAsMarkdown } from './markdownSync';
+import { mergeData, type FullData } from './merge';
 
 const API = 'https://api.github.com';
 
@@ -39,28 +40,6 @@ function b64decode(b64: string): string {
   return s;
 }
 
-export interface FullData {
-  version: number;
-  exportedAt: number;
-  journals: unknown[];
-  notes: unknown[];
-  cards: unknown[];
-  graphNodes: unknown[];
-  graphEdges: unknown[];
-  aiConversations: unknown[];
-  savedSearches: unknown[];
-  journalVersions: unknown[];
-  propertyDefinitions: unknown[];
-  categories: unknown[];
-  attachments: unknown[];
-  /** Agent 会话（可选同步，含敏感内容时由 syncAgentData 控制） */
-  agentSessions?: unknown[];
-  /** Agent 消息（可选同步） */
-  agentMessages?: unknown[];
-  /** Agent 运行记录（可选同步，含撤销快照） */
-  agentRuns?: unknown[];
-}
-
 // Blob → dataURL（附件序列化用；settings 不参与同步，因其含 API Key）
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -73,7 +52,7 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 
 /** 收集本地全部数据（同步用）；附件 Blob 序列化为 dataUrl，settings 不同步（含密钥） */
 export async function collectAllData(syncAgentData = false): Promise<FullData> {
-  const [journals, notes, cards, graphNodes, graphEdges, aiConversations, savedSearches, journalVersions, propertyDefinitions, categories, rawAttachments] = await Promise.all([
+  const [journals, notes, cards, graphNodes, graphEdges, aiConversations, savedSearches, journalVersions, propertyDefinitions, categories, rawAttachments, userPreferences, learningGoals, learningTasks] = await Promise.all([
     db.journals.toArray(),
     db.notes.toArray(),
     db.cards.toArray(),
@@ -85,16 +64,21 @@ export async function collectAllData(syncAgentData = false): Promise<FullData> {
     db.propertyDefinitions.toArray(),
     db.categories.toArray(),
     db.attachments.toArray(),
+    db.userPreferences.toArray(),
+    db.learningGoals.toArray(),
+    db.learningTasks.toArray(),
   ]);
   // Agent 数据（会话/消息/运行记录）可选同步：含撤销快照等敏感内容，默认关闭
   let agentSessions: unknown[] | undefined;
   let agentMessages: unknown[] | undefined;
   let agentRuns: unknown[] | undefined;
+  let agentAuditLogs: unknown[] | undefined;
   if (syncAgentData) {
-    [agentSessions, agentMessages, agentRuns] = await Promise.all([
+    [agentSessions, agentMessages, agentRuns, agentAuditLogs] = await Promise.all([
       db.agentSessions.toArray(),
       db.agentMessages.toArray(),
       db.agentRuns.toArray(),
+      db.agentAuditLogs.toArray(),
     ]);
   }
   // 附件 Blob 无法直接 JSON 序列化，转成 dataUrl
@@ -106,60 +90,12 @@ export async function collectAllData(syncAgentData = false): Promise<FullData> {
     })),
   );
   return {
-    version: 1,
+    version: 2,
     exportedAt: Date.now(),
     journals, notes, cards, graphNodes, graphEdges, aiConversations,
     savedSearches, journalVersions, propertyDefinitions, categories, attachments,
-    agentSessions, agentMessages, agentRuns,
-  };
-}
-
-interface TimedRow {
-  id?: string;
-  updatedAt?: number;
-  createdAt?: number;
-  deletedAt?: number;
-  nextReviewAt?: number;
-  lastReviewAt?: number;
-}
-
-function rowTime(r: TimedRow): number {
-  // deletedAt 优先（让软删除覆盖普通更新），其次 updatedAt，再退化到其它时间字段
-  return r.deletedAt ?? r.updatedAt ?? r.lastReviewAt ?? r.nextReviewAt ?? r.createdAt ?? 0;
-}
-
-/** 按 id 合并两份数据，每条取「较新」版本 */
-function mergeByNewest(a: unknown[], b: unknown[]): unknown[] {
-  const m = new Map<string, unknown>();
-  for (const row of [...a, ...b]) {
-    const r = row as TimedRow;
-    if (!r.id) continue;
-    const ex = m.get(r.id) as TimedRow | undefined;
-    if (!ex || rowTime(r) >= rowTime(ex)) m.set(r.id, row);
-  }
-  return [...m.values()];
-}
-
-export function mergeData(local: FullData, remote: FullData): FullData {
-  // 远端为旧版本时可能缺新增字段，用 ?? [] 容错
-  const r = remote as Partial<FullData>;
-  return {
-    version: 1,
-    exportedAt: Date.now(),
-    journals: mergeByNewest(local.journals, r.journals ?? []),
-    notes: mergeByNewest(local.notes, r.notes ?? []),
-    cards: mergeByNewest(local.cards, r.cards ?? []),
-    graphNodes: mergeByNewest(local.graphNodes, r.graphNodes ?? []),
-    graphEdges: mergeByNewest(local.graphEdges, r.graphEdges ?? []),
-    aiConversations: mergeByNewest(local.aiConversations, r.aiConversations ?? []),
-    savedSearches: mergeByNewest(local.savedSearches, r.savedSearches ?? []),
-    journalVersions: mergeByNewest(local.journalVersions, r.journalVersions ?? []),
-    propertyDefinitions: mergeByNewest(local.propertyDefinitions, r.propertyDefinitions ?? []),
-    categories: mergeByNewest(local.categories, r.categories ?? []),
-    attachments: mergeByNewest(local.attachments, r.attachments ?? []),
-    agentSessions: mergeByNewest(local.agentSessions ?? [], r.agentSessions ?? []),
-    agentMessages: mergeByNewest(local.agentMessages ?? [], r.agentMessages ?? []),
-    agentRuns: mergeByNewest(local.agentRuns ?? [], r.agentRuns ?? []),
+    agentSessions, agentMessages, agentRuns, agentAuditLogs,
+    userPreferences, learningGoals, learningTasks,
   };
 }
 
@@ -170,7 +106,8 @@ export async function writeAllData(data: FullData): Promise<void> {
     [
       db.journals, db.notes, db.cards, db.graphNodes, db.graphEdges, db.aiConversations,
       db.savedSearches, db.journalVersions, db.propertyDefinitions, db.attachments,
-      db.categories, db.agentSessions, db.agentMessages, db.agentRuns,
+      db.categories, db.agentSessions, db.agentMessages, db.agentRuns, db.agentAuditLogs,
+      db.userPreferences, db.learningGoals, db.learningTasks,
     ],
     async () => {
       await Promise.all([
@@ -188,6 +125,10 @@ export async function writeAllData(data: FullData): Promise<void> {
         db.agentSessions.bulkPut((data.agentSessions ?? []) as never),
         db.agentMessages.bulkPut((data.agentMessages ?? []) as never),
         db.agentRuns.bulkPut((data.agentRuns ?? []) as never),
+        db.agentAuditLogs.bulkPut((data.agentAuditLogs ?? []) as never),
+        db.userPreferences.bulkPut((data.userPreferences ?? []) as never),
+        db.learningGoals.bulkPut((data.learningGoals ?? []) as never),
+        db.learningTasks.bulkPut((data.learningTasks ?? []) as never),
       ]);
     },
   );

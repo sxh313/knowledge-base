@@ -2,14 +2,17 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAgentStore } from '../stores/agentStore';
 import { useJournalStore } from '../stores/journalStore';
+import { useViewModeStore } from '../stores/viewModeStore';
 import MarkdownContent from '../components/MarkdownContent';
 import {
   Send, Paperclip, Check, X, FileText, Plus, Pencil, ArrowDownToLine,
   ArrowUpFromLine, CornerDownRight, Search, Loader2, Trash2, ExternalLink, MessageSquare,
-  Tag, FolderInput, Layers, Undo2, ShieldAlert, ShieldCheck, Shield, Wrench, Network, Link2,
+  Tag, FolderInput, Layers, Undo2, ShieldAlert, ShieldCheck, Shield, Wrench, Network, Link2, PanelLeft,
 } from 'lucide-react';
 import type { AgentOp, AgentOpResult } from '../lib/agent/tools';
 import { diffLines } from '../lib/agent/diff';
+import { getSkillRegistryState } from '../lib/agent/skills';
+import { DEFAULT_AGENT_PREFERENCES, getAgentPreferences, resetAgentPreferences, saveAgentPreferences, type AgentPreferences } from '../lib/agent/preferences';
 
 const RISK_META: Record<string, { label: string; icon: typeof Shield; color: string; badge: string }> = {
   low: { label: '低风险', icon: Shield, color: 'text-emerald-600', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
@@ -23,6 +26,8 @@ const OP_META: Record<string, { label: string; icon: typeof FileText; color: str
   append: { label: '追加内容', icon: ArrowDownToLine, color: 'text-blue-600' },
   prepend: { label: '插入开头', icon: ArrowUpFromLine, color: 'text-purple-600' },
   insertAfter: { label: '标题后插入', icon: CornerDownRight, color: 'text-cyan-600' },
+  patchJournal: { label: '精确修复', icon: Pencil, color: 'text-cyan-600' },
+  updateMetadata: { label: '更新元数据', icon: Tag, color: 'text-teal-600' },
   read: { label: '读取文档', icon: FileText, color: 'text-gray-500' },
   search: { label: '搜索', icon: Search, color: 'text-gray-500' },
   rename: { label: '重命名', icon: Pencil, color: 'text-amber-600' },
@@ -37,6 +42,12 @@ const OP_META: Record<string, { label: string; icon: typeof FileText; color: str
   suggestQualityFixes: { label: '一键修复建议', icon: Wrench, color: 'text-gray-500' },
   analyzeJournalImpact: { label: '影响分析', icon: Network, color: 'text-gray-500' },
   repairDocumentLinks: { label: '链接修复计划', icon: Link2, color: 'text-gray-500' },
+  analyzeKnowledgeGaps: { label: '知识缺口', icon: Search, color: 'text-gray-500' },
+  suggestJournalMetadata: { label: '元数据建议', icon: Tag, color: 'text-gray-500' },
+  findRelatedJournals: { label: '相关文档', icon: Network, color: 'text-gray-500' },
+  explainSyncConflict: { label: '解释同步冲突', icon: ShieldAlert, color: 'text-gray-500' },
+  prepareConflictMerge: { label: '生成合并草案', icon: ShieldCheck, color: 'text-gray-500' },
+  applyConflictMerge: { label: '写入合并结果', icon: ShieldAlert, color: 'text-red-600' },
 };
 
 function OpBadge({ op }: { op: AgentOp }) {
@@ -60,7 +71,7 @@ function RiskBadge({ risk }: { risk?: AgentOp['risk'] }) {
   const meta = RISK_META[risk ?? 'low'];
   const Icon = meta.icon;
   return (
-    <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium border ${meta.badge}`}>
+    <span className={`risk-badge-${risk ?? 'low'} inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium border ${meta.badge}`}>
       <Icon className="h-3 w-3" /> {meta.label}
     </span>
   );
@@ -111,6 +122,9 @@ function MetaDiff({ result }: { result?: AgentOpResult }) {
   }
   if (result.beforeSubject !== undefined && result.afterSubject !== undefined && result.beforeSubject !== result.afterSubject) {
     changes.push(`分类：${result.beforeSubject || '（无）'} → ${result.afterSubject || '（无）'}`);
+  }
+  if (result.beforeSummary !== undefined && result.afterSummary !== undefined && result.beforeSummary !== result.afterSummary) {
+    changes.push(`摘要：${result.beforeSummary || '（空）'} → ${result.afterSummary || '（空）'}`);
   }
   if (result.beforeTags !== undefined && result.afterTags !== undefined) {
     const added = (result.afterTags ?? []).filter((t) => !(result.beforeTags ?? []).includes(t));
@@ -174,22 +188,34 @@ export default function Agent() {
   const { messages, isProcessing, error, run, applyPending, cancelPending, undoLast, undoRunById, clear,
     sessionId, sessions, runs, initialized, init, newSession, loadSession, renameSession, setSessionStatus, deleteSession } = useAgentStore();
   const { loadAll } = useJournalStore();
+  const { isMobile } = useViewModeStore();
   const [input, setInput] = useState('');
   const [attached, setAttached] = useState<{ name: string; content: string } | null>(null);
   const [approved, setApproved] = useState<Set<string>>(new Set());
   const [showSessions, setShowSessions] = useState(true);
   const [showRuns, setShowRuns] = useState(false);
+  const [showSkills, setShowSkills] = useState(false);
+  const [preferences, setPreferences] = useState<AgentPreferences>(DEFAULT_AGENT_PREFERENCES);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // 移动端默认隐藏会话栏，避免主聊天区被压缩成窄列。
+  useEffect(() => {
+    if (isMobile) setShowSessions(false);
+  }, [isMobile]);
+
   // 初始化：从 IndexedDB 恢复会话
   useEffect(() => {
     if (!initialized) init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialized]);
+
+  useEffect(() => {
+    getAgentPreferences().then(setPreferences).catch(() => {});
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -322,11 +348,21 @@ export default function Agent() {
     failed: { label: '失败', color: 'text-red-600' },
     cancelled: { label: '已撤销', color: 'text-gray-500' },
   };
+  const skillState = getSkillRegistryState();
+  const updatePreference = async (patch: Partial<AgentPreferences>) => setPreferences(await saveAgentPreferences(patch));
 
   return (
-    <div className="flex h-[calc(100vh-6rem)]">
+    <div className="relative flex h-full min-h-0 md:h-[calc(100vh-6rem)]">
       {/* 左侧会话栏 */}
-      <aside className={`w-60 shrink-0 border-r border-[var(--color-border)] flex flex-col ${showSessions ? '' : 'hidden'}`}>
+      {isMobile && showSessions && (
+        <button
+          className="fixed inset-0 z-20 bg-black/25"
+          onClick={() => setShowSessions(false)}
+          aria-label="关闭会话列表"
+          type="button"
+        />
+      )}
+      <aside className={`${isMobile ? 'absolute inset-y-0 left-0 z-30 w-[84vw] max-w-[280px] shadow-xl' : 'w-60'} shrink-0 border-r border-[var(--color-border)] flex flex-col ${showSessions ? '' : 'hidden'}`}>
         <div className="p-2 border-b border-[var(--color-border)] flex items-center justify-between">
           <span className="text-xs font-semibold text-[var(--color-text-secondary)]">会话</span>
           <button
@@ -403,42 +439,75 @@ export default function Agent() {
       {/* 主聊天区 */}
       <div className="flex-1 flex flex-col min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border)]">
-        <h1 className="text-lg font-bold flex items-center gap-1.5">🤖 AI 助手（Agent）</h1>
+      <div className="flex items-center justify-between gap-2 px-4 py-2 border-b border-[var(--color-border)]">
+        <div className="flex items-center gap-2">
+          {!showSessions && (
+            <button className="btn-ghost p-1" onClick={() => setShowSessions(true)} title="显示会话列表" aria-label="显示会话列表" type="button">
+              <PanelLeft className="h-4 w-4" />
+            </button>
+          )}
+          <h1 className="text-lg font-bold flex items-center gap-1.5">🤖 AI 助手（Agent）</h1>
+        </div>
         <div className="flex items-center gap-2">
           <button
             className="btn-ghost text-xs px-2.5 py-1 flex items-center gap-1 rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-2)]"
-            onClick={() => navigate('/ai')}
+            onClick={() => navigate('/ai?mode=chat')}
             title="切换到普通 AI 对话"
           >
-            <MessageSquare className="h-3.5 w-3.5" /> 普通对话
+            <MessageSquare className="h-3.5 w-3.5" /> <span className="hidden sm:inline">普通对话</span>
           </button>
           <span className="text-xs text-[var(--color-text-tertiary)] hidden sm:inline">
             可新建 / 编辑 / 追加文档，执行前会先预览确认
           </span>
           <button className="btn-ghost text-xs flex items-center gap-1" onClick={clear} title="清空对话">
-            <Trash2 className="h-3.5 w-3.5" /> 清空
+            <Trash2 className="h-3.5 w-3.5" /> <span className="hidden sm:inline">清空</span>
+          </button>
+          <button className={`btn-ghost text-xs flex items-center gap-1 ${showSkills ? 'text-[var(--color-primary)]' : ''}`} onClick={() => setShowSkills((v) => !v)} title="查看 Skill Registry 与安全检查点" aria-label="Skill Registry">
+            <Wrench className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Skills</span>
           </button>
         </div>
       </div>
+
+      {showSkills && (
+        <div className="border-b border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-2">
+          <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-1.5">
+            {skillState.skills.map((skill) => (
+              <span key={skill.id} className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[10px] text-[var(--color-text-secondary)]" title={skill.description}>
+                <span className={`h-1.5 w-1.5 rounded-full ${skill.status === 'ready' ? 'bg-emerald-500' : skill.status === 'guarded' ? 'bg-amber-500' : 'bg-sky-500'}`} />
+                {skill.name}
+              </span>
+            ))}
+            <span className="ml-auto text-[10px] text-[var(--color-text-tertiary)]" title={skillState.guard}>{skillState.checkpoint}</span>
+          </div>
+          <div className="mx-auto mt-2 flex max-w-4xl flex-wrap items-center gap-2 border-t border-[var(--color-border)] pt-2 text-[10px] text-[var(--color-text-secondary)]">
+            <span>工作偏好</span>
+            <select className="input-field w-auto px-2 py-1 text-[10px]" value={preferences.detail} onChange={(e) => updatePreference({ detail: e.target.value as AgentPreferences['detail'] })} aria-label="回答详细程度">
+              <option value="concise">简洁</option><option value="balanced">平衡</option><option value="detailed">详细</option>
+            </select>
+            <label className="flex items-center gap-1"><input type="checkbox" checked={preferences.defaultPlanOnly} onChange={(e) => updatePreference({ defaultPlanOnly: e.target.checked })} />默认只生成计划</label>
+            <label className="flex items-center gap-1">最多卡片 <input className="input-field w-14 px-1 py-1 text-[10px]" type="number" min={1} max={50} value={preferences.maxCards} onChange={(e) => updatePreference({ maxCards: Number(e.target.value) })} /></label>
+            <button className="btn-ghost px-1 py-0.5 text-[10px]" onClick={async () => setPreferences(await resetAgentPreferences())}>恢复默认</button>
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.length === 0 && (
           <div className="text-center text-sm text-[var(--color-text-tertiary)] py-16 space-y-2">
             <div className="text-4xl">🤖</div>
-            <p>我是你的知识库 AI 助手，可以帮你操作文档。</p>
+            <p>我是你的知屿 AI 助手，可以帮你操作文档。</p>
             <p className="text-xs">例如：「把这段内容新建为一篇笔记」「在《React 笔记》末尾追加这段总结」「把下面内容整理后写入《算法笔记》」</p>
             <p className="text-xs">支持粘贴或上传 .md / .txt 文件作为素材。</p>
           </div>
         )}
 
         {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm ${
+          <div key={i} className={`agent-message-row mx-auto flex w-full max-w-3xl cv-auto ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[85%] px-4 py-3 text-sm leading-7 ${
               msg.role === 'user'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-gray-100 dark:bg-gray-800 text-[var(--color-text)]'
+                ? 'agent-user-bubble rounded-2xl'
+                : 'agent-assistant-content'
             }`}>
               <MarkdownContent>{msg.content}</MarkdownContent>
 
@@ -476,6 +545,16 @@ export default function Agent() {
                             {preview?.content && (
                               <div className="mt-1 pl-5 text-xs text-[var(--color-text-tertiary)] whitespace-pre-wrap">
                                 {preview.content}
+                              </div>
+                            )}
+                            {preview?.cards && preview.cards.length > 0 && (
+                              <div className="mt-1 pl-5 space-y-1 text-[11px] text-[var(--color-text-secondary)]">
+                                {preview.cards.slice(0, 5).map((card, cardIndex) => (
+                                  <div key={cardIndex} className="rounded border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1">
+                                    <b>{card.front}</b><span className="ml-1">{card.back.slice(0, 100)}{card.back.length > 100 ? '…' : ''}</span>
+                                  </div>
+                                ))}
+                                {preview.cards.length > 5 && <span>其余 {preview.cards.length - 5} 张确认后生成</span>}
                               </div>
                             )}
                             <DiffView before={preview?.beforeContent} after={preview?.afterContent} />
@@ -532,7 +611,7 @@ export default function Agent() {
 
         {isProcessing && (
           <div className="flex justify-start">
-            <div className="rounded-2xl px-4 py-3 bg-gray-100 dark:bg-gray-800 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+            <div className="agent-assistant-content mx-auto w-full max-w-3xl px-1 py-2 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
               <Loader2 className="h-4 w-4 animate-spin" />
               <span>AI 正在分析并生成操作计划…</span>
             </div>
@@ -546,7 +625,7 @@ export default function Agent() {
       </div>
 
       {/* Input */}
-      <div className="px-4 py-3 border-t border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="px-4 pb-4 pt-3 border-t border-[var(--color-border)] bg-[var(--color-bg)]">
         {attached && (
           <div className="flex items-center gap-2 mb-2 text-xs bg-[var(--color-surface-2)] rounded-md px-3 py-1.5">
             <FileText className="h-3.5 w-3.5 text-indigo-500" />
@@ -557,7 +636,7 @@ export default function Agent() {
             </button>
           </div>
         )}
-        <div className="flex gap-2 items-end">
+        <div className="agent-composer flex gap-2 items-end px-3 py-2">
           <button
             className="btn-ghost p-2 shrink-0"
             onClick={() => fileInputRef.current?.click()}

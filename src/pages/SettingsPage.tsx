@@ -2,14 +2,14 @@ import { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { useSettingsStore } from '../stores/settingsStore';
 import type { ProviderName } from '../lib/ai/providers';
-import { DEFAULT_BASE_URLS } from '../lib/ai/providers';
+import { DEFAULT_BASE_URLS, providerNeedsApiKey } from '../lib/ai/providers';
 import type { AISettings } from '../lib/db/schema';
 import { fetchAvailableModels } from '../lib/db/queries';
 import type { SyncConfig } from '../lib/db/schema';
 import { useSyncStore } from '../stores/syncStore';
 import { useUpdateStore, manualCheck, applyUpdate } from '../stores/updateStore';
 import { exportKeys, importKeys, type KeyBundle } from '../lib/utils/keyVault';
-import SyncConflicts from '../components/SyncConflicts';
+import SyncSettingsSection from '../components/settings/SyncSettingsSection';
 import DesktopUpdater from '../components/DesktopUpdater';
 import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck, ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
 import { useViewModeStore } from '../stores/viewModeStore';
@@ -24,6 +24,7 @@ const PROVIDER_INFO: { key: ProviderName; label: string; desc: string; icon: str
   { key: 'siliconflow', label: '硅基流动', desc: 'SiliconFlow 丰富模型', icon: '🔬' },
   { key: 'zhipu', label: '智谱 GLM', desc: '中文理解 & 图片分析', icon: '🧠' },
   { key: 'deepseek', label: 'DeepSeek', desc: '代码专用', icon: '💻' },
+  { key: 'local', label: '本地模型', desc: 'Ollama / LM Studio / vLLM / LocalAI（OpenAI 兼容，需开启 CORS）', icon: '🖥️' },
 ];
 
 export default function SettingsPage() {
@@ -91,7 +92,7 @@ export default function SettingsPage() {
 
   const handleRefreshModels = async (key: ProviderName) => {
     const prov = localProviders[key];
-    if (!prov?.apiKey) {
+    if (providerNeedsApiKey(key) && !prov?.apiKey) {
       setRefreshMsg(prev => ({ ...prev, [key]: '请先填写 API Key' }));
       return;
     }
@@ -109,17 +110,19 @@ export default function SettingsPage() {
     }
   };
 
-  const toggleModel = (model: string) => {
+  const toggleModel = (model: string, provider?: ProviderName) => {
+    const modelId = provider === 'local' && !model.startsWith('local/') ? `local/${model}` : model;
     const current = settings.selectedModels ?? [];
-    const next = current.includes(model)
-      ? current.filter(m => m !== model)
-      : [...current, model];
+    const next = current.includes(modelId)
+      ? current.filter(m => m !== modelId)
+      : [...current, modelId];
     update({ selectedModels: next });
   };
 
   // 手动添加模型（无需刷新，直接输入）
   const addManualModel = (key: ProviderName) => {
-    const name = manualModel[key]?.trim();
+    const rawName = manualModel[key]?.trim();
+    const name = key === 'local' && rawName && !rawName.includes('/') ? `local/${rawName}` : rawName;
     if (!name) return;
     const current = settings.selectedModels ?? [];
     if (!current.includes(name)) {
@@ -134,7 +137,7 @@ export default function SettingsPage() {
 
   // 来源顺序：上移/下移 provider 优先级
   const moveProvider = (key: ProviderName, dir: -1 | 1) => {
-    const order = [...(settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek'])];
+    const order = [...(settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek', 'local'])];
     const idx = order.indexOf(key);
     if (idx === -1) return;
     const target = idx + dir;
@@ -210,7 +213,7 @@ export default function SettingsPage() {
       <main className="min-w-0 max-w-2xl flex-1 space-y-6 sm:space-y-8">
       <header>
         <h1 className="text-2xl font-bold">设置</h1>
-        <p className="text-sm text-gray-500 mt-1">API Key 加密存于本地浏览器，本项目无服务器中转；调用 AI 时直连你选择的服务商</p>
+        <p className="text-sm text-gray-500 mt-1">凭据由你在本机配置，不写入安装包；调用 AI 时直连你选择的服务商</p>
       </header>
 
       {/* AI 服务配置 */}
@@ -271,14 +274,14 @@ export default function SettingsPage() {
                     <input type="password" className="input-field mt-1 text-xs font-mono"
                       value={prov.apiKey}
                       onChange={(e) => updateField(key, 'apiKey', e.target.value)}
-                      placeholder="sk-..." />
+                      placeholder={providerNeedsApiKey(key) ? 'sk-...' : '可留空（Ollama 等本地服务）'} />
                   </div>
 
                   {/* 刷新模型按钮 */}
                   <div className="flex items-center gap-2 mt-2">
                     <button className="btn-secondary text-xs"
                       onClick={() => handleRefreshModels(key)}
-                      disabled={isRefreshing || !prov.apiKey}>
+                      disabled={isRefreshing || (providerNeedsApiKey(key) && !prov.apiKey)}>
                       {isRefreshing
                         ? <><RefreshCw className="w-3 h-3 animate-spin" /> 刷新中...</>
                         : <><RefreshCw className="w-3 h-3" /> 🔄 刷新模型</>}
@@ -294,13 +297,13 @@ export default function SettingsPage() {
                   {/* 该 provider 已勾选的模型 */}
                   {(() => {
                     const selected = (settings.selectedModels ?? []);
-                    const providerModels = models.filter(m => selected.includes(m));
+                    const providerModels = models.filter(m => selected.includes(key === 'local' ? `local/${m}` : m));
                     return providerModels.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
                         {providerModels.map(m => (
                           <span key={m} className="tag-brand text-xs flex items-center gap-1">
                             {m}
-                            <button onClick={() => removeModel(m)} className="hover:text-red-500"><X className="w-3 h-3" /></button>
+                            <button onClick={() => removeModel(key === 'local' ? `local/${m}` : m)} className="hover:text-red-500"><X className="w-3 h-3" /></button>
                           </span>
                         ))}
                       </div>
@@ -335,8 +338,8 @@ export default function SettingsPage() {
                           const checked = (settings.selectedModels ?? []).includes(m);
                           return (
                             <div key={m} className="flex cursor-pointer items-center gap-3 px-4 py-2.5 transition-colors hover:bg-[var(--color-surface-2)]/50"
-                              onClick={() => toggleModel(m)}>
-                              {checked
+                              onClick={() => toggleModel(m, key)}>
+                              {(key === 'local' ? (settings.selectedModels ?? []).includes(`local/${m}`) : checked)
                                 ? <CheckCircle2 className="h-[18px] w-[18px] flex-shrink-0 text-brand-500" />
                                 : <Square className="h-[18px] w-[18px] flex-shrink-0 text-[var(--color-border-strong)]" />}
                               <span className="font-mono text-sm">{m}</span>
@@ -372,16 +375,16 @@ export default function SettingsPage() {
             </div>
             <button
               className="text-[10px] text-gray-400 hover:text-red-500"
-              onClick={() => update({ providerOrder: ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek'] })}
+              onClick={() => update({ providerOrder: ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek', 'local'] })}
             >
               恢复默认
             </button>
           </div>
           <div className="space-y-1">
-            {(settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek']).map((key, i, arr) => {
+            {(settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek', 'local']).map((key, i, arr) => {
               const info = PROVIDER_INFO.find(p => p.key === key);
               const prov = localProviders[key];
-              const configured = prov?.enabled && prov?.apiKey;
+              const configured = prov?.enabled && (key === 'local' || prov?.apiKey);
               return (
                 <div key={key}
                   className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
@@ -475,59 +478,7 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* 云同步 */}
-      <section id="cloud-sync" className="scroll-mt-6 space-y-3">
-        <h2 className="text-lg font-semibold">☁️ 云同步（GitHub）</h2>
-        <p className="text-xs text-gray-400">数据推送到你的 GitHub 私有仓库，跨设备同步、免费、带版本历史</p>
-        <div className="card space-y-3">
-          <label className="flex items-center justify-between cursor-pointer">
-            <span className="text-sm font-medium">启用云同步</span>
-            <input type="checkbox" checked={settings.sync?.enabled ?? false}
-              onChange={e => updateSync({ enabled: e.target.checked })}
-              className="h-4 w-4 rounded border-[var(--color-border)]" />
-          </label>
-          {settings.sync?.enabled && (
-            <>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={settings.sync.autoSync}
-                  onChange={e => updateSync({ autoSync: e.target.checked })}
-                  className="h-4 w-4 rounded border-[var(--color-border)]" />
-                <span className="text-sm">编辑停顿 10 秒后自动同步</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer" title="同步 Agent 会话、消息与运行记录（含撤销快照，可能含敏感内容）">
-                <input type="checkbox" checked={settings.sync.syncAgentData ?? false}
-                  onChange={e => updateSync({ syncAgentData: e.target.checked })}
-                  className="h-4 w-4 rounded border-[var(--color-border)]" />
-                <span className="text-sm">同步 Agent 运行记录（含敏感内容，默认关闭）</span>
-              </label>
-              <div className="flex items-center gap-2 flex-wrap">
-                <button className="btn-secondary text-sm" onClick={handleTestConn} disabled={syncTesting}>
-                  {syncTesting ? '测试中...' : '测试连接'}
-                </button>
-                <button className="btn-secondary text-sm" onClick={() => pullOnly()} disabled={syncStatus === 'syncing'} title="只把云端数据合并到本地，不上传本地改动">
-                  {syncStatus === 'syncing' ? '拉取中...' : '⬇️ 从云端拉取'}
-                </button>
-                <button className="btn-primary text-sm" onClick={() => doSync()} disabled={syncStatus === 'syncing'} title="双向：拉取云端 + 推送本地">
-                  {syncStatus === 'syncing' ? '同步中...' : '立即同步（推+拉）'}
-                </button>
-                {settings.sync.lastSyncAt && (
-                  <span className="text-xs text-gray-400">
-                    上次同步：{new Date(settings.sync.lastSyncAt).toLocaleString('zh-CN')}
-                  </span>
-                )}
-              </div>
-              {syncMsg && <p className="text-xs text-gray-500">{syncMsg}</p>}
-              {syncStatus === 'success' && <p className="text-xs text-green-500">同步成功</p>}
-              {syncStatus === 'error' && (
-                <p className="text-xs text-red-500">
-                  同步失败：{syncErrorMessage || '请检查配置与网络'}
-                </p>
-              )}
-              <SyncConflicts refreshKey={settings.sync?.lastSyncAt ?? 0} />
-            </>
-          )}
-        </div>
-      </section>
+      <SyncSettingsSection config={settings.sync!} status={syncStatus} errorMessage={syncErrorMessage} testing={syncTesting} testMessage={syncMsg} onUpdate={updateSync} onTest={handleTestConn} onPull={pullOnly} onSync={doSync} />
 
       {/* 密钥迁移（跨设备，基于主密码加密） */}
       <section id="key-migration" className="scroll-mt-6 space-y-3">
@@ -578,6 +529,7 @@ export default function SettingsPage() {
       {/* 数据管理 */}
       <section id="data-management" className="scroll-mt-6 space-y-3">
         <h2 className="text-lg font-semibold">💾 数据管理</h2>
+        <p className="text-xs text-gray-400">JSON 备份包含文档、附件、卡片、对话、分类、版本、学习目标、业务偏好和 Agent 历史；不包含 API Key、GitHub Token 与设备级界面设置。</p>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <button className="btn-secondary" onClick={() => import('../lib/services/export').then(m => m.exportAllData())}>
             📤 导出数据
@@ -621,7 +573,7 @@ export default function SettingsPage() {
         <div className="card space-y-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-medium">知识库 · 版本 {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}</p>
+              <p className="text-sm font-medium">知屿 · 版本 {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}</p>
               <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">本地优先的 AI 知识管理工具</p>
             </div>
             {isAndroidApp ? (
@@ -686,7 +638,7 @@ export default function SettingsPage() {
       </section>
 
       <div className="text-xs text-gray-400 text-center pb-8">
-        API Key 加密存于本地浏览器；笔记数据默认本地，仅在启用云同步时推送到你自己的 GitHub 仓库
+        API Key 由当前设备保存，安装包不内置共享密钥；笔记数据默认本地，仅在启用云同步时推送到你自己的 GitHub 仓库
       </div>
       </main>
       <aside className="sticky top-6 hidden w-44 shrink-0 lg:block">
@@ -725,7 +677,7 @@ function ConnectionTest() {
 
       const settings = useSettingsStore.getState().settings;
       const prov = settings?.aiProviders[key];
-      if (!prov?.enabled || !prov.apiKey) {
+      if (!prov?.enabled || (providerNeedsApiKey(key) && !prov.apiKey)) {
         newResults[i] = { ...newResults[i], status: 'waiting', msg: '未配置' };
         setResults([...newResults]);
         continue;
@@ -734,8 +686,10 @@ function ConnectionTest() {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 10000);
+        const headers: Record<string, string> = {};
+        if (prov.apiKey.trim()) headers.Authorization = `Bearer ${prov.apiKey.trim()}`;
         const res = await fetch(`${prov.baseUrl.replace(/\/+$/, '')}/models`, {
-          headers: { Authorization: `Bearer ${prov.apiKey}` },
+          headers,
           signal: controller.signal,
         });
         clearTimeout(timeout);

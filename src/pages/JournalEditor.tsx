@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Star, PanelLeft, PanelRight, Maximize, Download, FileCode, ChevronDown, ChevronUp, History, Trash2, Copy, Check, X, Loader2, Bot } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
@@ -8,7 +8,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { useSyncStore } from '../stores/syncStore';
 import { buildMessages } from '../lib/ai/prompts';
 import { markdownToHtml } from '../lib/markdownUtils';
-import { saveVersion, getVersions, deleteVersion } from '../lib/db/queries';
+import { saveVersion, getVersions } from '../lib/db/queries';
 import type { JournalVersion } from '../lib/db/schema';
 import RichTextEditor from '../components/RichTextEditor';
 import AIChatPanel from '../components/AIChatPanel';
@@ -27,8 +27,9 @@ const selectionAILabels: Record<SelectionAIAction, string> = {
 export default function JournalEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { entries, currentEntry, create, update, remove, loadOne, setCurrent, saveStatus, togglePin } = useJournalStore();
-  const { callAI, isProcessing, streamingContent } = useAIStore();
+  const { callAI, isProcessing } = useAIStore();
   const { isMobile } = useViewModeStore();
   const { settings } = useSettingsStore();
   const { doSync } = useSyncStore();
@@ -156,6 +157,25 @@ export default function JournalEditor() {
     }
   }, [currentEntry, id]);
 
+  // 引用定位：个人文档引用带 offset 时，打开编辑器后自动切到 Markdown 并选中原文范围。
+  useEffect(() => {
+    const raw = searchParams.get('offset');
+    const start = raw == null ? NaN : Number(raw);
+    if (!Number.isFinite(start) || !content || !currentEntry || currentEntry.id !== id) return;
+    setMode('markdown');
+    const timer = window.setTimeout(() => {
+      const textarea = markdownRef.current;
+      if (!textarea) return;
+      const safeStart = Math.max(0, Math.min(Math.floor(start), content.length));
+      const safeEnd = Math.min(content.length, safeStart + 240);
+      textarea.focus();
+      textarea.setSelectionRange(safeStart, safeEnd);
+      const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight) || 21;
+      textarea.scrollTop = Math.max(0, content.slice(0, safeStart).split('\n').length * lineHeight - textarea.clientHeight * 0.25);
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [content, currentEntry, id, searchParams]);
+
   const handleSave = useCallback(async () => {
     if (!title.trim()) return;
     setSaving(true);
@@ -226,7 +246,15 @@ export default function JournalEditor() {
 
   // 选中→AI 操作：结果只显示在独立浮层，不自动修改或替换原文。
   const handleSelectionAI = useCallback(async (action: SelectionAIAction, selectedText: string) => {
-    if (!selectedText.trim()) return;
+    const trimmed = selectedText.trim();
+    if (!trimmed) {
+      setSelectionAI({ action, source: '', result: '', status: 'error', error: '请先选择一段文字' });
+      return;
+    }
+    if (trimmed.length > 50000) {
+      setSelectionAI({ action, source: trimmed.slice(0, 500), result: '', status: 'error', error: '选中文本超过 50,000 字符，请分段处理' });
+      return;
+    }
     const requestId = ++selectionAIRequestRef.current;
     setSelectionAICopied(false);
     setSelectionAI({ action, source: selectedText, result: '', status: 'loading' });
@@ -235,8 +263,9 @@ export default function JournalEditor() {
       explain: '你是一位耐心的老师。用简洁通俗的中文解释以下内容，必要时举例，帮助读者快速理解。',
       polish: '你是一位中文写作助手。润色以下文字，使其更通顺、专业、地道，保留原意，只输出润色后的结果。',
     };
+    const selectionOffset = content.indexOf(selectedText);
     const messages = [
-      { role: 'system' as const, content: sysMap[action] },
+      { role: 'system' as const, content: `${sysMap[action]}\n\n受限上下文：当前文档 id=${id || 'new'}，选中文本 offset=${Math.max(0, selectionOffset)}。只处理这段选中文本，不要修改文档。` },
       { role: 'user' as const, content: selectedText },
     ];
     try {
@@ -333,7 +362,7 @@ export default function JournalEditor() {
     <div className="flex flex-col h-full animate-fade-in">
       {/* 工具栏（可隐藏） */}
       {showToolbar && (
-      <div className="glass flex items-center gap-2 px-4 py-2 border-b border-[var(--color-border)] flex-wrap">
+      <div className="glass relative z-30 flex items-center gap-2 px-4 py-2 border-b border-[var(--color-border)] flex-wrap">
         <button className="btn-ghost p-1.5" onClick={toggleToolbar} title="隐藏工具栏">
           <ChevronUp className="h-4 w-4" />
         </button>
@@ -416,7 +445,7 @@ export default function JournalEditor() {
                 <FileCode className="h-3.5 w-3.5" /> 导出 HTML
               </button>
               <button onClick={handleExportPDF} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-[var(--color-text)] hover:bg-[var(--color-surface-2)]">
-                <FileCode className="h-3.5 w-3.5" /> 导出 PDF（打印）
+                <FileCode className="h-3.5 w-3.5" /> 导出 PDF
               </button>
             </div>
           )}

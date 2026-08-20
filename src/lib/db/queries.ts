@@ -2,17 +2,17 @@ import {
   db,
   type JournalEntry,
   type Note,
-  type KnowledgeCard,
   type AIConversation,
   type AppSettings,
   type AISettings,
   type JournalVersion,
   type DocumentLink,
   type SavedSearch,
-  type Attachment,
   type SyncConflict,
-  type Category,
 } from './schema';
+export { createCard, updateCard, getCardsDueToday, getAllCards, deleteCard, deleteCards, resetCardProgress } from './cards';
+export { blobToDataUrl, putAttachment, getAttachment, getAttachmentsForJournal, deleteAttachment, deleteAttachmentsForJournal } from './attachments';
+export { getCategories, createCategory, renameCategory, deleteCategory } from './categories';
 import {
   persistJournalWithIndexes,
   rebuildDocumentIndexes,
@@ -21,42 +21,41 @@ import {
 
 // ──── Settings ────
 
-// 同步凭据在构建时注入安装包，设置页不展示或回显。
-// 读取构建时注入的环境变量 VITE_SYNC_TOKEN（安卓 CI 由 GitHub Secret 注入，本地由 .env.local 提供），
-// 这样安卓/桌面安装包开箱即用，无需用户手动填写用户名/仓库/token，且源码不含明文密钥。
-const BUILT_IN_SYNC_TOKEN = import.meta.env.VITE_SYNC_TOKEN ?? '';
-
 export async function getSettings(): Promise<AppSettings> {
   let settings = await db.settings.get('global');
   if (!settings) {
-    const env = import.meta.env;
     settings = {
       id: 'global',
       aiProviders: {
         shengsuanyun: {
           baseUrl: 'https://beta-router.shengsuanyun.com/api/v1',
-          apiKey: env.VITE_SHENGSUANYUN_API_KEY ?? '',
-          enabled: !!env.VITE_SHENGSUANYUN_API_KEY,
+          apiKey: '',
+          enabled: false,
         },
         relay: {
-          baseUrl: env.VITE_RELAY_BASE_URL ?? '',
-          apiKey: env.VITE_RELAY_API_KEY ?? '',
-          enabled: !!env.VITE_RELAY_API_KEY,
+          baseUrl: '',
+          apiKey: '',
+          enabled: false,
         },
         siliconflow: {
           baseUrl: 'https://api.siliconflow.cn/v1',
-          apiKey: env.VITE_SILICONFLOW_API_KEY ?? '',
-          enabled: !!env.VITE_SILICONFLOW_API_KEY,
+          apiKey: '',
+          enabled: false,
         },
         zhipu: {
           baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-          apiKey: env.VITE_ZHIPU_API_KEY ?? '',
-          enabled: !!env.VITE_ZHIPU_API_KEY,
+          apiKey: '',
+          enabled: false,
         },
         deepseek: {
           baseUrl: 'https://api.deepseek.com/v1',
-          apiKey: env.VITE_DEEPSEEK_API_KEY ?? '',
-          enabled: !!env.VITE_DEEPSEEK_API_KEY,
+          apiKey: '',
+          enabled: false,
+        },
+        local: {
+          baseUrl: 'http://127.0.0.1:11434/v1',
+          apiKey: '',
+          enabled: false,
         },
       },
       preferredModels: {
@@ -70,48 +69,33 @@ export async function getSettings(): Promise<AppSettings> {
       theme: 'auto',
       reviewDailyGoal: 20,
       sync: {
-        enabled: !!env.VITE_SYNC_TOKEN,
-        owner: env.VITE_SYNC_OWNER ?? 'sxh313',
-        repo: env.VITE_SYNC_REPO ?? 'knowledge-base',
-        branch: env.VITE_SYNC_BRANCH ?? 'knowledge-base',
+        enabled: false,
+        owner: '',
+        repo: '',
+        branch: 'main',
         path: 'data.json',
-        token: env.VITE_SYNC_TOKEN ?? '',
+        token: '',
         autoSync: true,
       },
     };
     await db.settings.put(settings);
   }
   // 兼容旧数据：补全新增字段
+  let backfilled = false;
   if (!settings.availableModels) settings.availableModels = {};
   if (!settings.selectedModels) settings.selectedModels = ['deepseek-v4-flash'];
-  if (!settings.providerOrder) settings.providerOrder = ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek'];
+  if (!settings.providerOrder) settings.providerOrder = ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek', 'local'];
+  else if (!settings.providerOrder.includes('local')) { settings.providerOrder = [...settings.providerOrder, 'local']; backfilled = true; }
   if (!settings.aiProviders.shengsuanyun) {
     settings.aiProviders.shengsuanyun = { baseUrl: 'https://beta-router.shengsuanyun.com/api/v1', apiKey: '', enabled: false };
+  }
+  if (!settings.aiProviders.local) {
+    settings.aiProviders.local = { baseUrl: 'http://127.0.0.1:11434/v1', apiKey: '', enabled: false };
+    backfilled = true;
   }
   // 兼容旧数据：补全云同步配置
   if (!settings.sync) {
     settings.sync = { enabled: false, owner: 'sxh313', repo: 'knowledge-base', branch: 'knowledge-base', path: 'data.json', token: '', autoSync: true };
-  }
-  // 若某 provider 的 apiKey 仍为空，且本地环境变量提供了值，则补填（不会覆盖已手动填写的内容）
-  const env = import.meta.env;
-  const envBackfill: Record<keyof AISettings, string | undefined> = {
-    shengsuanyun: env.VITE_SHENGSUANYUN_API_KEY,
-    relay: env.VITE_RELAY_API_KEY,
-    siliconflow: env.VITE_SILICONFLOW_API_KEY,
-    zhipu: env.VITE_ZHIPU_API_KEY,
-    deepseek: env.VITE_DEEPSEEK_API_KEY,
-  };
-  let backfilled = false;
-  for (const key of Object.keys(envBackfill) as (keyof AISettings)[]) {
-    const envKey = envBackfill[key];
-    if (envKey && !settings.aiProviders[key].apiKey) {
-      settings.aiProviders[key] = { ...settings.aiProviders[key], apiKey: envKey, enabled: true };
-      backfilled = true;
-    }
-  }
-  if (env.VITE_RELAY_BASE_URL && !settings.aiProviders.relay.baseUrl) {
-    settings.aiProviders.relay.baseUrl = env.VITE_RELAY_BASE_URL;
-    backfilled = true;
   }
   // 修正：sxh313/knowledge-base 仓库的默认分支为 knowledge-base（早期默认 main 会导致同步 404）
   if (settings.sync && settings.sync.owner === 'sxh313' && settings.sync.repo === 'knowledge-base'
@@ -119,15 +103,6 @@ export async function getSettings(): Promise<AppSettings> {
     settings.sync.branch = 'knowledge-base';
     backfilled = true;
   }
-  // 云同步：环境变量（.env.local，不入库）提供 Token 等则自动补填并启用，实现“零手填”同步
-  const syncEnvToken = (env.VITE_SYNC_TOKEN as string | undefined) ?? BUILT_IN_SYNC_TOKEN;
-  if (syncEnvToken) {
-    if (!settings.sync.token) { settings.sync.token = syncEnvToken; backfilled = true; }
-    if (!settings.sync.enabled) { settings.sync.enabled = true; backfilled = true; }
-  }
-  if (env.VITE_SYNC_OWNER && !settings.sync.owner) { settings.sync.owner = env.VITE_SYNC_OWNER as string; backfilled = true; }
-  if (env.VITE_SYNC_REPO && !settings.sync.repo) { settings.sync.repo = env.VITE_SYNC_REPO as string; backfilled = true; }
-  if (env.VITE_SYNC_BRANCH && !settings.sync.branch) { settings.sync.branch = env.VITE_SYNC_BRANCH as string; backfilled = true; }
   if (backfilled) await db.settings.put(settings);
   return settings;
 }
@@ -191,7 +166,6 @@ export async function saveVersion(journalId: string, title: string, content: str
     await db.journalVersions.bulkDelete(toDelete);
   }
 }
-
 /** 获取某篇文档的全部历史版本（新→旧） */
 export async function getVersions(journalId: string): Promise<JournalVersion[]> {
   const all = await db.journalVersions.where('journalId').equals(journalId).toArray();
@@ -253,14 +227,18 @@ export async function restoreJournal(id: string) {
   return persistJournalWithIndexes({ ...existing, deletedAt: undefined, updatedAt: Date.now() });
 }
 
-/** 物理删除（彻底删除）文档：同步清理双链/分块/附件 */
+/** 彻底隐藏文档并清理派生数据；保留文档/附件墓碑以传播跨设备删除。 */
 export async function purgeJournal(id: string) {
   await db.transaction('rw', [db.journals, db.documentLinks, db.documentChunks, db.attachments], async () => {
-    await db.journals.delete(id);
+    const existing = await db.journals.get(id);
+    if (existing) {
+      const now = Date.now();
+      await db.journals.put({ ...existing, deletedAt: existing.deletedAt ?? now, updatedAt: now });
+      await db.attachments.where('journalId').equals(id).modify({ deletedAt: now, updatedAt: now });
+    }
     await db.documentLinks.where('sourceId').equals(id).delete();
     await db.documentLinks.where('targetId').equals(id).delete();
     await db.documentChunks.where('journalId').equals(id).delete();
-    await db.attachments.where('journalId').equals(id).delete();
   });
 }
 
@@ -338,107 +316,16 @@ export async function getJournalsBySubject(subject: string) {
 
 // ──── Notes ────
 
-export async function createNote(data: Omit<Note, 'id' | 'createdAt'>) {
-  const note: Note = { id: crypto.randomUUID(), ...data, createdAt: Date.now() };
+export async function createNote(data: Omit<Note, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt'>) {
+  const now = Date.now();
+  const note: Note = { id: crypto.randomUUID(), ...data, createdAt: now, updatedAt: now };
   await db.notes.put(note);
   return note;
 }
 
 export async function getNotesByJournal(journalId: string) {
-  return db.notes.where('journalId').equals(journalId).sortBy('position');
-}
-
-// ──── Knowledge Cards ────
-
-export async function createCard(data: Omit<KnowledgeCard, 'id' | 'createdAt' | 'stability' | 'difficulty' | 'nextReviewAt' | 'repetitions' | 'state'>) {
-  const card: KnowledgeCard = {
-    id: crypto.randomUUID(),
-    ...data,
-    stability: 1.0,
-    difficulty: 5.0,
-    nextReviewAt: Date.now() + 86400000,
-    repetitions: 0,
-    state: 'new',
-    createdAt: Date.now(),
-  };
-  await db.cards.put(card);
-  return card;
-}
-
-export async function updateCard(id: string, data: Partial<KnowledgeCard>) {
-  const existing = await db.cards.get(id);
-  if (!existing) throw new Error('Card not found');
-  const updated = { ...existing, ...data };
-  await db.cards.put(updated);
-  return updated;
-}
-
-export async function getCardsDueToday() {
-  const now = Date.now();
-  return db.cards.where('nextReviewAt').belowOrEqual(now).toArray();
-}
-
-export async function getAllCards() {
-  return db.cards.toArray();
-}
-
-export async function deleteCard(id: string) {
-  await db.cards.delete(id);
-}
-
-/** 物理删除多张卡片（批量） */
-export async function deleteCards(ids: string[]) {
-  await db.cards.bulkDelete(ids);
-}
-
-/** 重置某张卡片的复习进度（编辑内容后重新学习用） */
-export async function resetCardProgress(id: string) {
-  const existing = await db.cards.get(id);
-  if (!existing) throw new Error('Card not found');
-  await db.cards.put({
-    ...existing,
-    stability: 1.0,
-    difficulty: 5.0,
-    repetitions: 0,
-    state: 'new',
-    lastReviewAt: undefined,
-    nextReviewAt: Date.now(),
-  });
-  return existing;
-}
-
-// ──── 附件（attachments） ────
-
-/** Blob → dataURL（用于导出/序列化；JSON.stringify 无法直接处理 Blob） */
-export function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}
-
-export async function putAttachment(a: Omit<Attachment, 'id' | 'createdAt'> & { id?: string }): Promise<Attachment> {
-  const rec: Attachment = { ...a, id: a.id ?? crypto.randomUUID(), createdAt: Date.now() };
-  await db.attachments.put(rec);
-  return rec;
-}
-
-export async function getAttachment(id: string) {
-  return db.attachments.get(id);
-}
-
-export async function getAttachmentsForJournal(journalId: string) {
-  return db.attachments.where('journalId').equals(journalId).toArray();
-}
-
-export async function deleteAttachment(id: string) {
-  await db.attachments.delete(id);
-}
-
-export async function deleteAttachmentsForJournal(journalId: string) {
-  await db.attachments.where('journalId').equals(journalId).delete();
+  const notes = await db.notes.where('journalId').equals(journalId).sortBy('position');
+  return notes.filter((note) => !note.deletedAt);
 }
 
 // ──── 同步冲突（syncConflicts） ────
@@ -477,7 +364,7 @@ export async function deleteSyncConflict(id: string) {
 
 /** 获取全部保存的搜索（按更新时间倒序） */
 export async function getSavedSearches(): Promise<SavedSearch[]> {
-  const all = await db.savedSearches.toArray();
+  const all = await db.savedSearches.filter((search) => !search.deletedAt).toArray();
   return all.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
@@ -495,7 +382,10 @@ export async function saveSavedSearch(name: string, query: string): Promise<Save
 }
 
 export async function deleteSavedSearch(id: string) {
-  await db.savedSearches.delete(id);
+  const existing = await db.savedSearches.get(id);
+  if (!existing || existing.deletedAt) return;
+  const now = Date.now();
+  await db.savedSearches.put({ ...existing, deletedAt: now, updatedAt: now });
 }
 
 // ──── Conversations ────
@@ -550,8 +440,10 @@ export async function fetchAvailableModels(
   const timeout = setTimeout(() => controller.abort(), 15000);
 
   try {
+    const headers: Record<string, string> = {};
+    if (apiKey.trim()) headers.Authorization = `Bearer ${apiKey.trim()}`;
     const res = await fetch(`${cleanUrl}/models`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers,
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -577,126 +469,4 @@ export async function fetchAvailableModels(
     clearTimeout(timeout);
     throw err;
   }
-}
-
-// ──── Categories ────
-
-export async function getCategories(): Promise<Category[]> {
-  const categories = await db.categories.filter((category) => !category.deletedAt).toArray();
-  return categories.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
-}
-
-export async function createCategory(name: string): Promise<Category> {
-  const normalized = name.trim().replace(/\s+/g, ' ');
-  if (!normalized) throw new Error('分类名称不能为空');
-  const existing = (await db.categories.toArray()).find(
-    (category) => !category.deletedAt && category.name.toLocaleLowerCase() === normalized.toLocaleLowerCase(),
-  );
-  if (existing) return existing;
-  const now = Date.now();
-  const category: Category = { id: crypto.randomUUID(), name: normalized, createdAt: now, updatedAt: now };
-  await db.categories.put(category);
-  return category;
-}
-
-export async function renameCategory(id: string, name: string): Promise<Category> {
-  const normalized = name.trim().replace(/\s+/g, ' ');
-  if (!normalized) throw new Error('分类名称不能为空');
-  const category = await db.categories.get(id);
-  if (!category || category.deletedAt) throw new Error('分类不存在');
-  const duplicate = (await db.categories.toArray()).find(
-    (item) => item.id !== id && !item.deletedAt && item.name.toLocaleLowerCase() === normalized.toLocaleLowerCase(),
-  );
-  if (duplicate) throw new Error('已存在同名分类');
-  const now = Date.now();
-  const updated = { ...category, name: normalized, updatedAt: now };
-  await db.transaction('rw', [db.categories, db.journals], async () => {
-    await db.categories.put(updated);
-    await db.journals.where('subject').equals(category.name).modify({ subject: normalized, updatedAt: now });
-  });
-  return updated;
-}
-
-export async function deleteCategory(id: string): Promise<void> {
-  const category = await db.categories.get(id);
-  if (!category || category.deletedAt) return;
-  const now = Date.now();
-  await db.transaction('rw', [db.categories, db.journals], async () => {
-    await db.categories.put({ ...category, deletedAt: now, updatedAt: now });
-    await db.journals.where('subject').equals(category.name).modify({ subject: '', updatedAt: now });
-  });
-}
-
-// ──── Data Export / Import ────
-
-export async function exportAllData() {
-  // 附件 Blob 无法直接 JSON 序列化，预先转成 dataUrl
-  const rawAttachments = await db.attachments.toArray();
-  const attachments = await Promise.all(
-    rawAttachments.map(async (a) => ({
-      ...a,
-      blob: undefined,
-      dataUrl: a.dataUrl ?? (a.blob ? await blobToDataUrl(a.blob) : undefined),
-    })),
-  );
-  const data = {
-    version: 2,
-    exportedAt: Date.now(),
-    journals: await db.journals.toArray(),
-    notes: await db.notes.toArray(),
-    cards: await db.cards.toArray(),
-    graphNodes: await db.graphNodes.toArray(),
-    graphEdges: await db.graphEdges.toArray(),
-    journalVersions: await db.journalVersions.toArray(),
-    attachments,
-    savedSearches: await db.savedSearches.toArray(),
-    propertyDefinitions: await db.propertyDefinitions.toArray(),
-    categories: await db.categories.toArray(),
-    settings: await db.settings.toArray(),
-  };
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `knowledge-base-backup-${new Date().toISOString().split('T')[0]}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-export async function importData(file: File) {
-  const text = await file.text();
-  let data: Record<string, unknown>;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error('文件内容不是有效的 JSON 格式');
-  }
-  await db.transaction(
-    'rw',
-    [
-      db.journals,
-      db.notes,
-      db.cards,
-      db.graphNodes,
-      db.graphEdges,
-      db.journalVersions,
-      db.attachments,
-      db.savedSearches,
-      db.propertyDefinitions,
-      db.categories,
-    ],
-    async () => {
-      if (Array.isArray(data.journals)) await db.journals.bulkPut(data.journals);
-      if (Array.isArray(data.notes)) await db.notes.bulkPut(data.notes);
-      if (Array.isArray(data.cards)) await db.cards.bulkPut(data.cards);
-      if (Array.isArray(data.graphNodes)) await db.graphNodes.bulkPut(data.graphNodes);
-      if (Array.isArray(data.graphEdges)) await db.graphEdges.bulkPut(data.graphEdges);
-      if (Array.isArray(data.journalVersions)) await db.journalVersions.bulkPut(data.journalVersions);
-      if (Array.isArray(data.attachments)) await db.attachments.bulkPut(data.attachments);
-      if (Array.isArray(data.savedSearches)) await db.savedSearches.bulkPut(data.savedSearches);
-      if (Array.isArray(data.propertyDefinitions)) await db.propertyDefinitions.bulkPut(data.propertyDefinitions);
-      if (Array.isArray(data.categories)) await db.categories.bulkPut(data.categories);
-    },
-  );
-  await rebuildDocumentIndexes();
 }

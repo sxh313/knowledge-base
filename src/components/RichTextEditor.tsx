@@ -1,12 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useReducer, memo, type CSSProperties } from 'react';
-import {
-  useEditor,
-  EditorContent,
-  NodeViewContent,
-  NodeViewWrapper,
-  ReactNodeViewRenderer,
-  type NodeViewProps,
-} from '@tiptap/react';
+import { useEditor, EditorContent } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import { TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
@@ -14,7 +7,6 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
-import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import { createLowlight, common } from 'lowlight';
 import { Table } from '@tiptap/extension-table';
 import TableRow from '@tiptap/extension-table-row';
@@ -24,7 +16,7 @@ import {
   Bold, Italic, Strikethrough,
   Code, Link as LinkIcon, List, ListOrdered,
   Quote, Heading1, Heading2, Heading3, Heading4, Heading5, Pilcrow, CodeXml, Minus, Image as ImageIcon,
-  Undo2, Redo2, ListChecks, ZoomIn, ZoomOut, Copy, Check, Table2, ImageDown, X,
+  Undo2, Redo2, ListChecks, ZoomIn, ZoomOut, Copy, Table2, ImageDown, X,
   Lightbulb, Languages, Sparkles, BookOpen, Search, PaintRoller,
 } from 'lucide-react';
 import { markdownToHtml, htmlToMarkdown } from '../lib/markdownUtils';
@@ -35,64 +27,10 @@ import { Callout } from './tiptap/callout';
 import { Wikilink } from './tiptap/wikilink';
 import { CollapsibleHeading } from './tiptap/collapsibleHeading';
 import SearchReplaceBar from './SearchReplaceBar';
+import { EnhancedCodeBlock } from './tiptap/enhancedCodeBlock';
 
 // 代码语法高亮：注册常用语言集合
 const lowlight = createLowlight(common);
-
-function EnhancedCodeBlockView({ node, updateAttributes }: NodeViewProps) {
-  const [copied, setCopied] = useState(false);
-  const language = node.attrs.language || 'text';
-  const note = node.attrs.note || '';
-
-  const copyCode = async () => {
-    await navigator.clipboard.writeText(node.textContent);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1200);
-  };
-
-  return (
-    <NodeViewWrapper className="code-block-shell">
-      <div className="code-block-toolbar" contentEditable={false}>
-        <span className="code-block-language">{language}</span>
-        <label className="code-block-note">
-          <span>备注</span>
-          <input
-            value={note}
-            onChange={(event) => updateAttributes({ note: event.target.value })}
-            placeholder="添加这段代码的说明..."
-          />
-        </label>
-        <button
-          type="button"
-          className="code-block-copy"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={copyCode}
-          title="复制代码"
-        >
-          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          <span>{copied ? '已复制' : '复制'}</span>
-        </button>
-      </div>
-      <pre><NodeViewContent as={'code' as never} className={`language-${language}`} /></pre>
-    </NodeViewWrapper>
-  );
-}
-
-const EnhancedCodeBlock = CodeBlockLowlight.extend({
-  addAttributes() {
-    return {
-      ...this.parent?.(),
-      note: {
-        default: '',
-        parseHTML: (element) => element.getAttribute('data-code-note') || '',
-        renderHTML: (attributes) => attributes.note ? { 'data-code-note': attributes.note } : {},
-      },
-    };
-  },
-  addNodeView() {
-    return ReactNodeViewRenderer(EnhancedCodeBlockView);
-  },
-});
 
 // 附件图片解析缓存：attachmentId → 可渲染 dataUrl（跨实例复用，避免重复查库）
 const attachmentSrcCache = new Map<string, string>();
@@ -240,11 +178,19 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
         if (event.key !== 'Tab') return false;
         const { state } = view;
         const { $from, from, to } = state.selection;
-        // 表格用 Tab 切换单元格，列表用 Tab 调整层级，保持 Word 类似的原生行为。
+        // 表格用 Tab 切换单元格，保持原生行为。
+        // 列表项：无选区时走原生 Tab 调整层级；有选区时也支持"所有选中行缩进"。
         for (let depth = $from.depth; depth >= 0; depth--) {
           const type = $from.node(depth).type.name;
-          if (type === 'tableCell' || type === 'tableHeader' || type === 'listItem' || type === 'taskItem') return false;
+          if (type === 'tableCell' || type === 'tableHeader') return false;
         }
+        let inList = false;
+        for (let depth = $from.depth; depth >= 0; depth--) {
+          const type = $from.node(depth).type.name;
+          if (type === 'listItem' || type === 'taskItem') { inList = true; break; }
+        }
+        // 列表项无选区时走原生 Tab（调整层级）；有选区时继续走下面的"所有选中行缩进"。
+        if (inList && from === to) return false;
         event.preventDefault();
         const inCodeBlock = $from.parent.type.name === 'codeBlock';
         // 正文使用两个全角空格，视觉约等于四个半角空格，Markdown 往返后也不会被合并或裁掉。
@@ -301,7 +247,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
         return true;
       },
       handleDOMEvents: {
-        dragstart: (view: any, event: DragEvent) => {
+        dragstart: (_view: unknown, event: DragEvent) => {
           // 禁用编辑器内所有内容的拖拽（选中后拖动会复制/丢失，尤其 callout 不稳定）。
           // 移动内容请用剪切(Ctrl+X)+粘贴。外部图片拖入由 onDrop 单独处理，不受影响。
           event.preventDefault();
@@ -755,6 +701,28 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
 
   const isActive = (name: string, attrs?: Record<string, unknown>) => editor.isActive(name, attrs);
 
+  // 代码块切换：选中多行时，把整个选区合并成一个外层代码块（而非每行一个）
+  const toggleCodeBlockSmart = () => {
+    const { state } = editor;
+    const { from, to, empty } = state.selection;
+
+    // 无选区，或当前已在代码块内：走原生 toggleCodeBlock（处理创建/取消）
+    if (empty || editor.isActive('codeBlock')) {
+      editor.chain().focus().toggleCodeBlock().run();
+      return;
+    }
+
+    // 有选区且不在代码块内：把整个选区合并成一个代码块
+    const selectedText = state.doc.textBetween(from, to, '\n');
+    const tr = state.tr;
+    tr.delete(from, to);
+    const codeBlock = state.schema.nodes.codeBlock.create(null, state.schema.text(selectedText));
+    tr.insert(from, codeBlock);
+    tr.setSelection(TextSelection.create(tr.doc, from, from + codeBlock.nodeSize - 1));
+    editor.view.dispatch(tr);
+    editor.commands.focus();
+  };
+
   const headingButtons = [
     { level: 1 as const, icon: Heading1, title: '标题 1' },
     { level: 2 as const, icon: Heading2, title: '标题 2' },
@@ -831,7 +799,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
           const target = window.prompt(`输入要链接的文档标题（双向链接）。\n\n可用文档：\n${list}`, '');
           if (target && target.trim()) editor.chain().focus().insertWikilink(target.trim()).run();
         }} title="插入双向链接 [[]]"><LinkIcon className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleCodeBlock().run()} active={isActive('codeBlock')} title="代码块"><CodeXml className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={toggleCodeBlockSmart} active={isActive('codeBlock')} title="代码块"><CodeXml className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} title="插入 3×3 表格"><Table2 className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={openSvgDialog} title="SVG 代码转 PNG 图片"><ImageDown className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="分隔线"><Minus className="w-4 h-4" /></ToolbarBtn>

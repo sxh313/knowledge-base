@@ -125,6 +125,11 @@ describe('validateAgentPlan', () => {
     });
     expect(r.ok).toBe(true);
   });
+
+  it('精确补丁和元数据更新需要明确字段', () => {
+    expect(validateAgentPlan({ ops: [{ type: 'patchJournal', journalId: '1' }] }).ok).toBe(false);
+    expect(validateAgentPlan({ ops: [{ type: 'updateMetadata', journalId: '1', metadata: { summary: '摘要' }, expectedHash: 'h' }] }).ok).toBe(true);
+  });
 });
 
 describe('validateAgentOp', () => {
@@ -160,5 +165,10 @@ describe('classifyRisk 风险等级', () => {
   it('read/search 为 low', () => {
     expect(classifyRisk({ type: 'read' })).toBe('low');
     expect(classifyRisk({ type: 'search' })).toBe('low');
+  });
+
+  it('冲突合并为 high，精确补丁为 medium', () => {
+    expect(classifyRisk({ type: 'applyConflictMerge', conflictId: 'c' })).toBe('high');
+    expect(classifyRisk({ type: 'patchJournal' })).toBe('medium');
   });
 });

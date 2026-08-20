@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { Inbox as InboxIcon, Plus, Check, Trash2, ExternalLink, Link2 } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import type { JournalEntry } from '../lib/db/schema';
+import { suggestJournalMetadata, type MetadataSuggestion } from '../lib/agent/quality';
+import { applyPlan, previewPlan } from '../lib/agent/executor';
+import { assignPlanIds } from '../lib/agent/tools';
+import { calculateContentHash } from '../lib/indexing/documents';
 
 const URL_RE = /^https?:\/\/[^\s]+$/i;
 
@@ -14,6 +18,7 @@ export default function Inbox() {
   const [url, setUrl] = useState('');
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
+  const [suggestions, setSuggestions] = useState<Record<string, MetadataSuggestion | null>>({});
 
   useEffect(() => {
     loadAll();
@@ -68,6 +73,22 @@ export default function Inbox() {
   const handleDelete = async (id: string) => {
     if (!window.confirm('移到回收站？')) return;
     await remove(id);
+  };
+
+  const handleSuggest = async (id: string) => {
+    const suggestion = (await suggestJournalMetadata(id))[0] ?? null;
+    setSuggestions((current) => ({ ...current, [id]: suggestion }));
+  };
+
+  const handleAcceptSuggestion = async (item: JournalEntry, suggestion: MetadataSuggestion) => {
+    const expectedHash = await calculateContentHash({ title: item.title, content: item.content });
+    const metadata = { summary: suggestion.summary, tags: suggestion.tags, subject: suggestion.subject };
+    const plan = assignPlanIds({ summary: '应用收件箱元数据建议', ops: [{ type: 'updateMetadata', journalId: item.id, metadata, expectedHash }] });
+    const preview = await previewPlan(plan);
+    if (preview.hasError || !window.confirm('确认应用这条元数据建议？')) return;
+    await applyPlan(plan, new Set(plan.ops.map((op) => op.opId).filter((id): id is string => !!id)));
+    setSuggestions((current) => ({ ...current, [item.id]: null }));
+    loadAll();
   };
 
   return (
@@ -128,6 +149,10 @@ export default function Inbox() {
             onDelete={handleDelete}
             onUpdate={update}
             onOpen={(id) => navigate(`/edit/${id}`)}
+            suggestion={suggestions[item.id]}
+            onSuggest={handleSuggest}
+            onAcceptSuggestion={handleAcceptSuggestion}
+            onSkipSuggestion={(id) => setSuggestions((current) => ({ ...current, [id]: null }))}
           />
         ))}
       </div>
@@ -143,9 +168,13 @@ interface InboxRowProps {
   onDelete: (id: string) => void;
   onUpdate: (id: string, data: Partial<JournalEntry>) => void;
   onOpen: (id: string) => void;
+  suggestion?: MetadataSuggestion | null;
+  onSuggest: (id: string) => void;
+  onAcceptSuggestion: (item: JournalEntry, suggestion: MetadataSuggestion) => void;
+  onSkipSuggestion: (id: string) => void;
 }
 
-function InboxRow({ item, subjects, docTitles, onOrganize, onDelete, onUpdate, onOpen }: InboxRowProps) {
+function InboxRow({ item, subjects, docTitles, onOrganize, onDelete, onUpdate, onOpen, suggestion, onSuggest, onAcceptSuggestion, onSkipSuggestion }: InboxRowProps) {
   const [title, setTitle] = useState(item.title);
   const [subject, setSubject] = useState(item.subject ?? '');
   const [tagsStr, setTagsStr] = useState((item.tags ?? []).join(', '));
@@ -222,6 +251,7 @@ function InboxRow({ item, subjects, docTitles, onOrganize, onDelete, onUpdate, o
       </div>
 
       <div className="flex items-center justify-end gap-1.5 pt-1">
+        <button className="btn-ghost text-xs" onClick={() => onSuggest(item.id)}>整理建议</button>
         <button className="btn-ghost text-xs flex items-center gap-1" onClick={handleAddLink} title="追加一条 [[双链]] 到正文">
           <Link2 className="h-3.5 w-3.5" /> 双链
         </button>
@@ -235,6 +265,15 @@ function InboxRow({ item, subjects, docTitles, onOrganize, onDelete, onUpdate, o
           <Check className="h-3.5 w-3.5" /> 标记已整理
         </button>
       </div>
+      {suggestion && (
+        <div className="rounded-md border border-[var(--color-primary)]/30 bg-[var(--color-primary-light)] p-2 text-xs">
+          <div className="font-medium">整理建议预览</div>
+          {suggestion.summary && <div className="mt-1">摘要：{suggestion.summary}</div>}
+          {suggestion.tags.length > 0 && <div className="mt-1">标签：{suggestion.tags.join('、')}</div>}
+          {suggestion.subject && <div className="mt-1">分类：{suggestion.subject}</div>}
+          <div className="mt-2 flex gap-2"><button className="btn-primary text-xs" onClick={() => onAcceptSuggestion(item, suggestion)}>接受建议</button><button className="btn-ghost text-xs" onClick={() => onSkipSuggestion(item.id)}>跳过</button></div>
+        </div>
+      )}
     </div>
   );
 }

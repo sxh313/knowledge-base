@@ -9,7 +9,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   设计系统 — 知识库
+   设计系统 — 知屿
    分层：tokens → base → components → utilities
    ═══════════════════════════════════════════════════════════════ */
 
@@ -169,6 +169,14 @@
   .btn-primary:hover:not(:disabled) {
     background-color: var(--color-primary-hover);
     box-shadow: var(--shadow-sm);
+  }
+  .btn-primary:disabled,
+  .btn-secondary:disabled,
+  .btn-danger:disabled {
+    color: color-mix(in srgb, var(--color-text) 62%, var(--color-surface));
+    background-color: color-mix(in srgb, var(--color-surface-2) 88%, var(--color-border));
+    border-color: var(--color-border-strong);
+    opacity: 1;
   }
 
   /* 次级按钮 */
@@ -505,6 +513,13 @@
   .prose-custom:focus-within { background-color: color-mix(in srgb, var(--color-primary) 3%, transparent); }
   .prose-custom p { transition: background-color 0.15s ease; border-radius: 0.25rem; }
   .prose-custom p:hover { background-color: color-mix(in srgb, var(--color-primary) 4%, transparent); }
+  .citation-card { color: var(--color-text-secondary); background: var(--color-surface-2); border-color: var(--color-border-strong); }
+  .risk-badge-low { color: #166534; background: #dcfce7; border-color: #86efac; }
+  .risk-badge-medium { color: #92400e; background: #fef3c7; border-color: #fcd34d; }
+  .risk-badge-high { color: #991b1b; background: #fee2e2; border-color: #fca5a5; }
+  .dark .risk-badge-low { color: #bbf7d0; background: #143a25; border-color: #276749; }
+  .dark .risk-badge-medium { color: #fde68a; background: #3b2a12; border-color: #8a5a16; }
+  .dark .risk-badge-high { color: #fecaca; background: #401b1b; border-color: #8b3030; }
   /* 图片紧跟正文显示，不叠加 typography 的段落与图片上边距。 */
   .prose-custom img { margin-top: 0 !important; }
   .prose-custom p:has(> img:only-child) {
@@ -540,6 +555,133 @@
   }
   .prose-custom td > p, .prose-custom th > p { margin: 0; }
   .prose-custom .selectedCell { background: var(--color-primary-light); }
+
+  /* ─── AI 对话：豆包式轻量阅读布局 ─────────────────────────── */
+  .ai-doubao-shell {
+    min-width: 0;
+    background: var(--color-bg);
+  }
+  .ai-doubao-messages {
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    background: var(--color-bg);
+  }
+  .ai-message-row {
+    min-width: 0;
+  }
+  .agent-message-row {
+    min-width: 0;
+  }
+  .ai-user-bubble {
+    background: var(--color-primary-light);
+    border: 1px solid color-mix(in srgb, var(--color-primary) 12%, var(--color-border));
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+  }
+  .agent-user-bubble {
+    background: var(--color-primary-light);
+    border: 1px solid color-mix(in srgb, var(--color-primary) 12%, var(--color-border));
+    color: var(--color-text);
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+  }
+  .ai-assistant-content {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .agent-assistant-content {
+    min-width: 0;
+    color: var(--color-text);
+    overflow-wrap: anywhere;
+  }
+  .ai-assistant-content .prose-custom,
+  .ai-assistant-content .prose {
+    font-size: 0.9375rem;
+    line-height: 1.8;
+  }
+  .ai-assistant-content .prose-custom > :first-child,
+  .ai-assistant-content .prose > :first-child {
+    margin-top: 0;
+  }
+  .ai-assistant-content .prose-custom > :last-child,
+  .ai-assistant-content .prose > :last-child {
+    margin-bottom: 0;
+  }
+  .ai-brand-mark {
+    display: inline-flex;
+    width: 1.5rem;
+    height: 1.5rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    color: #fff;
+    background: linear-gradient(135deg, #3370ff, #6a8dff);
+    box-shadow: 0 2px 6px rgba(51, 112, 255, 0.22);
+  }
+  .ai-composer-wrap {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--color-bg) 20%, transparent), var(--color-bg) 26%);
+  }
+  .ai-composer {
+    overflow: hidden;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 0.9rem;
+    background: var(--color-surface);
+    box-shadow: var(--shadow-md);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .agent-composer {
+    max-width: 48rem;
+    margin: 0 auto;
+    overflow: hidden;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 0.9rem;
+    background: var(--color-surface);
+    box-shadow: var(--shadow-md);
+  }
+  .ai-composer:focus-within {
+    border-color: color-mix(in srgb, var(--color-primary) 65%, var(--color-border));
+    box-shadow: var(--shadow-md), 0 0 0 3px color-mix(in srgb, var(--color-primary) 10%, transparent);
+  }
+  .ai-composer-input {
+    min-width: 0;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0.65rem 0.25rem !important;
+    line-height: 1.55;
+  }
+  .ai-composer-input:focus {
+    box-shadow: none !important;
+  }
+  .ai-send-button {
+    border-radius: 0.65rem;
+  }
+  .ai-setting-trigger {
+    color: var(--color-text-secondary);
+  }
+
+  @media (max-width: 767px) {
+    .ai-doubao-messages {
+      padding-top: 1rem !important;
+      padding-bottom: 1rem !important;
+    }
+    .ai-message-row {
+      max-width: none;
+    }
+    .ai-assistant-content .prose-custom,
+    .ai-assistant-content .prose {
+      font-size: 0.9rem;
+      line-height: 1.75;
+    }
+    .ai-composer-wrap {
+      padding-right: 0.75rem !important;
+      padding-bottom: calc(0.75rem + env(safe-area-inset-bottom)) !important;
+      padding-left: 0.75rem !important;
+    }
+    .ai-composer {
+      border-radius: 0.8rem;
+    }
+  }
 
   /* Callout 提示框（GFM alerts）：飞书/Notion 式彩色块 */
   .prose-custom div[data-type="callout"] {
@@ -734,6 +876,7 @@
     padding: 24px;
     color: #1f2329;
     background: #fff;
+    z-index: 9999;
   }
   #print-root h1 { font-size: 1.8rem; font-weight: 700; margin: 0 0 0.5rem; }
   #print-root h2 { font-size: 1.4rem; font-weight: 600; margin: 1rem 0 0.4rem; }

@@ -93,4 +93,17 @@ describe('routeAI failover', () => {
     expect(res.provider).toBe('deepseek');
     expect(mockedChat).toHaveBeenCalledTimes(3);
   });
+
+  it('本地 OpenAI-compatible provider 不需要 API Key', async () => {
+    mockedGetSettings.mockResolvedValue(
+      makeSettings({
+        local: { baseUrl: 'http://127.0.0.1:11434/v1', apiKey: '', enabled: true },
+      }),
+    );
+    mockedChat.mockResolvedValue({ content: 'local-ok', model: 'llama3.2', usage: undefined });
+
+    const res = await routeAI('qa', [{ role: 'user', content: 'hi' }]);
+    expect(res.provider).toBe('local');
+    expect(res.model).toBe('llama3.2');
+  });
 });

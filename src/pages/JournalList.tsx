@@ -5,14 +5,14 @@ import { useJournalStore } from '../stores/journalStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useViewModeStore } from '../stores/viewModeStore';
 import DocTree from '../components/DocTree';
-import ContextMenu, { type ContextMenuItem } from '../components/ContextMenu';
+import ContextMenu from '../components/ContextMenu';
 import CategoryDialog from '../components/CategoryDialog';
 import type { JournalEntry } from '../lib/db/schema';
 import TemplatePicker from '../components/TemplatePicker';
 
 export default function JournalList() {
   const navigate = useNavigate();
-  const { entries, categories, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedTag, selectedSubject, setSelectedSubject, togglePin, duplicate, remove, removeMany, update, sortBy, setSortBy, create, createTodayNote, createCategory } = useJournalStore();
+  const { entries, categories, isLoading, loadAll, setCurrent, getFilteredEntries, searchQuery, setSearchQuery, selectedTag, selectedSubject, setSelectedSubject, togglePin, duplicate, remove, removeMany, update, sortBy, setSortBy, setManualOrder, manualOrder, create, createTodayNote, createCategory } = useJournalStore();
   const { hasAnyProviderConfigured } = useSettingsStore();
   const { isMobile } = useViewModeStore();
   // 右键菜单：主菜单 + “移动到”分类子菜单
@@ -30,10 +30,9 @@ export default function JournalList() {
   // 手动拖拽排序
   const dragIdRef = useRef<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
-  const [manualTick, setManualTick] = useState(0);
 
-  // 拖拽：把 fromId 移到 toId 的位置，写入 localStorage 并切到手动排序
-  const reorderDocs = useCallback((fromId: string, toId: string) => {
+  // 拖拽：把 fromId 移到 toId 的位置，写入 Dexie 并切到手动排序
+  const reorderDocs = useCallback(async (fromId: string, toId: string) => {
     if (fromId === toId) return;
     const ids = getFilteredEntries().map(f => f.id);
     const from = ids.indexOf(fromId);
@@ -41,10 +40,9 @@ export default function JournalList() {
     if (from < 0 || to < 0) return;
     ids.splice(from, 1);
     ids.splice(to, 0, fromId);
-    localStorage.setItem('doc-manual-order', JSON.stringify(ids));
+    await setManualOrder(ids);
     setSortBy('manual');
-    setManualTick(t => t + 1);
-  }, [getFilteredEntries, setSortBy]);
+  }, [getFilteredEntries, setManualOrder, setSortBy]);
   // 可拖拽调整目录树侧栏宽度（持久化）
   const [docTreeWidth, setDocTreeWidth] = useState<number>(() => {
     const saved = Number(localStorage.getItem('doctree-width'));
@@ -159,7 +157,7 @@ export default function JournalList() {
   // 用 useMemo 缓存过滤/排序结果，避免每次 render 都对全量 entries 重新计算
   const filtered = useMemo(
     () => getFilteredEntries(),
-    [getFilteredEntries, entries, searchQuery, selectedTag, selectedSubject, sortBy, manualTick],
+    [getFilteredEntries, entries, searchQuery, selectedTag, selectedSubject, sortBy, manualOrder],
   );
   const allSubjects = useMemo(
     () => [...new Set([
@@ -249,7 +247,7 @@ export default function JournalList() {
               </button>
             )}
             <div className="min-w-0">
-              <h1 className="text-xl font-bold text-[var(--color-text)] sm:text-2xl">知识库</h1>
+              <h1 className="text-xl font-bold text-[var(--color-text)] sm:text-2xl">知屿</h1>
               <p className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
                 {filtered.length > 0 ? `共 ${filtered.length} 篇文档` : '构建你的知识体系'}
               </p>
@@ -314,7 +312,7 @@ export default function JournalList() {
             <div className="flex items-start gap-3">
               <span className="text-2xl">👋</span>
               <div className="flex-1">
-                <h3 className="font-medium text-sm text-[var(--color-primary)]">欢迎来到知识库！</h3>
+                <h3 className="font-medium text-sm text-[var(--color-primary)]">欢迎来到知屿！</h3>
                 <p className="text-xs text-[var(--color-text-secondary)] mt-1">
                   配置 AI API 入口后，即可使用智能总结、自动生成卡片、代码分析等功能。
                 </p>

@@ -21,6 +21,10 @@ import {
   reviewJournalQuality,
   createStudyPlanSuggestion,
   suggestQualityFixes,
+  analyzeKnowledgeGaps,
+  findRelatedJournals,
+  suggestJournalMetadata,
+  qualityFixesToPlan,
 } from './quality';
 
 function makeJournal(overrides: Partial<any> = {}) {
@@ -201,5 +205,39 @@ describe('suggestQualityFixes', () => {
     const titleFix = fixes.find((f) => f.field === 'title');
     expect(titleFix).toBeDefined();
     expect(titleFix!.risk).toBe('high');
+  });
+});
+
+describe('qualityFixesToPlan selection', () => {
+  it('只转换选中的问题，并可跳过同类问题', () => {
+    const fixes = [
+      { journalId: 'a', title: 'A', issueType: 'no-summary', risk: 'low' as const, field: 'summary' as const, before: '', after: '摘要', message: '摘要' },
+      { journalId: 'a', title: 'A', issueType: 'no-tags', risk: 'low' as const, field: 'tags' as const, before: '', after: 'AI', message: '标签' },
+    ];
+    expect(qualityFixesToPlan(fixes, { selectedKeys: ['a:no-summary:summary'] }).ops).toHaveLength(1);
+    expect(qualityFixesToPlan(fixes, { skippedIssueTypes: ['no-tags'] }).ops).toHaveLength(1);
+  });
+});
+
+describe('知识缺口与整理建议', () => {
+  it('能区分已覆盖概念与知识缺口', async () => {
+    mocks.mockGetAllJournals.mockResolvedValue([
+      makeJournal({ id: 'a', title: 'RAG 检索', content: 'RAG 使用向量检索和上下文增强。', contentPlain: 'RAG 使用向量检索和上下文增强。' }),
+    ]);
+    const report = await analyzeKnowledgeGaps('RAG 检索 评估');
+    expect(report.covered.length).toBeGreaterThan(0);
+    expect(report.missing.length).toBeGreaterThan(0);
+  });
+
+  it('能返回相关文档与收件箱元数据建议', async () => {
+    mocks.mockGetAllJournals.mockResolvedValue([
+      makeJournal({ id: 'a', title: '未命名', content: 'React Hooks useState useEffect', contentPlain: 'React Hooks useState useEffect', tags: [] }),
+      makeJournal({ id: 'b', title: 'React 基础', content: 'React Hooks 介绍', contentPlain: 'React Hooks 介绍', tags: ['React'] }),
+    ]);
+    const related = await findRelatedJournals({ journalId: 'a' });
+    expect(related[0].journalId).toBe('b');
+    const suggestions = await suggestJournalMetadata('a');
+    expect(suggestions[0].tags.length).toBeGreaterThan(0);
+    expect(suggestions[0].relatedIds).toContain('b');
   });
 });

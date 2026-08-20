@@ -41,10 +41,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     if (!settings) return null;
     const providers = settings.aiProviders;
     // 使用用户自定义的 provider 顺序（缺省时按内置顺序）
-    const order = settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek'];
+    const order = settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek', 'local'];
     for (const key of order) {
       const p = providers[key];
-      if (p.enabled && p.apiKey) {
+      if (p.enabled && (key === 'local' || p.apiKey)) {
         return { name: key, baseUrl: p.baseUrl, apiKey: p.apiKey };
       }
     }
@@ -56,7 +56,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     if (!settings) return false;
     const providers = settings.aiProviders;
     return (Object.keys(providers) as (keyof AISettings)[]).some(
-      (key) => providers[key].enabled && providers[key].apiKey,
+      (key) => providers[key].enabled && (key === 'local' || providers[key].apiKey),
     );
   },
 }));

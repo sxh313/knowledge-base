@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Category, JournalEntry } from '../lib/db/schema';
+import { getUserPreference, setUserPreference } from '../lib/db/userPreferences';
 import {
   createJournal,
   updateJournal,
@@ -26,6 +27,7 @@ interface JournalStore {
   selectedSubject: string | null;
   saveStatus: SaveStatus;
   sortBy: 'created' | 'updated' | 'title' | 'manual';
+  manualOrder: string[];
 
   loadAll: () => Promise<void>;
   loadOne: (id: string) => Promise<void>;
@@ -45,6 +47,7 @@ interface JournalStore {
   getFilteredEntries: () => JournalEntry[];
   setSaveStatus: (status: SaveStatus) => void;
   setSortBy: (s: 'created' | 'updated' | 'title' | 'manual') => void;
+  setManualOrder: (ids: string[]) => Promise<void>;
   createCategory: (name: string) => Promise<Category>;
   renameCategory: (id: string, name: string) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
@@ -61,13 +64,18 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   selectedSubject: null,
   saveStatus: 'idle' as SaveStatus,
   sortBy: 'created' as 'created' | 'updated' | 'title' | 'manual',
+  manualOrder: [],
 
   loadAll: async () => {
     set({ isLoading: true, error: null });
     try {
-      const [entries, categories] = await Promise.all([getAllJournals(), getCategories()]);
+      const [entries, categories, manualOrder] = await Promise.all([
+        getAllJournals(),
+        getCategories(),
+        getUserPreference<string[]>('documentOrder', [], 'doc-manual-order'),
+      ]);
       entries.sort((a, b) => b.createdAt - a.createdAt);
-      set({ entries, categories, isLoading: false });
+      set({ entries, categories, manualOrder, isLoading: false });
     } catch (e) {
       set({ error: (e as Error).message, isLoading: false });
     }
@@ -190,6 +198,10 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   setSelectedSubject: (subject) => set({ selectedSubject: subject }),
   setSaveStatus: (status) => set({ saveStatus: status }),
   setSortBy: (s) => set({ sortBy: s }),
+  setManualOrder: async (ids) => {
+    await setUserPreference('documentOrder', ids);
+    set({ manualOrder: ids });
+  },
   createCategory: async (name) => {
     const category = await createCategoryRecord(name);
     set({ categories: await getCategories() });
@@ -207,7 +219,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   },
 
   getFilteredEntries: () => {
-    const { entries, searchQuery, selectedTag, selectedSubject, sortBy } = get();
+    const { entries, searchQuery, selectedTag, selectedSubject, sortBy, manualOrder } = get();
     let filtered = entries;
 
     if (searchQuery.trim()) {
@@ -230,10 +242,7 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
     }
 
     if (sortBy === 'manual') {
-      // 手动排序：按 localStorage 保存的 id 顺序；未记录的按创建时间补在后面
-      let orderArr: string[] = [];
-      try { orderArr = JSON.parse(localStorage.getItem('doc-manual-order') || '[]'); } catch { /* ignore */ }
-      const orderMap = new Map(orderArr.map((id, i) => [id, i]));
+      const orderMap = new Map(manualOrder.map((id, i) => [id, i]));
       filtered = [...filtered].sort((a, b) => {
         const oa = orderMap.has(a.id) ? orderMap.get(a.id)! : 1e9;
         const ob = orderMap.has(b.id) ? orderMap.get(b.id)! : 1e9;

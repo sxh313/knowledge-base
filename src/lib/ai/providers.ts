@@ -8,7 +8,7 @@ export interface AIProviderConfig {
   enabled: boolean;
 }
 
-export type ProviderName = 'shengsuanyun' | 'relay' | 'siliconflow' | 'zhipu' | 'deepseek';
+export type ProviderName = 'shengsuanyun' | 'relay' | 'siliconflow' | 'zhipu' | 'deepseek' | 'local';
 
 export const DEFAULT_BASE_URLS: Record<ProviderName, string> = {
   shengsuanyun: 'https://beta-router.shengsuanyun.com/api/v1',
@@ -16,6 +16,7 @@ export const DEFAULT_BASE_URLS: Record<ProviderName, string> = {
   siliconflow: 'https://api.siliconflow.cn/v1',
   zhipu: 'https://open.bigmodel.cn/api/paas/v4',
   deepseek: 'https://api.deepseek.com/v1',
+  local: 'http://127.0.0.1:11434/v1',
 };
 
 // Model definitions: which provider + model name to use
@@ -57,7 +58,12 @@ export const PROVIDER_FALLBACK_MODELS: Record<ProviderName, string> = {
   siliconflow: 'siliconflow-ds',
   zhipu: 'glm-4',
   deepseek: 'deepseek-official',
+  local: '',
 };
+
+export function providerNeedsApiKey(provider: ProviderName): boolean {
+  return provider !== 'local';
+}
 
 // Task type → ordered list of model IDs (first = primary, rest = fallback)
 export type TaskType =

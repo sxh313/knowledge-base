@@ -48,7 +48,7 @@ vi.mock('../db/schema', () => ({
   },
 }));
 
-import { analyzeJournalImpact, buildRenameLinkRepairPlan, repairDocumentLinks } from './impact';
+import { analyzeJournalImpact, buildRenameLinkRepairPlan, repairDocumentLinks, linkRepairPlanToAgentPlan } from './impact';
 
 function makeJournal(overrides: Partial<any> = {}) {
   return {
@@ -195,5 +195,17 @@ describe('repairDocumentLinks', () => {
     expect(plan.total).toBe(1);
     expect(plan.autoFixable).toBe(1);
     expect(plan.items[0].newLinkText).toBe('正式标题');
+  });
+
+  it('同名/别名冲突不生成自动修复计划', async () => {
+    mocks.mockGetAllJournals.mockResolvedValue([
+      makeJournal({ id: 'a', title: '文档A', aliases: ['旧名'] }),
+      makeJournal({ id: 'b', title: '文档B', aliases: ['旧名'] }),
+    ]);
+    mocks.mockDbDocumentLinksToArray.mockResolvedValue([{ id: 'l1', sourceId: 'a', targetTitle: '旧名', linkText: '旧名', broken: true }]);
+    mocks.mockDbJournalsBulkGet.mockResolvedValue([makeJournal({ id: 'a', title: '文档A' })]);
+    const plan = await repairDocumentLinks();
+    expect(plan.manualCount).toBe(1);
+    expect(linkRepairPlanToAgentPlan(plan).ops).toHaveLength(0);
   });
 });

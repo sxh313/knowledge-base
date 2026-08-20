@@ -67,8 +67,8 @@ export default defineConfig({
       injectRegister: false,
       includeAssets: ['icons/*.png', 'favicon.ico'],
       manifest: {
-        name: '知识库',
-        short_name: '知识库',
+        name: '知屿',
+        short_name: '知屿',
         description: 'AI 增强型知识管理工具 — 记录、整理、复习、知识图谱',
         theme_color: '#1a1a2e',
         background_color: '#f8f9fa',
@@ -83,10 +83,20 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        globPatterns: ['**/*.{js,css,html,json,ico,png,svg,woff2}'],
         // 限制预缓存体积，避免首次加载缓存过多非核心资源
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        // zero2agent 的预计算索引约 7MB，需要纳入离线缓存；仍保留上限避免误把大型资源全部缓存。
+        maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         runtimeCaching: [
+          {
+            urlPattern: /\/zero2agent\/.*\.md$/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'zero2agent-source',
+              cacheableResponse: { statuses: [0, 200] },
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
+            },
+          },
           {
             urlPattern: /^https?:\/\/.*\/v1\/chat\/completions/,
             handler: 'NetworkOnly',
@@ -109,6 +119,9 @@ export default defineConfig({
           if (id.includes('node_modules')) {
             if (id.includes('react-markdown') || id.includes('remark') || id.includes('rehype') || id.includes('lowlight') || id.includes('highlight.js') || id.includes('marked') || id.includes('turndown')) return 'markdown';
             if (id.includes('@tiptap') || id.includes('prosemirror')) return 'editor';
+            // html2pdf.js 及其依赖（html2canvas/jspdf）体积大且仅在导出 PDF 时用到，
+            // 单独拆成独立 chunk，通过动态 import 按需加载，避免拖大首屏 vendor
+            if (id.includes('html2pdf.js') || id.includes('html2canvas') || id.includes('jspdf') || id.includes('dompurify')) return 'pdf-export';
             // 其余第三方依赖（react 核心、路由、状态、数据库等）合并为单个 vendor chunk，避免循环依赖
             return 'vendor';
           }

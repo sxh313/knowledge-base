@@ -1,7 +1,7 @@
 import type { ChatMessage } from './client';
 import { chatCompletion } from './client';
 import { getSettings } from '../db/queries';
-import { MODEL_MAP, TASK_MODELS, PROVIDER_FALLBACK_MODELS, type TaskType, type ProviderName } from './providers';
+import { MODEL_MAP, TASK_MODELS, PROVIDER_FALLBACK_MODELS, providerNeedsApiKey, type TaskType, type ProviderName } from './providers';
 
 export interface RouteResult {
   content: string;
@@ -28,7 +28,7 @@ export async function routeAI(
     tried.add(key);
 
     const prov = settings.aiProviders[provider];
-    if (!prov?.enabled || !prov.apiKey) {
+    if (!prov?.enabled || (providerNeedsApiKey(provider) && !prov.apiKey)) {
       lastError = `[${provider}] 未配置`;
       return null;
     }
@@ -62,12 +62,15 @@ export async function routeAI(
   //    这样即使默认模型指向的 provider 未配置（如胜算云），也能自动用硅基/DeepSeek 官方等。
   //    顺序遵循用户自定义的 providerOrder（缺省时按内置顺序）。
   const providerOrder: ProviderName[] =
-    settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek'];
+    settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek', 'local'];
   for (const provider of providerOrder) {
     const fallbackModelId = PROVIDER_FALLBACK_MODELS[provider];
-    const entry = MODEL_MAP[fallbackModelId];
-    if (!entry) continue;
-    const res = await tryModel(provider, entry.model);
+    const entry = fallbackModelId ? MODEL_MAP[fallbackModelId] : undefined;
+    const model = provider === 'local'
+      ? (settings.availableModels?.local?.[0] ?? settings.selectedModels?.find((id) => id.startsWith('local/'))?.slice(6) ?? 'llama3.2').replace(/^local\//, '')
+      : entry?.model;
+    if (!model) continue;
+    const res = await tryModel(provider, model);
     if (res) return res;
   }
 

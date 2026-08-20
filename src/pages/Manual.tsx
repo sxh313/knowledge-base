@@ -1,7 +1,7 @@
 import {
   BookOpen, Search, FileText, Brain, BookCheck, BarChart3,
   Settings as SettingsIcon, HelpCircle, Cloud, KeyRound, Database, Keyboard,
-  PaintRoller, Timer, Tag, Link2, LayoutTemplate, Star, History, CalendarDays, ListOrdered, FileCode, Inbox,
+  PaintRoller, Timer, Tag, LayoutTemplate, Star, History, FileCode, Inbox,
 } from 'lucide-react';
 
 export default function Manual() {
@@ -13,14 +13,14 @@ export default function Manual() {
           使用手册
         </h1>
         <p className="text-sm text-[var(--color-text-secondary)] mt-1">
-          了解知识库的所有功能和操作方式
+          了解知屿的所有功能和操作方式
         </p>
       </div>
 
       {/* 快速开始 */}
       <Section icon={BookOpen} title="快速开始（4 步上手）" color="text-brand-500">
         <ol className="list-decimal pl-5 space-y-1">
-          <li><b>配置 AI</b> — 「设置 → 🤖 AI 服务配置」填入任一服务商的 API Key（推荐胜算云），点「刷新模型」勾选要用的模型</li>
+          <li><b>配置 AI</b> — 「设置 → AI 服务配置」填入自己的服务地址和 API Key；本地 OpenAI-compatible 服务可不填 Key</li>
           <li><b>写第一篇笔记</b> — 文档列表点「新建文档」，支持富文本/Markdown 双模式，可粘贴截图</li>
           <li><b>让 AI 帮忙</b> — 编辑页点「总结」提炼要点，或「卡片」自动生成复习卡</li>
           <li><b>复习巩固</b> — 去「复习」页翻面评分，算法自动安排下次复习</li>
@@ -152,14 +152,16 @@ export default function Manual() {
       </Section>
 
       {/* AI 功能 */}
-      <Section icon={Brain} title="AI 功能" color="text-purple-500">
+      <Section icon={Brain} title="AI 问答与 Agent" color="text-purple-500">
         <ul>
           <li><b>AI 总结</b> — 在编辑器中点击「📝 AI 总结」，自动提炼核心要点</li>
           <li><b>生成卡片</b> — 点击「🃏 卡片」，AI 自动从文档生成知识卡片（保存到复习库）</li>
           <li><b>代码分析</b> — 点击「🔍 代码」，AI 审查代码质量和安全</li>
           <li><b>代码解释</b> — 点击「📖 解释」，AI 逐行解释代码逻辑</li>
-          <li><b>AI 对话（RAG）</b> — 「AI 助手」顶部选「知识范围」（全部/分类/标签/指定文档/不使用），提问时自动从知识库检索相关片段并附「参考来源」；可「保存回答为新文档」</li>
-          <li><b>多模型路由</b> — 支持胜算云、硅基、智谱、DeepSeek 等多个 AI 入口，自动故障转移</li>
+          <li><b>AI 对话（RAG）</b> — 在同一入口选择个人文档、zero2Agent、全部知识库或不使用知识库；回答附可定位的参考来源</li>
+          <li><b>Agent 模式</b> — 切换到 Agent 后可让 AI 规划知识库操作；写入前会展示风险、影响和 diff，必须由你确认，并支持撤销</li>
+          <li><b>本地模型</b> — 「设置 → AI 服务配置 → 本地模型」可连接 Ollama、LM Studio、vLLM、LocalAI 等 OpenAI 兼容服务；API 地址填写本地 <code className="font-mono">/v1</code> 入口，API Key 可留空，并确保本地服务允许浏览器 CORS。</li>
+          <li><b>多模型路由</b> — 支持胜算云、中转站、硅基流动、智谱、DeepSeek 和本地服务，已启用模型之间可故障转移</li>
         </ul>
       </Section>
 
@@ -179,11 +181,10 @@ export default function Manual() {
       <Section icon={Cloud} title="云同步（GitHub）" color="text-sky-500">
         <ul className="list-disc pl-5 space-y-1">
           <li><b>跨设备同步</b> — 数据推送到你的 GitHub 私有仓库，免费、带版本历史</li>
-          <li><b>配置</b> — 同步连接信息已内置，设置页不会显示 Token、用户名、仓库、分支和文件路径</li>
+          <li><b>配置</b> — 在设置页填写自己的用户名/组织、私有仓库、分支、数据路径和 Fine-grained Token；建议只授予目标仓库 Contents 读写权限</li>
           <li><b>保存即上传</b> — 启用后保存文档自动推送；编辑停顿 10 秒也会自动同步</li>
-          <li><b>设置导航</b> — 设置页右侧可点击跳转到 AI 服务、模型偏好、云同步、数据管理等分区</li>
-          <li><b>大纲层级</b> — 有下级标题的大纲项可按层级折叠或展开，点击标题仍会准确跳转</li>
           <li><b>合并策略</b> — 多设备按记录取较新版本，软删除自动传播，不丢数据</li>
+          <li><b>Agent 数据</b> — Agent 运行和审计记录可能包含敏感内容，默认不参与同步，可在设置中单独开启</li>
           <li><b>上限</b> — 单文件 95MB（GitHub 限 100MB，预留余量）；超出会阻止上传并提示</li>
         </ul>
       </Section>
@@ -194,7 +195,7 @@ export default function Manual() {
           <li><b>用途</b> — 把 API Key 用主密码加密成密文，安全搬到另一台设备</li>
           <li><b>导出</b> — 「设置 → 🔐 密钥迁移」填主密码（≥6 位）→ 生成 <code className="font-mono">KBVAULT1:...</code> 密文</li>
           <li><b>导入</b> — 另一台设备粘贴密文 + 同一主密码 → 解密恢复 Key</li>
-          <li><b>安全性</b> — PBKDF2(31 万)+AES-256，密文即使公开、无主密码也不可破解</li>
+          <li><b>加密方式</b> — 使用 PBKDF2（31 万次）派生密钥和 AES-GCM 加密；仍应使用强主密码并妥善保管密文</li>
           <li><b>注意</b> — 主密码不存任何地方，忘了只能重新填 Key</li>
         </ul>
       </Section>
@@ -202,18 +203,10 @@ export default function Manual() {
       {/* 数据管理 */}
       <Section icon={Database} title="数据管理" color="text-emerald-500">
         <ul className="list-disc pl-5 space-y-1">
-          <li><b>导出</b> — 「设置 → 💾 数据管理 → 📤 导出数据」，下载全量 JSON</li>
-          <li><b>导入</b> — 📥 导入数据，选 JSON 文件恢复（适合不想用 Token 的跨设备迁移）</li>
-          <li><b>本地优先</b> — 所有数据默认存浏览器 IndexedDB；API Key 加密存本地，不上传</li>
-        </ul>
-      </Section>
-
-      {/* 知识图谱 */}
-      <Section icon={Brain} title="知识图谱" color="text-orange-500">
-        <ul>
-          <li><b>可视化</b> — 以力导向图方式展示概念之间的关联关系</li>
-          <li><b>前置依赖</b> — 虚线表示前置依赖（必须先学的概念）</li>
-          <li><b>关联关系</b> — 实线表示普通关联</li>
+          <li><b>导出</b> — 「设置 → 数据管理 → 导出数据」下载业务数据 JSON，包括文档、附件、卡片、历史、AI/Agent 数据、偏好、学习目标和任务</li>
+          <li><b>导入</b> — 选择 JSON 文件合并恢复，完成后自动重建文档索引</li>
+          <li><b>凭据边界</b> — 普通备份不含 AI Key、GitHub Token 和设备级设置；凭据请使用独立的“密钥迁移”</li>
+          <li><b>本地优先</b> — 业务数据和凭据默认存当前设备 IndexedDB；启用 AI、联网搜索或 GitHub 同步时，相关内容会发往你配置的服务</li>
         </ul>
       </Section>
 
@@ -233,6 +226,7 @@ export default function Manual() {
           <li><b>模型偏好</b> — 为高质量/代码/快速任务分别指定模型</li>
           <li><b>主题</b> — 白天 / 夜晚 / 跟随系统（侧栏底部一键切换）</li>
           <li><b>复习目标</b> — 设置每日复习卡片数</li>
+          <li><b>学习目标</b> — 在侧栏进入学习目标，把目标拆为可调整的每日任务</li>
         </ul>
       </Section>
 
@@ -242,6 +236,7 @@ export default function Manual() {
           <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">K</kbd> — 命令面板（搜索/跳转/新建）</li>
           <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">F</kbd> — 全局搜索（编辑器内为查找替换）</li>
           <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">S</kbd> — 保存文档</li>
+          <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">Shift</kbd>+<kbd className="kbd">N</kbd> — 打开快速收集箱</li>
           <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">H</kbd> — 查找替换（编辑器内）</li>
           <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">Z</kbd> / <kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">Y</kbd> — 撤销 / 重做（富文本）</li>
           <li><kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">X</kbd> → <kbd className="kbd">Ctrl</kbd>+<kbd className="kbd">V</kbd> — 剪切 + 粘贴移动内容（编辑器禁用拖拽）</li>
@@ -253,7 +248,7 @@ export default function Manual() {
       </Section>
 
       <div className="text-center text-xs text-gray-400 pb-8 pt-4">
-        知识库 · Knowledge Base v{__APP_VERSION__} · 本地优先，数据加密存于浏览器，可选 GitHub 云同步
+        知屿 · ZhiYu v{__APP_VERSION__} · 本地优先 · 凭据由用户配置 · 可选 GitHub 云同步
       </div>
     </div>
   );

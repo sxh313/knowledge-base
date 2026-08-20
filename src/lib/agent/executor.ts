@@ -16,13 +16,11 @@ import {
   createCard,
 } from '../db/queries';
 import { normalizeMarkdown, calculateContentHash } from '../indexing/documents';
-import { diffLines } from './diff';
 import type {
   AgentOp,
   AgentPlan,
   AgentOpResult,
   AgentExecutionResult,
-  AgentSearchHit,
 } from './tools';
 import { classifyRisk } from './tools';
 import {
@@ -30,9 +28,14 @@ import {
   reviewJournalQuality,
   createStudyPlanSuggestion,
   suggestQualityFixes,
+  qualityFixesToPlan,
   type QualityIssue,
 } from './quality';
-import { analyzeJournalImpact, repairDocumentLinks } from './impact';
+import { analyzeJournalImpact, repairDocumentLinks, linkRepairPlanToAgentPlan } from './impact';
+import { analyzeKnowledgeGaps, suggestJournalMetadata, findRelatedJournals, metadataSuggestionsToPlan } from './quality';
+import { explainSyncConflict, prepareConflictMerge, conflictToResult } from './conflicts';
+import { searchJournals } from './search';
+export { searchJournals } from './search';
 
 /** 按 id 或标题精确定位文档（不做模糊匹配，避免误命中） */
 async function resolveJournal(op: AgentOp): Promise<JournalEntry | null> {
@@ -75,61 +78,24 @@ function insertAfterHeading(content: string, heading: string, insert: string): s
       return lines.join('\n');
     }
   }
-  // 未找到标题：追加到末尾
-  return content.replace(/\s*$/, '\n') + '\n' + insert;
+  // 未找到标题必须失败，不能静默追加到文档末尾。
+  throw new Error(`未找到标题「${target}」，已阻止插入`);
 }
 
-/** 提取匹配片段：返回命中关键词附近的上下文（最多约 120 字符） */
-function makeSnippet(content: string, query: string): string {
-  const lower = content || '';
-  const q = query.toLowerCase();
-  const idx = lower.toLowerCase().indexOf(q);
-  if (idx < 0) return lower.slice(0, 120);
-  const start = Math.max(0, idx - 40);
-  const end = Math.min(lower.length, idx + q.length + 80);
-  const prefix = start > 0 ? '…' : '';
-  const suffix = end < lower.length ? '…' : '';
-  return (prefix + lower.slice(start, end) + suffix).replace(/\s+/g, ' ').trim();
+/** 只替换第一处精确文本，避免链接修复或质量修复误改其它段落。 */
+function patchText(content: string, findText: string, replaceText: string): string {
+  const index = content.indexOf(findText);
+  if (index < 0) throw new Error(`未找到待替换文本「${findText.slice(0, 80)}」`);
+  return content.slice(0, index) + replaceText + content.slice(index + findText.length);
 }
 
-/** 提取内容中第一个标题作为章节引用 */
-function firstHeading(content: string): string | undefined {
-  const m = (content || '').match(/^#{1,6}\s+(.+)$/m);
-  return m ? m[1].trim() : undefined;
-}
-
-/**
- * 结构化搜索：返回带来源引用（文档 ID、标题、章节、匹配片段）的命中列表。
- * 匹配范围：标题、正文、标签；每篇文档最多返回 1 条，按命中数排序。
- */
-export async function searchJournals(query: string): Promise<AgentSearchHit[]> {
-  const q = (query || '').trim().toLowerCase();
-  if (!q) return [];
-  const all = await db.journals.filter((j) => !j.deletedAt).toArray();
-  const scored: { hit: AgentSearchHit; count: number }[] = [];
-  for (const j of all) {
-    const title = j.title || '';
-    const content = j.content || '';
-    const tags = j.tags ?? [];
-    let count = 0;
-    if (title.toLowerCase().includes(q)) count += 3;
-    if (tags.some((t) => t.toLowerCase().includes(q))) count += 2;
-    if (content.toLowerCase().includes(q)) count += 1;
-    if (count === 0) continue;
-    scored.push({
-      count,
-      hit: {
-        journalId: j.id,
-        title,
-        subject: j.subject || '',
-        heading: firstHeading(content),
-        snippet: makeSnippet(content, q),
-        score: count,
-      },
-    });
-  }
-  scored.sort((a, b) => b.count - a.count);
-  return scored.slice(0, 10).map((s) => s.hit);
+function buildCardDrafts(sourceContent: string): { front: string; back: string }[] {
+  return sourceContent.split(/\n(?=#{1,3}\s)/).map((s) => s.trim()).filter((s) => s.length > 10).slice(0, 10).map((section) => {
+    const lines = section.split('\n');
+    const front = lines.find((line) => /^#{1,3}\s/.test(line))?.replace(/^#{1,3}\s/, '') || '知识点';
+    const back = lines.filter((line) => !/^#{1,3}\s/.test(line)).join('\n').trim();
+    return { front, back: back || section.slice(0, 200) };
+  });
 }
 
 /** 计算单个操作的预览（不写入） */
@@ -320,6 +286,7 @@ async function previewOp(op: AgentOp): Promise<AgentOpResult> {
             ].join('\n')
           : '（未发现可修复的质量问题）',
         qualityFixes: fixes,
+        suggestedPlan: qualityFixesToPlan(low),
       };
     }
     case 'analyzeJournalImpact': {
@@ -356,17 +323,92 @@ async function previewOp(op: AgentOp): Promise<AgentOpResult> {
             ].join('\n')
           : '（未发现失效链接）',
         linkRepairPlan: plan,
+        suggestedPlan: linkRepairPlanToAgentPlan(plan),
       };
+    }
+    case 'patchJournal': {
+      const target = await resolveJournal(op);
+      if (!target) return { op: { ...op, risk }, ok: false, error: '未找到目标文档' };
+      let afterContent: string;
+      try { afterContent = normalizeMarkdown(patchText(target.content, op.findText || '', op.replaceText ?? '')); }
+      catch (e) { return { op: { ...op, risk }, ok: false, error: (e as Error).message }; }
+      return {
+        op: { ...op, risk }, ok: true, journalId: target.id, title: target.title,
+        content: `在「${target.title}」中精确替换一处文本`, beforeContent: target.content, afterContent,
+        beforeTitle: target.title, afterTitle: target.title, beforeTags: target.tags, afterTags: target.tags,
+        beforeSubject: target.subject, afterSubject: target.subject,
+      };
+    }
+    case 'updateMetadata': {
+      const target = await resolveJournal(op);
+      if (!target) return { op: { ...op, risk }, ok: false, error: '未找到目标文档' };
+      const metadata = op.metadata ?? {};
+      const afterTags = metadata.tags ? Array.from(new Set(metadata.tags.filter(Boolean))) : target.tags;
+      return {
+        op: { ...op, risk }, ok: true, journalId: target.id, title: target.title,
+        content: `更新「${target.title}」的元数据`, beforeTitle: target.title, afterTitle: target.title,
+        beforeTags: target.tags, afterTags, beforeSubject: target.subject, afterSubject: metadata.subject ?? target.subject,
+        beforeSummary: target.summary || '', afterSummary: metadata.summary ?? (target.summary || ''),
+      };
+    }
+    case 'analyzeKnowledgeGaps': {
+      const report = await analyzeKnowledgeGaps(op.topic || op.query || op.title || '');
+      return {
+        op: { ...op, risk },
+        ok: true,
+        content: report.missing.length
+          ? `主题「${report.topic}」已覆盖 ${report.covered.length} 个概念，发现 ${report.missing.length} 个知识缺口：${report.missing.map((x) => x.concept).join('、')}`
+          : `主题「${report.topic}」已覆盖 ${report.covered.length} 个概念，暂未发现明显缺口。`,
+        knowledgeGaps: report,
+      };
+    }
+    case 'suggestJournalMetadata': {
+      const suggestions = await suggestJournalMetadata(op.journalId);
+      return {
+        op: { ...op, risk },
+        ok: true,
+        content: suggestions.length ? suggestions.map((s) => `「${s.title}」${s.suggestedTitle ? `建议标题：${s.suggestedTitle}；` : ''}${s.summary ? `摘要：${s.summary}` : ''}${s.tags.length ? `；标签：${s.tags.join('、')}` : ''}`).join('\n') : '（没有找到待整理文档）',
+        metadataSuggestions: suggestions,
+        suggestedPlan: metadataSuggestionsToPlan(suggestions),
+      };
+    }
+    case 'findRelatedJournals': {
+      const related = await findRelatedJournals({ journalId: op.journalId, topic: op.topic || op.query || op.title });
+      return {
+        op: { ...op, risk },
+        ok: true,
+        content: related.length ? related.map((r) => `- ${r.title}（${Math.round(r.score * 100)}%）：${r.reason}`).join('\n') : '（未找到明显相关文档）',
+        relatedJournals: related,
+      };
+    }
+    case 'explainSyncConflict': {
+      return conflictToResult(op, await explainSyncConflict(op.conflictId, op.journalId));
+    }
+    case 'prepareConflictMerge': {
+      return conflictToResult(op, await prepareConflictMerge(op.conflictId, op.journalId));
+    }
+    case 'applyConflictMerge': {
+      const report = await prepareConflictMerge(op.conflictId, op.journalId);
+      if (!report) return { op: { ...op, risk }, ok: false, error: '没有找到未解决的同步冲突' };
+      const target = await resolveJournal({ ...op, journalId: report.journalId });
+      if (!target) return { op: { ...op, risk }, ok: false, error: '冲突目标文档不存在' };
+      const draft = op.content ?? report.draft ?? report.local;
+      return { op: { ...op, risk }, ok: true, journalId: target.id, title: target.title,
+        content: `将合并草案写入「${target.title}」（保留冲突前版本）`, beforeContent: target.content, afterContent: normalizeMarkdown(draft),
+        beforeTitle: target.title, afterTitle: target.title, beforeTags: target.tags, afterTags: target.tags,
+        beforeSubject: target.subject, afterSubject: target.subject };
     }
     case 'rename': {
       const target = await resolveJournal(op);
       if (!target) return { op: { ...op, risk }, ok: false, error: '未找到目标文档' };
+      const impact = await analyzeJournalImpact(target.id);
       return {
         op: { ...op, risk },
         ok: true,
         journalId: target.id,
         title: target.title,
-        content: `将「${target.title}」重命名为「${op.newName || ''}」`,
+        content: `将「${target.title}」重命名为「${op.newName || ''}」\n${impact.summary}`,
+        journalImpact: impact,
         beforeTitle: target.title,
         afterTitle: op.newName || target.title,
       };
@@ -374,12 +416,14 @@ async function previewOp(op: AgentOp): Promise<AgentOpResult> {
     case 'delete': {
       const target = await resolveJournal(op);
       if (!target) return { op: { ...op, risk }, ok: false, error: '未找到目标文档' };
+      const impact = await analyzeJournalImpact(target.id);
       return {
         op: { ...op, risk },
         ok: true,
         journalId: target.id,
         title: target.title,
-        content: `删除「${target.title}」（移到回收站，可恢复）`,
+        content: `删除「${target.title}」（移到回收站，可恢复）\n${impact.summary}`,
+        journalImpact: impact,
         beforeTitle: target.title,
         afterTitle: target.title,
       };
@@ -428,12 +472,14 @@ async function previewOp(op: AgentOp): Promise<AgentOpResult> {
     }
     case 'generateCards': {
       const target = op.journalId || op.title ? await resolveJournal(op) : null;
+      const cards = buildCardDrafts(target?.content || op.content || '');
       return {
         op: { ...op, risk },
         ok: true,
         journalId: target?.id,
         title: target?.title,
-        content: `从${target ? `「${target.title}」` : '提供的内容'}生成知识卡片`,
+        content: `从${target ? `「${target.title}」` : '提供的内容'}生成 ${cards.length} 张知识卡片`,
+        cards,
       };
     }
     default:
@@ -460,8 +506,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await saveVersion(target.id, target.title, target.content);
-      runVersions.push({ journalId: target.id, title: target.title, content: target.content });
+      await captureSnapshot(target);
       await updateJournal(target.id, { content: normalizeMarkdown(op.content || '') });
       return { op, ok: true, journalId: target.id, title: target.title };
     }
@@ -470,8 +515,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await saveVersion(target.id, target.title, target.content);
-      runVersions.push({ journalId: target.id, title: target.title, content: target.content });
+      await captureSnapshot(target);
       const newContent = target.content.replace(/\s*$/, '\n') + '\n' + (op.content || '');
       await updateJournal(target.id, { content: normalizeMarkdown(newContent) });
       return { op, ok: true, journalId: target.id, title: target.title };
@@ -481,8 +525,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await saveVersion(target.id, target.title, target.content);
-      runVersions.push({ journalId: target.id, title: target.title, content: target.content });
+      await captureSnapshot(target);
       const newContent = (op.content || '') + '\n\n' + target.content;
       await updateJournal(target.id, { content: normalizeMarkdown(newContent) });
       return { op, ok: true, journalId: target.id, title: target.title };
@@ -492,10 +535,35 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await saveVersion(target.id, target.title, target.content);
-      runVersions.push({ journalId: target.id, title: target.title, content: target.content });
+      await captureSnapshot(target);
       const newContent = insertAfterHeading(target.content, op.afterHeading || '', op.content || '');
       await updateJournal(target.id, { content: normalizeMarkdown(newContent) });
+      return { op, ok: true, journalId: target.id, title: target.title };
+    }
+    case 'patchJournal': {
+      const target = await resolveJournal(op);
+      if (!target) return { op, ok: false, error: '未找到目标文档' };
+      const hashErr = await verifyExpectedHash(op, target);
+      if (hashErr) return { op, ok: false, error: hashErr };
+      await captureSnapshot(target);
+      const newContent = normalizeMarkdown(patchText(target.content, op.findText || '', op.replaceText ?? ''));
+      await updateJournal(target.id, { content: newContent });
+      return { op, ok: true, journalId: target.id, title: target.title };
+    }
+    case 'updateMetadata': {
+      const target = await resolveJournal(op);
+      if (!target) return { op, ok: false, error: '未找到目标文档' };
+      const hashErr = await verifyExpectedHash(op, target);
+      if (hashErr) return { op, ok: false, error: hashErr };
+      await captureSnapshot(target);
+      const metadata = op.metadata ?? {};
+      await updateJournal(target.id, {
+        summary: metadata.summary ?? target.summary,
+        tags: metadata.tags ? Array.from(new Set(metadata.tags.filter(Boolean))) : target.tags,
+        subject: metadata.subject ?? target.subject,
+        aliases: metadata.aliases ?? target.aliases,
+        status: metadata.status ?? target.status,
+      });
       return { op, ok: true, journalId: target.id, title: target.title };
     }
     case 'read': {
@@ -586,11 +654,25 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
         linkRepairPlan: plan,
       };
     }
+    case 'applyConflictMerge': {
+      const report = await prepareConflictMerge(op.conflictId, op.journalId);
+      if (!report) return { op, ok: false, error: '没有找到未解决的同步冲突' };
+      const target = await resolveJournal({ ...op, journalId: report.journalId });
+      if (!target) return { op, ok: false, error: '冲突目标文档不存在' };
+      const hashErr = await verifyExpectedHash(op, target);
+      if (hashErr) return { op, ok: false, error: hashErr };
+      await captureSnapshot(target);
+      const draft = op.content ?? report.draft ?? report.local;
+      await updateJournal(target.id, { content: normalizeMarkdown(draft) });
+      await db.syncConflicts.update(report.conflictId, { resolvedAt: Date.now(), resolution: 'both' });
+      return { op, ok: true, journalId: target.id, title: target.title, content: '已保存合并结果，并保留冲突前快照' };
+    }
     case 'rename': {
       const target = await resolveJournal(op);
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
+      await captureSnapshot(target);
       await updateJournal(target.id, { title: op.newName || target.title });
       return { op, ok: true, journalId: target.id, title: op.newName || target.title };
     }
@@ -599,6 +681,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
+      await captureSnapshot(target);
       await deleteJournal(target.id);
       return { op, ok: true, journalId: target.id, title: target.title };
     }
@@ -607,6 +690,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
+      await captureSnapshot(target);
       await updateJournal(target.id, { subject: op.newSubject || '' });
       return { op, ok: true, journalId: target.id, title: target.title };
     }
@@ -615,6 +699,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
+      await captureSnapshot(target);
       const merged = Array.from(new Set([...(target.tags ?? []), ...(op.tags ?? [])]));
       await updateJournal(target.id, { tags: merged });
       return { op, ok: true, journalId: target.id, title: target.title };
@@ -624,6 +709,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
+      await captureSnapshot(target);
       const remove = new Set(op.tags ?? []);
       const remaining = (target.tags ?? []).filter((t) => !remove.has(t));
       await updateJournal(target.id, { tags: remaining });
@@ -634,18 +720,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       const target = op.journalId || op.title ? await resolveJournal(op) : null;
       const sourceContent = target?.content || op.content || '';
       if (!sourceContent.trim()) return { op, ok: false, error: '没有可生成卡片的内容' };
-      // 简单切分：按 ## 标题或段落生成卡片
-      const sections = sourceContent
-        .split(/\n(?=#{1,3}\s)/)
-        .map((s) => s.trim())
-        .filter((s) => s.length > 10)
-        .slice(0, 10);
-      const cards = sections.map((sec) => {
-        const lines = sec.split('\n');
-        const heading = lines.find((l) => /^#{1,3}\s/.test(l))?.replace(/^#{1,3}\s/, '') || '知识点';
-        const body = lines.filter((l) => !/^#{1,3}\s/.test(l)).join('\n').trim();
-        return { front: heading, back: body || sec.slice(0, 200) };
-      });
+      const cards = buildCardDrafts(sourceContent);
       for (const c of cards) {
         await createCard({
           front: c.front,
@@ -661,6 +736,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
         journalId: target?.id,
         title: target?.title,
         content: `已生成 ${cards.length} 张知识卡片`,
+        cards,
       };
     }
     default:
@@ -706,13 +782,15 @@ export async function applyPlan(
     ? plan.ops.filter((op) => !(op.opId && approvedOpIds.has(op.opId)))
     : [];
   try {
-    const results = await db.transaction(
-      'rw',
-      [db.journals, db.journalVersions, db.cards],
+      const results = await db.transaction(
+        'rw',
+      [db.journals, db.journalVersions, db.cards, db.documentLinks, db.documentChunks, db.attachments, db.syncConflicts],
       async () => {
         const out: AgentOpResult[] = [];
         for (const op of opsToRun) {
-          out.push(await applyOp(op));
+          const result = await applyOp(op);
+          if (!result.ok) throw new Error(result.error || `操作 ${op.type} 执行失败`);
+          out.push(result);
         }
         return out;
       },
@@ -752,15 +830,39 @@ export async function applyPlan(
 export interface UndoInfo {
   planId?: string;
   /** 本次运行保存的版本快照（journalId → 变更前内容） */
-  versions: { journalId: string; title: string; content: string }[];
+  versions: {
+    journalId: string;
+    title: string;
+    content: string;
+    tags?: string[];
+    subject?: string;
+    aliases?: string[];
+    status?: JournalEntry['status'];
+    deletedAt?: number;
+  }[];
   /** 本次运行新建的文档 id（撤销时删除） */
   createdJournalIds: string[];
 }
 
 /** 本次运行保存的版本快照（供撤销） */
-const runVersions: { journalId: string; title: string; content: string }[] = [];
+const runVersions: UndoInfo['versions'] = [];
 /** 本次运行新建的文档 id（供撤销） */
 const runCreatedJournalIds: string[] = [];
+
+async function captureSnapshot(target: JournalEntry): Promise<void> {
+  await saveVersion(target.id, target.title, target.content);
+  if (runVersions.some((v) => v.journalId === target.id)) return;
+  runVersions.push({
+    journalId: target.id,
+    title: target.title,
+    content: target.content,
+    tags: target.tags,
+    subject: target.subject,
+    aliases: target.aliases,
+    status: target.status,
+    deletedAt: target.deletedAt,
+  });
+}
 
 /**
  * 撤销本次运行：恢复所有被修改文档的版本快照，并删除本次新建的文档。
@@ -769,11 +871,19 @@ const runCreatedJournalIds: string[] = [];
 export async function undoRun(undo: UndoInfo): Promise<{ restored: number; deleted: number }> {
   let restored = 0;
   let deleted = 0;
-  await db.transaction('rw', [db.journals, db.journalVersions], async () => {
+  await db.transaction('rw', [db.journals, db.journalVersions, db.documentLinks, db.documentChunks, db.attachments], async () => {
     for (const v of undo.versions) {
       const existing = await getJournal(v.journalId);
-      if (existing && !existing.deletedAt) {
-        await updateJournal(v.journalId, { title: v.title, content: v.content });
+      if (existing) {
+        await updateJournal(v.journalId, {
+          title: v.title,
+          content: v.content,
+          tags: v.tags,
+          subject: v.subject,
+          aliases: v.aliases,
+          status: v.status,
+          deletedAt: v.deletedAt,
+        });
         restored++;
       }
     }

@@ -13,6 +13,8 @@ export type AgentOpType =
   | 'append'      // 在已有文档末尾追加内容
   | 'prepend'     // 在已有文档开头插入内容
   | 'insertAfter' // 在指定标题/锚点后插入内容
+  | 'patchJournal' // 精确替换文档中的一处文本
+  | 'updateMetadata' // 更新摘要、标签、分类等元数据
   | 'read'        // 读取文档内容（供 AI 参考）
   | 'search'      // 搜索文档
   | 'rename'      // 重命名文档
@@ -26,7 +28,13 @@ export type AgentOpType =
   | 'createStudyPlan' // 生成学习计划（只读，返回计划建议）
   | 'suggestQualityFixes' // 文档质量问题一键修复建议（只读，返回修复前后对比）
   | 'analyzeJournalImpact' // 文档关系与变更影响分析（只读，返回影响范围）
-  | 'repairDocumentLinks'; // 失效链接修复计划（只读，返回逐条修复建议）
+  | 'repairDocumentLinks' // 失效链接修复计划（只读，返回逐条修复建议）
+  | 'analyzeKnowledgeGaps' // 知识缺口分析（只读）
+  | 'suggestJournalMetadata' // 收件箱元数据建议（只读）
+  | 'findRelatedJournals' // 相关文档建议（只读）
+  | 'explainSyncConflict' // 同步冲突解释（只读）
+  | 'prepareConflictMerge' // 同步冲突合并草案（只读）
+  | 'applyConflictMerge'; // 用户确认后写入合并草案
 
 /** 单个操作 */
 export interface AgentOp {
@@ -49,8 +57,23 @@ export interface AgentOp {
   tags?: string[];
   /** insertAfter 时：在哪个标题（## 或 ###）之后插入 */
   afterHeading?: string;
+  /** patchJournal 的精确匹配文本（只替换第一处） */
+  findText?: string;
+  /** patchJournal 的替换文本 */
+  replaceText?: string;
+  /** updateMetadata 的结构化字段 */
+  metadata?: {
+    summary?: string;
+    tags?: string[];
+    subject?: string;
+    aliases?: string[];
+    status?: 'inbox' | 'active' | 'archived';
+  };
   /** 搜索关键词 */
   query?: string;
+  /** 主题、冲突或分析上下文 */
+  topic?: string;
+  conflictId?: string;
   /** rename 时的新标题 */
   newName?: string;
   /** move 时的目标分类 */
@@ -72,6 +95,8 @@ export function classifyRisk(op: AgentOp): AgentRisk {
     case 'edit':
       // 整体替换已有文档内容，风险较高
       return 'high';
+    case 'applyConflictMerge':
+      return 'high';
     case 'rename':
     case 'move':
       return 'medium';
@@ -79,6 +104,8 @@ export function classifyRisk(op: AgentOp): AgentRisk {
     case 'append':
     case 'prepend':
     case 'insertAfter':
+    case 'patchJournal':
+    case 'updateMetadata':
     case 'addTags':
     case 'removeTags':
     case 'generateCards':
@@ -91,6 +118,11 @@ export function classifyRisk(op: AgentOp): AgentRisk {
     case 'suggestQualityFixes':
     case 'analyzeJournalImpact':
     case 'repairDocumentLinks':
+    case 'analyzeKnowledgeGaps':
+    case 'suggestJournalMetadata':
+    case 'findRelatedJournals':
+    case 'explainSyncConflict':
+    case 'prepareConflictMerge':
     default:
       return 'low';
   }
@@ -131,6 +163,9 @@ const HASH_REQUIRED_TYPES: ReadonlySet<AgentOpType> = new Set<AgentOpType>([
   'append',
   'prepend',
   'insertAfter',
+  'patchJournal',
+  'updateMetadata',
+  'applyConflictMerge',
   'rename',
   'move',
   'addTags',
@@ -144,6 +179,8 @@ const TARGET_REQUIRED_TYPES: ReadonlySet<AgentOpType> = new Set<AgentOpType>([
   'append',
   'prepend',
   'insertAfter',
+  'patchJournal',
+  'updateMetadata',
   'read',
   'rename',
   'delete',
@@ -164,10 +201,12 @@ export function validateAgentOp(op: AgentOp, index: number): { errors: string[];
 
   // 操作类型
   const validTypes: AgentOpType[] = [
-    'create', 'edit', 'append', 'prepend', 'insertAfter', 'read', 'search',
+    'create', 'edit', 'append', 'prepend', 'insertAfter', 'patchJournal', 'updateMetadata', 'read', 'search',
     'rename', 'delete', 'move', 'addTags', 'removeTags', 'generateCards',
     'findDuplicates', 'reviewQuality', 'createStudyPlan',
     'suggestQualityFixes', 'analyzeJournalImpact', 'repairDocumentLinks',
+    'analyzeKnowledgeGaps', 'suggestJournalMetadata', 'findRelatedJournals',
+    'explainSyncConflict', 'prepareConflictMerge', 'applyConflictMerge',
   ];
   if (!op.type || !validTypes.includes(op.type)) {
     errors.push(`${label}: 未知操作类型「${String(op.type)}」`);
@@ -190,6 +229,15 @@ export function validateAgentOp(op: AgentOp, index: number): { errors: string[];
   if (op.tags && op.tags.length > MAX_TAGS_PER_OP) {
     errors.push(`${label}(${op.type}): 标签数量过多（${op.tags.length} 个，上限 ${MAX_TAGS_PER_OP}）`);
   }
+  if (op.metadata?.tags && op.metadata.tags.length > MAX_TAGS_PER_OP) {
+    errors.push(`${label}(${op.type}): metadata.tags 数量过多（上限 ${MAX_TAGS_PER_OP}）`);
+  }
+  if (op.metadata?.summary && op.metadata.summary.length > 2000) {
+    errors.push(`${label}(${op.type}): 摘要过长（上限 2000 字符）`);
+  }
+  if (op.findText && op.findText.length > 2000) {
+    errors.push(`${label}(${op.type}): findText 过长（上限 2000 字符）`);
+  }
 
   // 各类型必填字段
   switch (op.type) {
@@ -209,6 +257,16 @@ export function validateAgentOp(op: AgentOp, index: number): { errors: string[];
       if (!op.afterHeading || !op.afterHeading.trim()) {
         errors.push(`${label}(insertAfter): 缺少 afterHeading`);
       }
+      break;
+    case 'patchJournal':
+      if (!op.findText?.trim()) errors.push(`${label}(patchJournal): 缺少 findText`);
+      if (op.replaceText === undefined) errors.push(`${label}(patchJournal): 缺少 replaceText`);
+      break;
+    case 'updateMetadata':
+      if (!op.metadata || Object.keys(op.metadata).length === 0) errors.push(`${label}(updateMetadata): 缺少 metadata`);
+      break;
+    case 'applyConflictMerge':
+      if (!op.conflictId && !op.journalId) errors.push(`${label}(applyConflictMerge): 缺少 conflictId 或 journalId`);
       break;
     case 'rename':
       if (!op.newName || !op.newName.trim()) {
@@ -294,6 +352,8 @@ export interface AgentOpResult {
   beforeSubject?: string;
   /** 变更后分类（用于展示分类变化） */
   afterSubject?: string;
+  beforeSummary?: string;
+  afterSummary?: string;
   /** 结构化搜索结果（search 操作）：文档 ID、标题、章节、匹配片段 */
   searchResults?: AgentSearchHit[];
   /** 重复文档检测结果（findDuplicates 操作） */
@@ -356,6 +416,39 @@ export interface AgentOpResult {
       autoFixable: boolean;
     }[];
   };
+  /** 知识缺口分析结果 */
+  knowledgeGaps?: {
+    topic: string;
+    covered: { concept: string; evidence: string[]; confidence: number }[];
+    missing: { concept: string; reason: string; confidence: number }[];
+  };
+  /** 收件箱或文档的元数据建议 */
+  metadataSuggestions?: {
+    journalId: string;
+    title: string;
+    suggestedTitle?: string;
+    summary?: string;
+    tags: string[];
+    subject?: string;
+    relatedIds: string[];
+  }[];
+  /** 相关文档结果 */
+  relatedJournals?: { journalId: string; title: string; score: number; reason: string }[];
+  /** 同步冲突解释或合并草案 */
+  syncConflict?: {
+    conflictId: string;
+    journalId: string;
+    title: string;
+    local: string;
+    remote: string;
+    differences: { type: 'added' | 'removed' | 'changed'; text: string }[];
+    needsManualReview: boolean;
+    draft?: string;
+  };
+  /** 结构化知识卡片草案 */
+  cards?: { front: string; back: string }[];
+  /** 只读分析转换出的安全计划草案，由用户确认后再进入预览 */
+  suggestedPlan?: AgentPlan;
 }
 
 /** 结构化搜索结果条目（供 AI 引用来源） */
