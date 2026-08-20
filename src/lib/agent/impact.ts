@@ -4,7 +4,8 @@
 
 import { db } from '../db/schema';
 import type { JournalEntry, DocumentLink } from '../db/schema';
-import { getAllJournals, getBacklinks } from '../db/queries';
+import { getAllJournals } from '../db/queries';
+import type { AgentPlan } from './tools';
 
 // ──── 影响分析结果类型 ────
 
@@ -203,6 +204,20 @@ export interface LinkRepairPlan {
   items: LinkRepairItem[];
 }
 
+/** 将唯一匹配的失效链接转换为逐条精确补丁；无法唯一匹配的条目不会自动写入。 */
+export function linkRepairPlanToAgentPlan(plan: LinkRepairPlan): AgentPlan {
+  return {
+    summary: `修复 ${plan.autoFixable} 条可确认的失效链接（共 ${plan.total} 条）`,
+    ops: plan.items.filter((item) => item.autoFixable && item.targetId).map((item) => ({
+      type: 'patchJournal' as const,
+      journalId: item.sourceId,
+      findText: `[[${item.linkText}]]`,
+      replaceText: `[[${item.newLinkText}]]`,
+      note: `修复「${item.sourceTitle}」中的失效链接`,
+    })),
+  };
+}
+
 /**
  * 扫描全库失效链接，尝试匹配到现有文档（精确标题或别名），生成逐条修复计划。
  * 只读，不自动执行。无法唯一匹配的链接保留人工确认，不做全库猜测替换。
@@ -213,18 +228,24 @@ export async function repairDocumentLinks(): Promise<LinkRepairPlan> {
   const brokenLinks = allLinks.filter((l) => l.broken);
 
   // 建立标题/别名 → 文档 的索引，用于匹配
-  const titleIndex = new Map<string, JournalEntry>();
+  const titleIndex = new Map<string, JournalEntry[]>();
+  const addTitle = (name: string, journal: JournalEntry) => {
+    const key = name.trim().toLowerCase();
+    if (!key) return;
+    const list = titleIndex.get(key) ?? [];
+    if (!list.some((item) => item.id === journal.id)) list.push(journal);
+    titleIndex.set(key, list);
+  };
   for (const j of journals) {
-    titleIndex.set(j.title.trim().toLowerCase(), j);
-    for (const alias of j.aliases ?? []) {
-      titleIndex.set(alias.trim().toLowerCase(), j);
-    }
+    addTitle(j.title, j);
+    for (const alias of j.aliases ?? []) addTitle(alias, j);
   }
 
   const items: LinkRepairItem[] = [];
   for (const link of brokenLinks) {
     const key = link.targetTitle.trim().toLowerCase();
-    const target = titleIndex.get(key);
+    const candidates = titleIndex.get(key) ?? [];
+    const target = candidates.length === 1 ? candidates[0] : undefined;
     if (target) {
       items.push({
         sourceId: link.sourceId,

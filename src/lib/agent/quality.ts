@@ -4,6 +4,109 @@
 
 import { getAllJournals, getBacklinks, getBrokenOutgoingLinks } from '../db/queries';
 import type { JournalEntry } from '../db/schema';
+import type { AgentOp, AgentPlan } from './tools';
+
+export interface KnowledgeGapReport {
+  topic: string;
+  covered: { concept: string; evidence: string[]; confidence: number }[];
+  missing: { concept: string; reason: string; confidence: number }[];
+}
+
+export interface MetadataSuggestion {
+  journalId: string;
+  title: string;
+  suggestedTitle?: string;
+  summary?: string;
+  tags: string[];
+  subject?: string;
+  relatedIds: string[];
+}
+
+/** 将低风险元数据建议转换为已有的安全执行计划；高风险标题建议默认不进入计划。 */
+export function metadataSuggestionsToPlan(suggestions: MetadataSuggestion[]): AgentPlan {
+  return {
+    summary: `应用 ${suggestions.length} 条收件箱元数据建议（仍需逐项确认）`,
+    ops: suggestions.flatMap((s) => {
+      const metadata: NonNullable<import('./tools').AgentOp['metadata']> = {};
+      if (s.summary) metadata.summary = s.summary;
+      if (s.tags.length) metadata.tags = s.tags;
+      if (s.subject) metadata.subject = s.subject;
+      return Object.keys(metadata).length ? [{ type: 'updateMetadata' as const, journalId: s.journalId, metadata, note: '收件箱元数据建议' }] : [];
+    }),
+  };
+}
+
+export interface RelatedJournal {
+  journalId: string;
+  title: string;
+  score: number;
+  reason: string;
+}
+
+const STOP_WORDS = new Set(['这个', '那个', '内容', '知识', '文档', '以及', '然后', '可以', '进行', '关于', 'the', 'and', 'for']);
+
+function terms(text: string): string[] {
+  const out = new Set<string>();
+  for (const run of (text || '').toLowerCase().match(/[\u4e00-\u9fff]+|[a-z0-9]{2,}/g) ?? []) {
+    if (run.length <= 2 && /[\u4e00-\u9fff]/.test(run)) out.add(run);
+    if (run.length > 2 && !STOP_WORDS.has(run)) out.add(run);
+    if (/^[\u4e00-\u9fff]+$/.test(run)) for (let i = 0; i < run.length - 1; i++) out.add(run.slice(i, i + 2));
+  }
+  return [...out];
+}
+
+export async function findRelatedJournals(input: { journalId?: string; topic?: string }, limit = 8): Promise<RelatedJournal[]> {
+  const journals = (await getAllJournals()).filter((j) => !j.deletedAt);
+  const source = input.journalId ? journals.find((j) => j.id === input.journalId) : undefined;
+  const query = input.topic || source?.title || '';
+  const queryTerms = terms(`${query} ${source?.content || ''}`);
+  return journals
+    .filter((j) => j.id !== input.journalId)
+    .map((j) => {
+      const haystack = `${j.title} ${j.summary || ''} ${j.contentPlain || j.content}`.toLowerCase();
+      const hits = queryTerms.filter((t) => haystack.includes(t)).length;
+      const score = queryTerms.length ? hits / queryTerms.length : 0;
+      return { journalId: j.id, title: j.title, score, reason: hits ? `命中 ${hits} 个共同概念` : '分类或标签相近' };
+    })
+    .filter((j) => j.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+export async function analyzeKnowledgeGaps(topic: string): Promise<KnowledgeGapReport> {
+  const normalized = (topic || '').trim();
+  const journals = (await getAllJournals()).filter((j) => !j.deletedAt);
+  const topicTerms = terms(normalized);
+  const related = journals.filter((j) => {
+    const haystack = `${j.title} ${j.summary || ''} ${j.contentPlain || j.content}`.toLowerCase();
+    return topicTerms.some((t) => haystack.includes(t));
+  });
+  const covered = topicTerms.filter((concept) => related.some((j) => `${j.title} ${j.contentPlain || j.content}`.toLowerCase().includes(concept))).map((concept) => ({
+    concept,
+    evidence: related.filter((j) => `${j.title} ${j.contentPlain || j.content}`.toLowerCase().includes(concept)).slice(0, 3).map((j) => j.title),
+    confidence: Math.min(0.95, 0.45 + related.length * 0.08),
+  }));
+  const coveredSet = new Set(covered.map((x) => x.concept));
+  const missing = topicTerms.filter((concept) => !coveredSet.has(concept)).map((concept) => ({
+    concept,
+    reason: related.length ? '相关文档中没有明确命中该概念' : '知识库中没有找到相关文档',
+    confidence: related.length ? 0.68 : 0.86,
+  }));
+  return { topic: normalized, covered, missing };
+}
+
+export async function suggestJournalMetadata(journalId?: string): Promise<MetadataSuggestion[]> {
+  const journals = (await getAllJournals()).filter((j) => !j.deletedAt && (journalId ? j.id === journalId : j.status === 'inbox'));
+  const all = (await getAllJournals()).filter((j) => !j.deletedAt);
+  return Promise.all(journals.map(async (j) => {
+    const plain = (j.contentPlain || j.content || '').replace(/\s+/g, ' ').trim();
+    const words = terms(`${j.title} ${plain}`).filter((t) => t.length > 1).slice(0, 5);
+    const related = await findRelatedJournals({ journalId: j.id }, 5);
+    const suggestedTitle = !j.title.trim() || /^未命名|^无标题/.test(j.title) ? (words.slice(0, 3).join(' · ') || '待整理笔记') : undefined;
+    const subject = j.subject || all.find((x) => x.id !== j.id && x.tags?.some((tag) => words.includes(tag)))?.subject || undefined;
+    return { journalId: j.id, title: j.title, suggestedTitle, summary: !j.summary && plain ? `${plain.slice(0, 120)}${plain.length > 120 ? '…' : ''}` : undefined, tags: words.slice(0, 4), subject, relatedIds: related.map((x) => x.journalId) };
+  }));
+}
 
 // ──── 重复文档检测 ────
 
@@ -237,6 +340,34 @@ export interface QualityFixSuggestion {
   after: string;
   /** 修复说明 */
   message: string;
+}
+
+/** 仅把低风险质量建议转换为安全计划；标题和正文整体替换保留人工处理。 */
+export function qualityFixesToPlan(
+  fixes: QualityFixSuggestion[],
+  options?: { selectedKeys?: string[]; skippedIssueTypes?: string[] },
+): AgentPlan {
+  const selected = options?.selectedKeys ? new Set(options.selectedKeys) : null;
+  const skipped = new Set(options?.skippedIssueTypes ?? []);
+  const chosen = fixes.filter((fix) => {
+    const key = `${fix.journalId}:${fix.issueType}:${fix.field}`;
+    return (!selected || selected.has(key)) && !skipped.has(fix.issueType);
+  });
+  return {
+    summary: `应用 ${chosen.filter((fix) => fix.risk === 'low').length} 条低风险质量修复建议（仍需逐项确认）`,
+    ops: chosen.filter((fix) => fix.risk === 'low').flatMap((fix): AgentOp[] => {
+      if (fix.field === 'tags') {
+        return [{ type: 'updateMetadata' as const, journalId: fix.journalId, metadata: { tags: fix.after.split(/[、,，]/).map((t) => t.trim()).filter(Boolean) }, note: fix.message }];
+      }
+      if (fix.field === 'summary') {
+        return [{ type: 'updateMetadata' as const, journalId: fix.journalId, metadata: { summary: fix.after }, note: fix.message }];
+      }
+      if (fix.field === 'link') {
+        return [{ type: 'patchJournal' as const, journalId: fix.journalId, findText: `[[${fix.before}]]`, replaceText: `[[${fix.after}]]`, note: fix.message }];
+      }
+      return [];
+    }),
+  };
 }
 
 /**

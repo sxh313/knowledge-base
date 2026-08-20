@@ -1,5 +1,5 @@
 // Electron 主进程:把 Vite 构建产物(dist/)包装为桌面应用
-// 桌面端使用 HashRouter + loadFile,避免 file:// 协议下的路由问题
+// 桌面端使用 HashRouter + app:// 自定义协议，确保懒加载 chunk 同源加载
 const { app, BrowserWindow, shell, Menu, protocol, net, ipcMain, Tray, nativeImage } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -57,7 +57,7 @@ function createTray() {
   // Windows 托盘建议 16x16;若原图过大则缩放,避免模糊/占位过大
   const trayIcon = icon.isEmpty() ? icon : icon.resize({ width: 16, height: 16 });
   tray = new Tray(trayIcon);
-  tray.setToolTip('知识库');
+  tray.setToolTip('知屿');
 
   const toggleWindow = () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
@@ -139,7 +139,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: '知识库',
+    title: '知屿',
     backgroundColor: '#f5f6f7',
     autoHideMenuBar: true,
     show: false,

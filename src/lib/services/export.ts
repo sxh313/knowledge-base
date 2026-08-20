@@ -1,5 +1,6 @@
 import { db, type JournalEntry } from '../db/schema';
 import { getAttachment } from '../db/queries';
+import { rebuildDocumentIndexes } from '../indexing/documents';
 import { markdownToHtml } from '../markdownUtils';
 import JSZip from 'jszip';
 
@@ -55,15 +56,34 @@ function exportFilename(title: string, ext: string): string {
 }
 
 export async function exportAllData() {
+  const rawAttachments = await db.attachments.toArray();
+  const attachments = await Promise.all(rawAttachments.map(async (attachment) => ({
+    ...attachment,
+    blob: undefined,
+    dataUrl: attachment.dataUrl ?? (attachment.blob ? await blobToDataUrl(attachment.blob) : undefined),
+  })));
   const data = {
-    version: 1,
+    version: 4,
     exportedAt: Date.now(),
     journals: await db.journals.toArray(),
     notes: await db.notes.toArray(),
     cards: await db.cards.toArray(),
     graphNodes: await db.graphNodes.toArray(),
     graphEdges: await db.graphEdges.toArray(),
-    settings: await db.settings.toArray(),
+    aiConversations: await db.aiConversations.toArray(),
+    journalVersions: await db.journalVersions.toArray(),
+    attachments,
+    savedSearches: await db.savedSearches.toArray(),
+    propertyDefinitions: await db.propertyDefinitions.toArray(),
+    categories: await db.categories.toArray(),
+    syncConflicts: await db.syncConflicts.toArray(),
+    agentSessions: await db.agentSessions.toArray(),
+    agentMessages: await db.agentMessages.toArray(),
+    agentRuns: await db.agentRuns.toArray(),
+    agentAuditLogs: await db.agentAuditLogs.toArray(),
+    userPreferences: await db.userPreferences.toArray(),
+    learningGoals: await db.learningGoals.toArray(),
+    learningTasks: await db.learningTasks.toArray(),
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -76,17 +96,56 @@ export async function exportAllData() {
 
 export async function importData(file: File) {
   const text = await file.text();
-  const data = JSON.parse(text);
-  await db.transaction('rw',
-    db.journals, db.notes, db.cards, db.graphNodes, db.graphEdges,
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error('文件内容不是有效的 JSON 格式');
+  }
+  await db.transaction(
+    'rw',
+    [
+      db.journals, db.notes, db.cards, db.graphNodes, db.graphEdges,
+      db.aiConversations, db.journalVersions, db.attachments, db.savedSearches,
+      db.propertyDefinitions, db.categories, db.syncConflicts,
+      db.agentSessions, db.agentMessages, db.agentRuns, db.agentAuditLogs,
+      db.userPreferences, db.learningGoals, db.learningTasks,
+    ],
     async () => {
-      if (data.journals) await db.journals.bulkPut(data.journals);
-      if (data.notes) await db.notes.bulkPut(data.notes);
-      if (data.cards) await db.cards.bulkPut(data.cards);
-      if (data.graphNodes) await db.graphNodes.bulkPut(data.graphNodes);
-      if (data.graphEdges) await db.graphEdges.bulkPut(data.graphEdges);
-    }
+      const put = async (value: unknown, table: { bulkPut: (rows: never[]) => Promise<unknown> }) => {
+        if (Array.isArray(value) && value.length > 0) await table.bulkPut(value as never[]);
+      };
+      await put(data.journals, db.journals);
+      await put(data.notes, db.notes);
+      await put(data.cards, db.cards);
+      await put(data.graphNodes, db.graphNodes);
+      await put(data.graphEdges, db.graphEdges);
+      await put(data.aiConversations, db.aiConversations);
+      await put(data.journalVersions, db.journalVersions);
+      await put(data.attachments, db.attachments);
+      await put(data.savedSearches, db.savedSearches);
+      await put(data.propertyDefinitions, db.propertyDefinitions);
+      await put(data.categories, db.categories);
+      await put(data.syncConflicts, db.syncConflicts);
+      await put(data.agentSessions, db.agentSessions);
+      await put(data.agentMessages, db.agentMessages);
+      await put(data.agentRuns, db.agentRuns);
+      await put(data.agentAuditLogs, db.agentAuditLogs);
+      await put(data.userPreferences, db.userPreferences);
+      await put(data.learningGoals, db.learningGoals);
+      await put(data.learningTasks, db.learningTasks);
+    },
   );
+  await rebuildDocumentIndexes();
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
 }
 
 /** 把文件名中的非法字符替换为下划线 */
@@ -194,23 +253,41 @@ ${body}
   downloadText(html, exportFilename(title, 'html'), 'text/html;charset=utf-8');
 }
 
-/** 导出当前文档为 PDF（通过浏览器打印，调用 window.print） */
+/** 导出当前文档为 PDF（直接生成 .pdf 文件下载，不弹打印对话框） */
 export async function exportJournalPDF(title: string, markdown: string) {
   const resolved = await resolveAttachmentMarkdown(markdown);
   let root = document.getElementById('print-root');
   if (!root) {
     root = document.createElement('div');
     root.id = 'print-root';
+    // 内联样式兜底：确保渲染时内容位于最上层，不被工具栏/面板覆盖
+    root.style.position = 'fixed';
+    root.style.left = '0';
+    root.style.top = '0';
+    root.style.width = '100%';
+    root.style.zIndex = '9999';
+    root.style.background = '#fff';
     document.body.appendChild(root);
   }
   const body = markdownToHtml(resolved);
   root.innerHTML = `<h1>${escapeHtml(title)}</h1>${body}`;
-  // 等一帧让 DOM 渲染，再触发打印
-  requestAnimationFrame(() => {
-    setTimeout(() => {
-      window.print();
-      // 打印对话框关闭后清理
-      setTimeout(() => { const r = document.getElementById('print-root'); if (r) r.innerHTML = ''; }, 1500);
-    }, 150);
-  });
+  // 等一帧让 DOM 渲染，再生成 PDF
+  await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 100)));
+  try {
+    const { default: html2pdf } = await import('html2pdf.js');
+    await html2pdf()
+      .set({
+        margin: [10, 10, 10, 10],
+        filename: exportFilename(title, 'pdf'),
+        image: { type: 'jpeg', quality: 0.95 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      })
+      .from(root)
+      .save();
+  } finally {
+    // 生成完成后清理
+    const r = document.getElementById('print-root');
+    if (r) r.innerHTML = '';
+  }
 }

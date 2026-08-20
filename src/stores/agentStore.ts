@@ -28,7 +28,6 @@ import { calculateContentHash } from '../lib/indexing/documents';
 import {
   createAgentSession,
   listAgentSessions,
-  getAgentSession,
   renameAgentSession,
   setAgentSessionStatus,
   deleteAgentSession,
@@ -36,10 +35,28 @@ import {
   listAgentMessages,
   createAgentRun,
   updateAgentRun,
+  addAgentAuditLog,
   listAgentRuns,
   deserializeRun,
 } from '../lib/agent/persistence';
 import type { AgentSession, AgentRun } from '../lib/db/schema';
+import { getAgentPreferences } from '../lib/agent/preferences';
+import { recordAgentMetric } from '../lib/agent/metrics';
+
+async function restoreAgentMessages(sessionId: string, runs: AgentRun[]) {
+  const records = await listAgentMessages(sessionId);
+  const restored: AgentMessage[] = records.map((m) => ({ role: m.role === 'tool' ? 'assistant' : m.role, content: m.content }));
+  // 页面刷新后恢复仍处于 planned 状态的计划，避免用户丢失待确认操作。
+  const pendingRuns = runs.filter((run) => run.status === 'planned');
+  for (const run of pendingRuns) {
+    const { plan } = deserializeRun(run);
+    const preview = await previewPlan(plan).catch(() => ({ results: [], hasError: true }));
+    restored.push({ role: 'assistant', content: plan.summary || '恢复一个待确认的操作计划：', plan, preview });
+  }
+  return restored;
+}
+
+let latestRouteMeta: { model: string; provider: string; usage?: { promptTokens: number; completionTokens: number } } | undefined;
 
 /**
  * 预览后为每个解析到目标文档的操作绑定 expectedHash。
@@ -152,16 +169,17 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       }
       // 恢复最近活跃的会话
       const active = sessions.find((s) => s.status === 'active') ?? sessions[0];
-      const messages = await listAgentMessages(active.id);
       const runs = await listAgentRuns(active.id);
+      const messages = await restoreAgentMessages(active.id, runs);
+      const pending = [...messages].reverse().find((m) => m.plan && !m.applied);
       set({
         sessions,
         sessionId: active.id,
-        messages: messages.map((m) => ({
-          role: m.role === 'tool' ? 'assistant' : m.role,
-          content: m.content,
-        })),
+        messages,
         runs,
+        pendingPlan: pending?.plan ?? null,
+        pendingPreview: pending?.preview ?? null,
+        pendingMsgIndex: pending ? messages.indexOf(pending) : null,
         initialized: true,
       });
     } catch (e) {
@@ -183,18 +201,16 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   },
 
   loadSession: async (id) => {
-    const messages = await listAgentMessages(id);
     const runs = await listAgentRuns(id);
+    const messages = await restoreAgentMessages(id, runs);
+    const pending = [...messages].reverse().find((m) => m.plan && !m.applied);
     set({
       sessionId: id,
-      messages: messages.map((m) => ({
-        role: m.role === 'tool' ? 'assistant' : m.role,
-        content: m.content,
-      })),
+      messages,
       runs,
-      pendingPlan: null,
-      pendingPreview: null,
-      pendingMsgIndex: null,
+      pendingPlan: pending?.plan ?? null,
+      pendingPreview: pending?.preview ?? null,
+      pendingMsgIndex: pending ? messages.indexOf(pending) : null,
     });
   },
 
@@ -229,8 +245,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   clear: () => set({ messages: [], pendingPlan: null, pendingPreview: null, pendingMsgIndex: null, error: null }),
 
   run: async (instruction, attachedContent) => {
+    const MAX_ATTACHED_CHARS = 50000;
+    const boundedAttachment = attachedContent && attachedContent.length > MAX_ATTACHED_CHARS
+      ? `${attachedContent.slice(0, MAX_ATTACHED_CHARS)}\n\n[附件已截断：原文超过 50,000 字符，请分段处理]`
+      : attachedContent;
     const text = attachedContent
-      ? `${instruction}\n\n【用户提供的文件内容】\n${attachedContent}`
+      ? `${instruction}\n\n【用户提供的文件内容】\n${boundedAttachment}`
       : instruction;
     const userMsg: AgentMessage = { role: 'user', content: text };
     set((s) => ({ messages: [...s.messages, userMsg], isProcessing: true, error: null }));
@@ -250,7 +270,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       let docRefs: AgentDocRef[] = [];
       try {
         const chunks = await retrieve(instruction, { kind: 'all' }, 8);
-        const ids = Array.from(new Set(chunks.map((c) => c.journalId)));
+        const ids = Array.from(new Set(chunks.map((c) => c.journalId).filter((id): id is string => !!id)));
         const entries: JournalEntry[] = [];
         for (const id of ids) {
           const entry = await getJournal(id);
@@ -263,7 +283,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
       // 2. 构造 system prompt 并调用 AI
       const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-      const sysPrompt = buildAgentSystemPrompt(docRefs, timeStr);
+      const prefs = await getAgentPreferences();
+      const sysPrompt = `${buildAgentSystemPrompt(docRefs, timeStr)}\n\n用户工作偏好（仅用于格式，不改变安全规则）：语言=${prefs.language}，详细程度=${prefs.detail}，默认策略=${prefs.defaultPlanOnly ? '只生成计划' : '允许在确认后执行'}，最多生成 ${prefs.maxCards} 张卡片，标签风格=${prefs.tagStyle}。`;
       // 多轮对话记忆：把之前的对话历史传给 AI，让它能「接着上次继续改」
       const history: ChatMessage[] = get()
         .messages.slice(0, -1) // 去掉刚加入的当前用户消息
@@ -286,6 +307,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         let p: AgentPlan | null = null;
         for (let attempt = 0; attempt < 2; attempt++) {
           const result = await routeAI('qa', baseMessages);
+          latestRouteMeta = { model: result.model, provider: result.provider, usage: result.usage };
           raw = result.content;
           p = parseAgentPlan(raw);
           if (p && p.ops.length > 0) return p;
@@ -334,6 +356,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       // 校验计划：非法计划直接拒绝，不进入预览/执行
       const validation = validateAgentPlan(plan);
       if (!validation.ok) {
+        recordAgentMetric('plan_rejected');
         const assistantMsg: AgentMessage = {
           role: 'assistant',
           content: `⚠️ AI 生成的操作计划未通过安全校验，已拒绝执行：\n\n${validation.errors.join('\n')}`,
@@ -341,6 +364,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         set((s) => ({ messages: [...s.messages, assistantMsg], isProcessing: false }));
         return;
       }
+      recordAgentMetric('plan_generated');
 
       // 4. 预览计划（不写入）
       const preview = await previewPlan(plan);
@@ -380,6 +404,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             sessionId,
             plan,
             risk,
+            model: latestRouteMeta?.model,
+            provider: latestRouteMeta?.provider,
           });
           set((s) => ({ runs: [run, ...s.runs] }));
         } catch {
@@ -423,6 +449,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
               status,
               results: applied.results as unknown[],
               durationMs: Date.now() - startedAt,
+              tokensInput: latestRouteMeta?.usage?.promptTokens,
+              tokensOutput: latestRouteMeta?.usage?.completionTokens,
               finishedAt: Date.now(),
               undo: applied.undo
                 ? {
@@ -431,6 +459,13 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                   }
                 : undefined,
             });
+            recordAgentMetric(status === 'success' ? 'run_success' : status === 'partial' ? 'run_partial' : 'run_failed', { durationMs: Date.now() - startedAt });
+            await Promise.all(applied.results.map((result) => addAgentAuditLog({
+              runId: run.id,
+              operation: result.op.type,
+              journalId: result.journalId,
+              result: result.skipped ? 'skipped' : result.ok ? 'success' : 'failed',
+            })));
             set((s) => ({
               runs: s.runs.map((r) =>
                 r.id === run.id
@@ -454,7 +489,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           // 持久化失败不阻塞主流程
         }
       }
-    } catch (e) {
+      } catch (e) {
       set({ isProcessing: false, error: (e as Error).message });
     }
   },
@@ -504,6 +539,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       pendingPreview: null,
       pendingMsgIndex: null,
     }));
+    recordAgentMetric('run_cancelled');
   },
 
   undoRunById: async (runId) => {
@@ -513,6 +549,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     try {
       await undoRun(run.undo);
       await updateAgentRun(runId, { status: 'cancelled', finishedAt: Date.now() });
+      recordAgentMetric('run_cancelled');
       set((s) => ({
         runs: s.runs.map((r) =>
           r.id === runId ? { ...r, status: 'cancelled', finishedAt: Date.now() } : r,

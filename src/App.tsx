@@ -1,4 +1,5 @@
 import { BrowserRouter, HashRouter, Routes, Route } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
 import { useEffect, useState, lazy, Suspense, useRef } from 'react';
 import { useSettingsStore } from './stores/settingsStore';
 import { useJournalStore } from './stores/journalStore';
@@ -28,13 +29,15 @@ const Trash = lazy(() => import('./pages/Trash'));
 const Tags = lazy(() => import('./pages/Tags'));
 const SearchResultsPage = lazy(() => import('./pages/SearchResultsPage'));
 const Inbox = lazy(() => import('./pages/Inbox'));
+const LearningGoals = lazy(() => import('./pages/LearningGoals'));
 
-// 桌面端(Electron)用 HashRouter 配合 file://;浏览器端用 BrowserRouter
+// Electron/Capacitor 容器使用 HashRouter；普通浏览器使用 BrowserRouter。
 const isElectron = typeof navigator !== 'undefined' && /Electron/.test(navigator.userAgent);
-const Router = isElectron ? HashRouter : BrowserRouter;
+const isNativeApp = Capacitor.isNativePlatform();
+const Router = isElectron || isNativeApp ? HashRouter : BrowserRouter;
 // 兼容桌面/浏览器的硬导航
 const goPath = (p: string) => {
-  if (isElectron) window.location.hash = '#' + p;
+  if (isElectron || isNativeApp) window.location.hash = '#' + p;
   else window.location.href = p;
 };
 
@@ -147,6 +150,7 @@ export default function App() {
   return (
     <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <Suspense fallback={<div className="flex items-center justify-center h-screen text-gray-400">加载中…</div>}>
       <Routes>
         <Route element={<Layout onOpenPalette={() => setPaletteOpen(true)} />}>
@@ -162,6 +166,7 @@ export default function App() {
           <Route path="/tags" element={<Tags />} />
           <Route path="/manual" element={<Manual />} />
           <Route path="/inbox" element={<Inbox />} />
+          <Route path="/learning" element={<LearningGoals />} />
           <Route path="/search" element={<SearchResultsPage />} />
           <Route path="/trash" element={<Trash />} />
         </Route>

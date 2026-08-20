@@ -8,8 +8,6 @@ interface HeatmapProps {
 }
 
 export default function Heatmap({ data }: HeatmapProps) {
-  const maxCount = Math.max(...data.map(d => d.count), 1);
-
   return (
     <div className="grid grid-cols-10 gap-1.5">
       {data.map(({ date, count }) => (

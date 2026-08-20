@@ -90,8 +90,6 @@ export default function Cards() {
     setConfirmDelete(null);
   };
 
-  const hasFilters = !!searchQuery || !!filterTag || filterState !== 'all';
-
   return (
     <div className="flex flex-col h-full animate-fade-in">
       {/* Header */}

@@ -5,7 +5,7 @@ import Dexie, { type Table } from 'dexie';
 export type JournalStatus = 'inbox' | 'active' | 'archived';
 
 /** AI provider 名称（与 providers.ts 保持一致，避免循环依赖在此独立声明） */
-export type ProviderName = 'shengsuanyun' | 'relay' | 'siliconflow' | 'zhipu' | 'deepseek';
+export type ProviderName = 'shengsuanyun' | 'relay' | 'siliconflow' | 'zhipu' | 'deepseek' | 'local';
 
 export interface JournalSourceRef {
   url?: string;
@@ -50,6 +50,8 @@ export interface Note {
   position: number;
   metadata?: { language?: string; imageUrl?: string };
   createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
 }
 
 export interface KnowledgeCard {
@@ -67,6 +69,8 @@ export interface KnowledgeCard {
   repetitions: number;
   state: 'new' | 'learning' | 'review' | 'relearning';
   createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
 }
 
 export interface KnowledgeNode {
@@ -75,6 +79,8 @@ export interface KnowledgeNode {
   description?: string;
   entryIds: string[];
   createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
 }
 
 export interface KnowledgeEdge {
@@ -83,6 +89,9 @@ export interface KnowledgeEdge {
   targetId: string;
   relationType: 'prerequisite' | 'related' | 'extends' | 'example';
   weight: number;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
 }
 
 export interface AIConversation {
@@ -90,6 +99,24 @@ export interface AIConversation {
   journalId?: string;
   model: string;
   messages: { role: 'user' | 'assistant' | 'system'; content: string }[];
+  /** 最近一次回答使用的 RAG 来源，便于重新打开对话后继续定位原文 */
+  citations?: {
+    source: 'personal' | 'zero2agent' | 'web';
+    sourceId: string;
+    chunkId: string;
+    offset?: { start: number; end: number };
+    journalId?: string;
+    knowledgeDocId?: string;
+    title: string;
+    heading?: string;
+    content: string;
+    score: number;
+    confidence?: number;
+    path?: string;
+    module?: string;
+    sourceUrl?: string;
+    localPath?: string;
+  }[];
   tokensInput: number;
   tokensOutput: number;
   costUsd: number;
@@ -105,6 +132,7 @@ export interface AISettings {
   siliconflow: { baseUrl: string; apiKey: string; enabled: boolean };
   zhipu: { baseUrl: string; apiKey: string; enabled: boolean };
   deepseek: { baseUrl: string; apiKey: string; enabled: boolean };
+  local: { baseUrl: string; apiKey: string; enabled: boolean };
 }
 
 export interface SyncConfig {
@@ -113,7 +141,7 @@ export interface SyncConfig {
   repo: string;         // 仓库名
   branch: string;       // 分支，默认 main
   path: string;         // 数据文件路径，默认 data.json
-  token: string;        // Personal Access Token（加密存储于本地）
+  token: string;        // 用户自己的 Personal Access Token，仅存当前设备 IndexedDB
   autoSync: boolean;    // 编辑停顿后自动同步
   lastSyncAt?: number;
   lastSyncSha?: string;
@@ -185,6 +213,8 @@ export interface Attachment {
   blob?: Blob;
   dataUrl?: string;
   createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
 }
 
 export interface SavedSearch {
@@ -193,6 +223,7 @@ export interface SavedSearch {
   query: string;
   createdAt: number;
   updatedAt: number;
+  deletedAt?: number;
 }
 
 export interface PropertyDefinition {
@@ -287,6 +318,7 @@ export interface AgentRun {
     createdJournalIds: string[];
   };
   createdAt: number;
+  updatedAt: number;
   finishedAt?: number;
 }
 
@@ -299,6 +331,37 @@ export interface AgentAuditLog {
   afterHash?: string;
   result: 'success' | 'failed' | 'skipped';
   createdAt: number;
+}
+
+export interface UserPreference {
+  key: 'agent' | 'documentOrder';
+  value: unknown;
+  updatedAt: number;
+}
+
+export interface LearningGoal {
+  id: string;
+  title: string;
+  deadline?: string;
+  dailyMinutes: number;
+  level?: string;
+  status: 'active' | 'paused' | 'completed';
+  createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
+}
+
+export interface LearningTask {
+  id: string;
+  goalId: string;
+  date: string;
+  title: string;
+  minutes: number;
+  sourceIds: string[];
+  status: 'todo' | 'done' | 'skipped';
+  createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
 }
 
 // ──── Database Class ────
@@ -323,6 +386,9 @@ export class StudyJournalDB extends Dexie {
   agentMessages!: Table<AgentMessageRecord>;
   agentRuns!: Table<AgentRun>;
   agentAuditLogs!: Table<AgentAuditLog>;
+  userPreferences!: Table<UserPreference>;
+  learningGoals!: Table<LearningGoal>;
+  learningTasks!: Table<LearningTask>;
 
   constructor() {
     super('StudyJournalDB');
@@ -382,6 +448,36 @@ export class StudyJournalDB extends Dexie {
       agentMessages: 'id, sessionId, role, planId, runId, createdAt, [sessionId+createdAt]',
       agentRuns: 'id, sessionId, planId, status, createdAt, finishedAt, [sessionId+createdAt]',
       agentAuditLogs: 'id, runId, journalId, result, createdAt',
+    });
+    // version(6): 为跨设备可变实体统一补齐 updatedAt/deletedAt，确保删除墓碑可传播。
+    this.version(6).stores({
+      notes: 'id, journalId, parentId, position, updatedAt, deletedAt',
+      cards: 'id, journalId, nextReviewAt, state, updatedAt, deletedAt, *tags',
+      graphNodes: 'id, label, updatedAt, deletedAt, *entryIds',
+      graphEdges: 'id, sourceId, targetId, relationType, updatedAt, deletedAt',
+      attachments: 'id, journalId, mimeType, createdAt, updatedAt, deletedAt',
+      savedSearches: 'id, name, createdAt, updatedAt, deletedAt',
+    }).upgrade(async (tx) => {
+      const now = Date.now();
+      for (const tableName of ['notes', 'cards', 'graphNodes', 'graphEdges', 'attachments', 'savedSearches']) {
+        await tx.table(tableName).toCollection().modify((row: { createdAt?: number; updatedAt?: number }) => {
+          row.updatedAt ??= row.createdAt ?? now;
+          row.createdAt ??= row.updatedAt ?? now;
+        });
+      }
+    });
+    // version(7): 将用户业务偏好、学习目标和手动排序从 localStorage 迁入 Dexie。
+    this.version(7).stores({
+      userPreferences: 'key, updatedAt',
+      learningGoals: 'id, status, updatedAt, deletedAt',
+      learningTasks: 'id, goalId, date, status, updatedAt, deletedAt',
+    });
+    this.version(8).stores({
+      agentRuns: 'id, sessionId, planId, status, createdAt, updatedAt, finishedAt, [sessionId+createdAt]',
+    }).upgrade(async (tx) => {
+      await tx.table('agentRuns').toCollection().modify((run: { createdAt?: number; updatedAt?: number }) => {
+        run.updatedAt ??= run.createdAt ?? Date.now();
+      });
     });
   }
 }

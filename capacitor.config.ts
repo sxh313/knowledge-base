@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.sxh313.knowledgebase',
-  appName: '知识库',
+  appName: '知屿',
   webDir: 'dist',
   // 应用使用 HashRouter,无需 deep link 配置
   android: {

@@ -205,7 +205,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
               <span><kbd className="bg-gray-100 dark:bg-gray-800 px-1 rounded">↑↓</kbd> 导航</span>
               <span><kbd className="bg-gray-100 dark:bg-gray-800 px-1 rounded">↵</kbd> 选择</span>
             </div>
-            <span>知识库</span>
+            <span>知屿</span>
           </div>
         </div>
       </div>

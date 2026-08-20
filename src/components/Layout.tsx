@@ -2,9 +2,9 @@ import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   FileText, MessageSquare, Brain, BarChart3, Settings, BookOpen, Layers,
   ChevronLeft, Sun, Moon, Monitor, Search, HelpCircle, Smartphone, MoreHorizontal, X, Trash2,
-  Cloud, Loader2, Tag, Inbox, Plus, Timer, ArrowUp, ArrowDown, RotateCcw, Bot,
+  Cloud, Loader2, Tag, Inbox, Plus, Timer, ArrowUp, ArrowDown, RotateCcw, Target,
 } from 'lucide-react';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useThemeStore, type ThemeMode } from '../stores/themeStore';
 import { useViewModeStore, type ViewMode } from '../stores/viewModeStore';
 import { useSyncStore } from '../stores/syncStore';
@@ -20,9 +20,9 @@ interface LayoutProps {
 const navItems = [
   { to: '/', icon: FileText, label: '文档' },
   { to: '/inbox', icon: Inbox, label: '收集箱' },
-  { to: '/ai', icon: MessageSquare, label: 'AI 助手' },
-  { to: '/agent', icon: Bot, label: 'Agent' },
+  { to: '/ai', icon: MessageSquare, label: '知屿 AI' },
   { to: '/review', icon: BookOpen, label: '复习' },
+  { to: '/learning', icon: Target, label: '学习目标' },
   { to: '/cards', icon: Layers, label: '卡片库' },
   { to: '/knowledge', icon: Brain, label: '知识图谱' },
   { to: '/stats', icon: BarChart3, label: '统计' },
@@ -114,6 +114,14 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
 
   const location = useLocation();
   const navigate = useNavigate();
+  const previousPathRef = useRef('/');
+  const isManualPage = location.pathname === '/manual';
+  useEffect(() => {
+    if (!isManualPage) previousPathRef.current = `${location.pathname}${location.search}`;
+  }, [isManualPage, location.pathname, location.search]);
+  const toggleHelp = () => {
+    navigate(isManualPage ? previousPathRef.current : '/manual');
+  };
   const { mode, setMode } = useThemeStore();
   const { mode: viewMode, isMobile, cycleMode } = useViewModeStore();
   const { status: syncStatus, lastSyncAt, doSync } = useSyncStore();
@@ -183,9 +191,15 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           >
             <ViewModeIcon className="h-4 w-4" />
           </button>
-          <NavLink to="/manual" className="btn-ghost p-1.5" title="使用手册">
+          <button
+            onClick={toggleHelp}
+            className={`btn-ghost p-1.5 ${isManualPage ? 'text-[var(--color-primary)]' : ''}`}
+            title={isManualPage ? '退出帮助，返回上一页' : '打开使用手册'}
+            aria-label={isManualPage ? '退出帮助，返回上一页' : '打开使用手册'}
+            type="button"
+          >
             <HelpCircle className="h-4 w-4" />
-          </NavLink>
+          </button>
           <button
             onClick={() => setPomoVisible(!pomoVisible)}
             className={`btn-ghost p-1.5 ${pomoVisible ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-tertiary)]'}`}
@@ -367,7 +381,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-primary)] text-white shadow-sm">
                 <BookOpen className="h-4 w-4" />
               </div>
-              <span className="text-sm font-bold tracking-tight text-[var(--color-text)]">知识库</span>
+              <span className="text-sm font-bold tracking-tight text-[var(--color-text)]">知屿</span>
             </div>
           ) : (
             <div className="mx-auto flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-primary)] text-white shadow-sm">
@@ -437,7 +451,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
               </>
             )}
           </button>
-          {!collapsed && <div className="px-3 pt-1 pb-1 text-[10px] text-[var(--color-text-tertiary)]">知识库 v{__APP_VERSION__}</div>}
+          {!collapsed && <div className="px-3 pt-1 pb-1 text-[10px] text-[var(--color-text-tertiary)]">知屿 v{__APP_VERSION__}</div>}
         </div>
       </aside>
 
@@ -497,16 +511,18 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           >
             <Timer className="h-4 w-4" />
           </button>
-          <NavLink
-            to="/manual"
+          <button
+            onClick={toggleHelp}
             className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)] ${
-              location.pathname === '/manual' ? 'text-[var(--color-primary)]' : ''
+              isManualPage ? 'text-[var(--color-primary)]' : ''
             }`}
-            title="使用手册"
+            title={isManualPage ? '退出帮助，返回上一页' : '打开使用手册'}
+            aria-label={isManualPage ? '退出帮助，返回上一页' : '打开使用手册'}
+            type="button"
           >
             <HelpCircle className="h-4 w-4" />
             <span className="hidden md:inline">帮助</span>
-          </NavLink>
+          </button>
         </div>
 
         <div key={location.pathname} className="px-5 py-6 animate-slide-up flex-1 min-h-0 overflow-y-auto">

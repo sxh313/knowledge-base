@@ -18,6 +18,11 @@ const READ_ONLY_TYPES = new Set([
   'suggestQualityFixes',
   'analyzeJournalImpact',
   'repairDocumentLinks',
+  'analyzeKnowledgeGaps',
+  'suggestJournalMetadata',
+  'findRelatedJournals',
+  'explainSyncConflict',
+  'prepareConflictMerge',
 ]);
 
 /** 判断计划是否只包含只读操作（read/search） */
@@ -109,6 +114,7 @@ export function formatToolResults(preview: AgentExecutionResult): string {
           `${i + 1}. [${f.risk === 'low' ? '可自动修复' : '需确认'}] ${f.title}：${f.message}（${f.field}：${f.before || '（空）'} → ${f.after || '（待补充）'}）`,
         );
       });
+      if (r.suggestedPlan?.ops.length) lines.push(`可转换为 ${r.suggestedPlan.ops.length} 条低风险安全计划。`);
     } else if (r.op.type === 'analyzeJournalImpact') {
       const impact = r.journalImpact;
       if (!impact) {
@@ -135,6 +141,19 @@ export function formatToolResults(preview: AgentExecutionResult): string {
           `${i + 1}. [${it.autoFixable ? '可自动修复' : '需人工确认'}] ${it.sourceTitle}：「${it.linkText}」${it.autoFixable ? ` → 「${it.newLinkText}」` : '（无法匹配目标）'}`,
         );
       });
+      if (r.suggestedPlan?.ops.length) lines.push(`可转换为 ${r.suggestedPlan.ops.length} 条逐项链接修复计划。`);
+    } else if (r.op.type === 'analyzeKnowledgeGaps') {
+      const gaps = r.knowledgeGaps;
+      lines.push(gaps ? `[工具结果 analyzeKnowledgeGaps] 主题「${gaps.topic}」已覆盖 ${gaps.covered.length} 个概念，缺口 ${gaps.missing.length} 个：${gaps.missing.map((g) => g.concept).join('、') || '无'}` : '[工具结果 analyzeKnowledgeGaps] 无法分析。');
+    } else if (r.op.type === 'suggestJournalMetadata') {
+      const suggestions = r.metadataSuggestions ?? [];
+      lines.push(`[工具结果 suggestJournalMetadata] 返回 ${suggestions.length} 条元数据建议：\n${suggestions.slice(0, 20).map((s) => `- [${s.journalId}] ${s.title}：${s.suggestedTitle ? `标题→${s.suggestedTitle}；` : ''}${s.summary ? `摘要→${s.summary}；` : ''}标签→${s.tags.join('、')}`).join('\n')}`);
+      if (r.suggestedPlan?.ops.length) lines.push(`可转换为 ${r.suggestedPlan.ops.length} 条 updateMetadata 安全计划，标题建议需单独确认。`);
+    } else if (r.op.type === 'findRelatedJournals') {
+      lines.push(`[工具结果 findRelatedJournals] 相关文档：\n${(r.relatedJournals ?? []).map((j) => `- [${j.journalId}] ${j.title}（${Math.round(j.score * 100)}%）：${j.reason}`).join('\n') || '无'}`);
+    } else if (r.op.type === 'explainSyncConflict' || r.op.type === 'prepareConflictMerge') {
+      const conflict = r.syncConflict;
+      lines.push(conflict ? `[工具结果 ${r.op.type}] ${conflict.title} 有 ${conflict.differences.length} 处差异，${conflict.needsManualReview ? '需要人工复核' : '可继续处理'}。${conflict.draft ? `\n合并草案：\n${conflict.draft}` : ''}` : `[工具结果 ${r.op.type}] 未找到冲突。`);
     }
   }
   return lines.join('\n\n');

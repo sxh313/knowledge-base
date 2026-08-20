@@ -85,12 +85,11 @@ export async function chatCompletion(
   const body: Record<string, unknown> = { model, messages, temperature, stream };
   if (maxTokens) body.max_tokens = maxTokens;
 
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (provider.apiKey.trim()) headers.Authorization = `Bearer ${provider.apiKey.trim()}`;
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${provider.apiKey}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(body),
     signal,
   });

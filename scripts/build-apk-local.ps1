@@ -4,7 +4,7 @@
 # Usage: powershell -ExecutionPolicy Bypass -File .\scripts\build-apk-local.ps1
 
 $ErrorActionPreference = 'Stop'
-$root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+$root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 
 Write-Host "Building Android APK locally..." -ForegroundColor Cyan

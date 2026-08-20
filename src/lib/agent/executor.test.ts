@@ -153,6 +153,30 @@ describe('applyPlan 逐项批准', () => {
   });
 });
 
+describe('rename/delete/move/tags operations', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.mockTransaction.mockImplementation(async (_mode, _tables, fn) => fn());
+    mocks.mockGetJournal.mockResolvedValue(makeJournal('1', '标题', '内容'));
+    mocks.mockCalculateContentHash.mockResolvedValue('hash1');
+  });
+
+  it('executes metadata and delete operations through the transaction', async () => {
+    const plan: AgentPlan = { planId: 'plan-crud', ops: [
+      { opId: 'crud:1', type: 'rename', journalId: '1', newName: '新标题', expectedHash: 'hash1' },
+      { opId: 'crud:2', type: 'move', journalId: '1', newSubject: '新分类', expectedHash: 'hash1' },
+      { opId: 'crud:3', type: 'addTags', journalId: '1', tags: ['A'], expectedHash: 'hash1' },
+      { opId: 'crud:4', type: 'removeTags', journalId: '1', tags: ['A'], expectedHash: 'hash1' },
+      { opId: 'crud:5', type: 'delete', journalId: '1', expectedHash: 'hash1' },
+    ] };
+    const result = await applyPlan(plan);
+    expect(result.hasError).toBe(false);
+    expect(mocks.mockUpdateJournal).toHaveBeenCalledWith('1', { title: '新标题' });
+    expect(mocks.mockUpdateJournal).toHaveBeenCalledWith('1', { subject: '新分类' });
+    expect(mocks.mockDeleteJournal).toHaveBeenCalledWith('1');
+  });
+});
+
 describe('undoRun 撤销本次运行', () => {
   beforeEach(() => {
     vi.clearAllMocks();

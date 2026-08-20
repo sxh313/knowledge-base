@@ -20,17 +20,9 @@ vi.mock('../db/schema', () => ({
 import {
   createAgentSession,
   listAgentSessions,
-  renameAgentSession,
-  setAgentSessionStatus,
-  deleteAgentSession,
   addAgentMessage,
-  listAgentMessages,
   createAgentRun,
   updateAgentRun,
-  listAgentRuns,
-  getAgentRun,
-  addAgentAuditLog,
-  listAgentAuditLogs,
   deserializeRun,
 } from './persistence';
 import type { AgentPlan } from './tools';
@@ -100,7 +92,7 @@ describe('updateAgentRun', () => {
   it('更新运行状态与结果', async () => {
     mocks.mockRuns.update.mockResolvedValue(1);
     await updateAgentRun('r1', { status: 'success', durationMs: 100 });
-    expect(mocks.mockRuns.update).toHaveBeenCalledWith('r1', { status: 'success', durationMs: 100 });
+    expect(mocks.mockRuns.update).toHaveBeenCalledWith('r1', expect.objectContaining({ status: 'success', durationMs: 100, updatedAt: expect.any(Number) }));
   });
 });
 
@@ -116,6 +108,7 @@ describe('deserializeRun', () => {
       operations: [{ type: 'create', newTitle: 'x' }],
       results: [{ op: { type: 'create' }, ok: true }],
       createdAt: 1,
+      updatedAt: 1,
     };
     const { plan, results } = deserializeRun(run as any);
     expect(plan.planId).toBe('plan-1');

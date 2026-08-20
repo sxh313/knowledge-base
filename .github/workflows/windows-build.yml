@@ -26,14 +26,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Inject sync configuration
-        shell: pwsh
-        run: |
-          "VITE_SYNC_TOKEN=${{ secrets.VITE_SYNC_TOKEN }}" | Add-Content .env.local
-          "VITE_SYNC_OWNER=${{ secrets.VITE_SYNC_OWNER || 'sxh313' }}" | Add-Content .env.local
-          "VITE_SYNC_REPO=${{ secrets.VITE_SYNC_REPO || 'knowledge-base' }}" | Add-Content .env.local
-          "VITE_SYNC_BRANCH=${{ secrets.VITE_SYNC_BRANCH || 'knowledge-base' }}" | Add-Content .env.local
-
       - name: Build Windows installer
         id: package
         continue-on-error: true
@@ -82,3 +74,4 @@ jobs:
             ${{ runner.temp }}/kb-release/latest.yml
           draft: false
           prerelease: false
+          generate_release_notes: true

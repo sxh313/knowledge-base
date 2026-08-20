@@ -3,7 +3,7 @@ import type { ChatMessage } from '../lib/ai/client';
 import { routeAI } from '../lib/ai/router';
 import { chatCompletion } from '../lib/ai/client';
 import { getSettings } from '../lib/db/queries';
-import type { TaskType, ProviderName } from '../lib/ai/providers';
+import { providerNeedsApiKey, type TaskType, type ProviderName } from '../lib/ai/providers';
 import type { KnowledgeCard } from '../lib/db/schema';
 
 /** 检查是否至少有一个 Provider 已配置 */
@@ -11,7 +11,7 @@ async function checkProvidersConfigured(): Promise<boolean> {
   const settings = await getSettings();
   const providers = settings.aiProviders;
   return (Object.keys(providers) as ProviderName[]).some(
-    (key) => providers[key].enabled && providers[key].apiKey,
+    (key) => providers[key].enabled && (!providerNeedsApiKey(key) || providers[key].apiKey),
   );
 }
 
@@ -63,7 +63,7 @@ interface AIStore {
   callDirect: (providerName: ProviderName, modelName: string, messages: ChatMessage[], onToken?: (token: string) => void) => Promise<string>;
 }
 
-export const useAIStore = create<AIStore>((set, get) => ({
+export const useAIStore = create<AIStore>((set) => ({
   isProcessing: false,
   streamingContent: '',
   error: null,
@@ -154,7 +154,7 @@ export const useAIStore = create<AIStore>((set, get) => ({
   callDirect: async (providerName, modelName, messages, onToken) => {
     const settings = await getSettings();
     const provider = settings.aiProviders[providerName];
-    if (!provider?.enabled || !provider.apiKey) {
+    if (!provider?.enabled || (providerNeedsApiKey(providerName) && !provider.apiKey)) {
       const errMsg = `[${providerName}] 未配置或未启用`;
       set({ error: errMsg });
       throw new Error(errMsg);
@@ -210,5 +210,6 @@ function parseCardJSON(text: string): KnowledgeCard[] {
     repetitions: 0,
     state: 'new' as const,
     createdAt: now,
+    updatedAt: now,
   }));
 }
