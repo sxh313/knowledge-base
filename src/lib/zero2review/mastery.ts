@@ -28,3 +28,15 @@ export function explainMastery(mastery: Zero2Mastery): string {
   if (mastery.mastery === null) return '尚无诊断作答证据，掌握度未知。';
   return `掌握度 ${(mastery.mastery * 100).toFixed(0)}%，置信度 ${(mastery.confidence * 100).toFixed(0)}%，基于 ${mastery.evidenceCount.toFixed(1)} 个证据。`;
 }
+
+export function isWeakMastery(mastery: Pick<Zero2Mastery, 'mastery'>): boolean {
+  return mastery.mastery === null || mastery.mastery < 0.6;
+}
+
+export function isLowEvidence(mastery: Pick<Zero2Mastery, 'evidenceCount'>, minimum = 2): boolean {
+  return mastery.evidenceCount < minimum;
+}
+
+export function applyManualScore(mastery: Zero2Mastery, score: 0 | 1 | 2 | 3 | 4, now = Date.now()): Zero2Mastery {
+  return applyEvaluation(mastery, { score, correctPoints: [], missingPoints: [], mistakeTypes: [], evidenceChunkIds: ['manual-correction'], nextQuestionType: 'diagnostic' }, now);
+}

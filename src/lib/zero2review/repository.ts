@@ -67,6 +67,10 @@ export async function listTopicAttempts(topicId: string): Promise<Zero2ReviewAtt
   return db.zero2ReviewAttempts.where('topicId').equals(topicId).sortBy('answeredAt');
 }
 
+export async function updateAttemptScore(id: string, score: Zero2ReviewAttempt['score'], mistakeTypes?: Zero2ReviewAttempt['mistakeTypes']): Promise<void> {
+  await db.zero2ReviewAttempts.update(id, { score, ...(mistakeTypes ? { mistakeTypes } : {}) });
+}
+
 export async function createReviewPlan(input: Omit<Zero2ReviewPlan, 'id' | 'createdAt' | 'updatedAt'>): Promise<Zero2ReviewPlan> {
   const now = Date.now();
   const plan: Zero2ReviewPlan = { ...input, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
