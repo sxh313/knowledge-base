@@ -93,8 +93,9 @@ export default function Cards() {
   return (
     <div className="flex flex-col h-full animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between px-1 py-3">
-        <div>
+      <div className="page-hero">
+        <div className="page-hero-copy">
+          <div className="page-kicker">Knowledge cards</div>
           <h1 className="text-2xl font-bold text-gradient flex items-center gap-2">
             <Layers className="h-6 w-6" /> 卡片库
           </h1>
@@ -106,14 +107,14 @@ export default function Cards() {
       </div>
 
       {/* 统计概览 */}
-      <div className="grid grid-cols-3 gap-2 px-1 py-2">
+      <div className="stat-grid px-1 py-2">
         <StatTile label="总卡片" value={total} />
         <StatTile label="待复习" value={dueCount} highlight={dueCount > 0} onClick={() => setFilterState('due')} />
         <StatTile label="标签数" value={allTags.length} />
       </div>
 
       {/* 工具栏：搜索 */}
-      <div className="px-1 py-2">
+      <div className="page-toolbar">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-tertiary)]" />
           <input

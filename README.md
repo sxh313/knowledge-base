@@ -2,7 +2,9 @@
 
 知屿是一款本地优先的 AI 学习笔记与知识管理应用，支持 Web/PWA、Windows 和 Android。文档、卡片、学习目标等业务数据默认保存在当前设备的 IndexedDB；只有在用户主动启用 AI、联网搜索或 GitHub 同步时，相关内容才会发往所配置的第三方服务。
 
-当前版本：**v1.5.0**
+当前版本：**v1.6.0**
+
+新增 zero2Agent 复习教练：复习页只检索 zero2Agent 原文，用户提问只记录兴趣证据，完成带来源的诊断题后才更新掌握度。无关问题不会进入复习数据；复习问答历史默认不同步。
 
 ## 核心能力
 
@@ -66,7 +68,8 @@ src/
    ├─ ai/            Provider、路由、RAG 与联网搜索
    ├─ db/            Dexie schema 与按领域拆分的数据访问
    ├─ indexing/      文档分块、双链和索引重建
-   ├─ review/        复习会话
+   ├─ review/        通用卡片复习会话
+   ├─ zero2review/   zero2Agent 专属检索、Tutor、诊断、掌握度与计划
    ├─ search/        查询解析与全文检索
    ├─ services/      备份和内容导出
    └─ sync/          GitHub 同步与记录合并

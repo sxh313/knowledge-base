@@ -62,10 +62,11 @@ export default function Tags() {
   };
 
   return (
-    <div className="flex flex-col h-full animate-fade-in px-4 py-3">
+    <div className="flex flex-col h-full animate-fade-in max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
+      <div className="page-hero">
+        <div className="page-hero-copy">
+          <div className="page-kicker">Organize your library</div>
           <h1 className="text-2xl font-bold text-gradient flex items-center gap-2">
             <Tag className="h-6 w-6" /> 标签管理
           </h1>
@@ -76,7 +77,7 @@ export default function Tags() {
       </div>
 
       {/* 过滤 */}
-      <div className="mb-4 flex items-center gap-2">
+      <div className="page-toolbar mb-4">
         <input
           className="input-field flex-1 text-sm"
           placeholder="筛选标签…"

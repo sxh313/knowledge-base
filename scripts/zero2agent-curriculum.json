@@ -1,0 +1,72 @@
+{
+  "learn-agent-basic/01-what-is-an-agent": {
+    "moduleOrder": 1,
+    "topicOrder": 1,
+    "keywords": ["Agent", "智能体", "目标", "工具"]
+  },
+  "learn-agent-basic/03-core-components": {
+    "moduleOrder": 1,
+    "topicOrder": 3,
+    "keywords": ["Agent 架构", "状态", "记忆", "工具", "规划"],
+    "prerequisites": ["zero2agent:learn-agent-basic/01-what-is-an-agent"]
+  },
+  "learn-agent-basic/05-tool-calling-basics": {
+    "moduleOrder": 1,
+    "topicOrder": 5,
+    "keywords": ["Tool Calling", "工具调用", "Function Calling", "API"]
+  },
+  "learn-agent-basic/06-memory-patterns": {
+    "moduleOrder": 1,
+    "topicOrder": 6,
+    "keywords": ["Memory", "记忆", "Context", "上下文"]
+  },
+  "learn-agent-basic/07-planning-reflection-rag": {
+    "moduleOrder": 1,
+    "topicOrder": 7,
+    "keywords": ["Planning", "Reflection", "RAG", "检索增强", "规划"],
+    "prerequisites": [
+      "zero2agent:learn-agent-basic/05-tool-calling-basics",
+      "zero2agent:learn-agent-basic/06-memory-patterns"
+    ]
+  },
+  "learn-agent-basic/08-single-vs-multi-agent": {
+    "moduleOrder": 1,
+    "topicOrder": 8,
+    "keywords": ["单 Agent", "多 Agent", "Multi-Agent"]
+  },
+  "learn-agent-basic/09-agent-infra": {
+    "moduleOrder": 1,
+    "topicOrder": 9,
+    "keywords": ["Harness", "Agent Infra", "生产环境"]
+  },
+  "learn-agent-basic/10-loop-engineering": {
+    "moduleOrder": 1,
+    "topicOrder": 10,
+    "keywords": ["Agent Loop", "循环", "执行"]
+  },
+  "learn-agent-basic/11-agent-evaluation": {
+    "moduleOrder": 1,
+    "topicOrder": 11,
+    "keywords": ["Agent Evaluation", "评估", "测试"]
+  },
+  "learn-agent-basic/13-context-engineering": {
+    "moduleOrder": 1,
+    "topicOrder": 13,
+    "keywords": ["Context Engineering", "上下文工程"]
+  },
+  "learn-langgraph/01-what-is-langgraph": {
+    "moduleOrder": 2,
+    "topicOrder": 1,
+    "keywords": ["LangGraph", "图", "状态机"]
+  },
+  "learn-claude-code/01-agent-loop": {
+    "moduleOrder": 3,
+    "topicOrder": 1,
+    "keywords": ["Claude Code", "Agent Loop", "编码 Agent"]
+  },
+  "learn-openclaw/03-rag": {
+    "moduleOrder": 4,
+    "topicOrder": 3,
+    "keywords": ["OpenClaw", "RAG", "检索"]
+  }
+}

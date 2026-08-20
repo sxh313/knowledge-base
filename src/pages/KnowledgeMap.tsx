@@ -95,21 +95,22 @@ export default function KnowledgeMap() {
   };
 
   return (
-    <div className="animate-fade-in space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
+    <div className="animate-fade-in space-y-4 max-w-7xl mx-auto">
+      <div className="page-hero">
+        <div className="page-hero-copy">
+          <div className="page-kicker">Connected knowledge</div>
           <h1 className="text-2xl font-bold text-[var(--color-text)]">知识图谱</h1>
           <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
             {nodes.length} 个文档 · {edges.length} 条双链关联 · {isolatedCount} 个孤立 · {brokenCount} 条失效链接
           </p>
         </div>
-        <button className="btn-ghost text-xs flex items-center gap-1" onClick={load} title="刷新图谱">
+        <button className="btn-secondary text-xs flex items-center gap-1" onClick={load} title="刷新图谱">
           <RefreshCw className="h-3.5 w-3.5" /> 刷新
         </button>
       </div>
 
       {/* 工具条：搜索 / 分类过滤 / 孤立开关 / 聚焦清除 */}
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="page-toolbar">
         <div className="relative flex-1 min-w-[180px] max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--color-text-tertiary)]" />
           <input

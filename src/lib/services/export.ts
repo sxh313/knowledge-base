@@ -63,7 +63,7 @@ export async function exportAllData() {
     dataUrl: attachment.dataUrl ?? (attachment.blob ? await blobToDataUrl(attachment.blob) : undefined),
   })));
   const data = {
-    version: 4,
+    version: 5,
     exportedAt: Date.now(),
     journals: await db.journals.toArray(),
     notes: await db.notes.toArray(),
@@ -84,6 +84,12 @@ export async function exportAllData() {
     userPreferences: await db.userPreferences.toArray(),
     learningGoals: await db.learningGoals.toArray(),
     learningTasks: await db.learningTasks.toArray(),
+    zero2ReviewSessions: await db.zero2ReviewSessions.toArray(),
+    zero2ReviewMessages: await db.zero2ReviewMessages.toArray(),
+    zero2Mastery: await db.zero2Mastery.toArray(),
+    zero2ReviewPlans: await db.zero2ReviewPlans.toArray(),
+    zero2ReviewTasks: await db.zero2ReviewTasks.toArray(),
+    zero2ReviewAttempts: await db.zero2ReviewAttempts.toArray(),
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -110,6 +116,8 @@ export async function importData(file: File) {
       db.propertyDefinitions, db.categories, db.syncConflicts,
       db.agentSessions, db.agentMessages, db.agentRuns, db.agentAuditLogs,
       db.userPreferences, db.learningGoals, db.learningTasks,
+      db.zero2ReviewSessions, db.zero2ReviewMessages, db.zero2Mastery,
+      db.zero2ReviewPlans, db.zero2ReviewTasks, db.zero2ReviewAttempts,
     ],
     async () => {
       const put = async (value: unknown, table: { bulkPut: (rows: never[]) => Promise<unknown> }) => {
@@ -134,6 +142,12 @@ export async function importData(file: File) {
       await put(data.userPreferences, db.userPreferences);
       await put(data.learningGoals, db.learningGoals);
       await put(data.learningTasks, db.learningTasks);
+      await put(data.zero2ReviewSessions, db.zero2ReviewSessions);
+      await put(data.zero2ReviewMessages, db.zero2ReviewMessages);
+      await put(data.zero2Mastery, db.zero2Mastery);
+      await put(data.zero2ReviewPlans, db.zero2ReviewPlans);
+      await put(data.zero2ReviewTasks, db.zero2ReviewTasks);
+      await put(data.zero2ReviewAttempts, db.zero2ReviewAttempts);
     },
   );
   await rebuildDocumentIndexes();

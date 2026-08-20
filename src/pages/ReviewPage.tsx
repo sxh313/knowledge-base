@@ -35,14 +35,16 @@ export default function ReviewPage() {
   }
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <div className="animate-fade-in space-y-6 max-w-3xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="page-hero">
+        <div className="page-hero-copy">
+          <div className="page-kicker">Spaced repetition</div>
         <button onClick={() => navigate('/')} className="btn-ghost">
           <ArrowLeft className="h-4 w-4" />
           返回
         </button>
-        <h1 className="text-lg font-bold">📅 复习</h1>
+        <h1 className="text-2xl font-bold">📅 复习</h1>
         <div className="flex items-center gap-1">
           <button onClick={() => navigate('/cards')} className="btn-ghost" title="卡片库">
             <Layers className="h-4 w-4" />
@@ -51,6 +53,7 @@ export default function ReviewPage() {
           <button onClick={load} className="btn-ghost" title="刷新">
             <RefreshCw className="h-4 w-4" />
           </button>
+        </div>
         </div>
       </div>
 

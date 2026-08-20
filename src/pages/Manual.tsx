@@ -7,7 +7,8 @@ import {
 export default function Manual() {
   return (
     <div className="animate-fade-in space-y-8 max-w-3xl mx-auto">
-      <div>
+      <div className="page-hero !items-start !flex-col !gap-0">
+        <div className="page-kicker">Learn the workflow</div>
         <h1 className="text-2xl font-bold text-gradient flex items-center gap-2">
           <HelpCircle className="h-6 w-6" />
           使用手册
@@ -174,6 +175,14 @@ export default function Manual() {
           <li><b>卡片库</b> — 管理所有卡片：搜索、按状态/标签筛选、编辑、删除、重置进度</li>
           <li><b>右键菜单</b> — 卡片库中<b>右键卡片</b>：编辑 / 复制 / 置顶 / 删除（快速操作）</li>
           <li><b>状态流转</b> — 🆕新 → 🔶学习中 → ✅复习中（忘了变 🔁重学）</li>
+        </ul>
+      </Section>
+      <Section icon={Brain} title="zero2Agent 复习教练" color="text-cyan-500">
+        <ul>
+          <li><b>独立入口</b> — 从侧栏进入「zero2 复习」，与普通 AI、通用 Agent 和个人卡片复习分开</li>
+          <li><b>固定来源</b> — 只检索内置 zero2Agent 原文；每个知识回答显示可验证的章节和 Citation</li>
+          <li><b>提问不等于掌握</b> — 只有完成带来源证据的诊断题，才会更新掌握度和 FSRS 调度</li>
+          <li><b>隐私边界</b> — 无关问题不会进入复习数据；问答历史默认不同步，可在云同步设置中主动开启</li>
         </ul>
       </Section>
 
