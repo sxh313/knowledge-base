@@ -96,13 +96,36 @@ const docs = walk(sourceRoot).map((filePath) => {
   };
 }).sort((a, b) => a.path.localeCompare(b.path));
 
+const ids = new Set(docs.map((doc) => doc.id));
+for (const doc of docs) {
+  doc.prerequisiteIds = doc.prerequisiteIds.map((prerequisiteId) => {
+    if (ids.has(prerequisiteId)) return prerequisiteId;
+    const normalized = prerequisiteId.endsWith('/index.md') ? prerequisiteId : `${prerequisiteId}/index.md`;
+    if (!ids.has(normalized)) throw new Error(`Unknown zero2Agent prerequisite: ${doc.id} -> ${prerequisiteId}`);
+    return normalized;
+  });
+}
+const visiting = new Set();
+const visited = new Set();
+const byId = new Map(docs.map((doc) => [doc.id, doc]));
+function visit(id, chain = []) {
+  if (visiting.has(id)) throw new Error(`zero2Agent prerequisite cycle: ${[...chain, id].join(' -> ')}`);
+  if (visited.has(id)) return;
+  visiting.add(id);
+  for (const prerequisiteId of byId.get(id).prerequisiteIds) visit(prerequisiteId, [...chain, id]);
+  visiting.delete(id);
+  visited.add(id);
+}
+for (const doc of docs) visit(doc.id);
+
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 // 将参与 RAG 的原文一起复制到 public，确保离线/无网络时仍能定位来源。
 fs.rmSync(copyRoot, { recursive: true, force: true });
-for (const doc of docs) {
+for (const [index, doc] of docs.entries()) {
   const destination = path.join(copyRoot, doc.path);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.copyFileSync(path.join(sourceRoot, doc.path), destination);
+  doc.order = index;
 }
 fs.writeFileSync(outputPath, JSON.stringify({
   version: 1,

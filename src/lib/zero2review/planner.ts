@@ -6,10 +6,14 @@ export interface PlanningInput { topics: Zero2CatalogTopic[]; mastery: Zero2Mast
 
 function clamp(value: number): number { return Math.max(0, Math.min(1, value)); }
 
-export function scoreTopic(topic: Zero2CatalogTopic, mastery: Zero2Mastery | undefined, now = Date.now()): Zero2TopicPriority {
+export function scoreTopic(topic: Zero2CatalogTopic, mastery: Zero2Mastery | undefined, now = Date.now(), allMastery?: Map<string, Zero2Mastery>): Zero2TopicPriority {
   const m = mastery;
   const weakness = m?.mastery == null ? 0.65 : 1 - m.mastery;
-  const prerequisiteGap = clamp((topic.prerequisiteIds ?? []).length > 0 && !m ? 1 : 0);
+  const prerequisites = topic.prerequisiteIds ?? [];
+  const prerequisiteGap = prerequisites.length === 0 ? 0 : clamp(prerequisites.filter((id) => {
+    const prerequisite = allMastery?.get(id);
+    return !prerequisite || prerequisite.mastery == null || prerequisite.mastery < 0.6;
+  }).length / prerequisites.length);
   const overdue = m ? clamp((now - m.nextReviewAt) / (7 * 86400000)) : 0;
   const recentInterest = clamp(m?.interestScore ?? 0);
   const lowEvidence = clamp(1 - (m?.evidenceCount ?? 0) / 4);
@@ -22,7 +26,7 @@ export function scoreTopic(topic: Zero2CatalogTopic, mastery: Zero2Mastery | und
 export function buildDailyPlan(input: PlanningInput): Zero2ReviewTask[] {
   const mastery = new Map(input.mastery.map((item) => [item.topicId, item]));
   const now = input.now ?? Date.now();
-  const priorities = input.topics.map((topic) => scoreTopic(topic, mastery.get(topic.id), now)).sort((a, b) => b.total - a.total || a.topicId.localeCompare(b.topicId));
+  const priorities = input.topics.map((topic) => scoreTopic(topic, mastery.get(topic.id), now, mastery)).sort((a, b) => b.total - a.total || a.topicId.localeCompare(b.topicId));
   const budget = Math.max(1, Math.floor(input.dailyMinutes * 1.1));
   const tasks: Zero2ReviewTask[] = [];
   let used = 0;
@@ -32,6 +36,8 @@ export function buildDailyPlan(input: PlanningInput): Zero2ReviewTask[] {
     const minutes = Math.min(Math.max(5, topic.estimatedMinutes ?? 15), budget - used);
     if (minutes < 5) break;
     const m = mastery.get(topic.id);
+    const prerequisitesReady = (topic.prerequisiteIds ?? []).every((id) => (mastery.get(id)?.mastery ?? 0) >= 0.6);
+    if ((topic.prerequisiteIds ?? []).length > 0 && !prerequisitesReady && priority.prerequisiteGap > 0.5) continue;
     const type = m && m.nextReviewAt <= now ? 'review' : m?.mastery == null ? 'learn' : 'quiz';
     tasks.push({ id: `${input.planId}:${input.date}:${topic.id}:${type}`, planId: input.planId, topicId: topic.id, date: input.date, type, estimatedMinutes: minutes, sourceIds: [topic.id], status: 'todo', createdAt: 0, updatedAt: 0 });
     used += minutes;

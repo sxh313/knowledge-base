@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyEvaluation, createUnknownMastery, recordInterest } from './mastery';
+import { applyEvaluation, createUnknownMastery, isLowEvidence, isWeakMastery, recordInterest } from './mastery';
 
 describe('zero2 mastery isolation', () => {
   it('does not change mastery when the user only asks a question', () => {
@@ -14,5 +14,10 @@ describe('zero2 mastery isolation', () => {
     const after = applyEvaluation(before, { score: 3, correctPoints: ['ok'], missingPoints: [], mistakeTypes: [], evidenceChunkIds: ['chunk-1'], nextQuestionType: 'application' });
     expect(after.mastery).toBeGreaterThan(0);
     expect(after.evidenceCount).toBeGreaterThan(0);
+  });
+  it('distinguishes unknown/weak mastery and evidence shortage', () => {
+    const mastery = createUnknownMastery('topic');
+    expect(isWeakMastery(mastery)).toBe(true);
+    expect(isLowEvidence(mastery)).toBe(true);
   });
 });
