@@ -46,6 +46,10 @@ export async function listTopicMastery(): Promise<Zero2Mastery[]> {
   return db.zero2Mastery.filter((item) => !item.deletedAt).toArray();
 }
 
+export async function listDueTopicMastery(now = Date.now()): Promise<Zero2Mastery[]> {
+  return (await listTopicMastery()).filter((item) => item.nextReviewAt <= now);
+}
+
 export async function saveTopicMastery(input: Zero2Mastery): Promise<void> {
   await db.zero2Mastery.put({ ...input, updatedAt: Date.now() });
 }
