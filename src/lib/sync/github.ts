@@ -11,6 +11,14 @@ import { mergeData, type FullData } from './merge';
 
 const API = 'https://api.github.com';
 
+function applyZero2HistoryBoundary(data: FullData, enabled: boolean): FullData {
+  if (enabled) return data;
+  const safe = { ...data };
+  delete safe.zero2ReviewMessages;
+  delete safe.zero2ReviewAttempts;
+  return safe;
+}
+
 // 模块级同步锁：防止 syncNow / pullFromCloud 被并发调用（自动同步 + 手动同步同时触发时，
 // 后到的请求直接跳过，避免 Git Data API 分支引用竞态导致 404 / 覆盖丢失）
 let syncLock = false;
@@ -51,8 +59,8 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 /** 收集本地全部数据（同步用）；附件 Blob 序列化为 dataUrl，settings 不同步（含密钥） */
-export async function collectAllData(syncAgentData = false): Promise<FullData> {
-  const [journals, notes, cards, graphNodes, graphEdges, aiConversations, savedSearches, journalVersions, propertyDefinitions, categories, rawAttachments, userPreferences, learningGoals, learningTasks] = await Promise.all([
+export async function collectAllData(syncAgentData = false, syncZero2ReviewHistory = false): Promise<FullData> {
+  const [journals, notes, cards, graphNodes, graphEdges, aiConversations, savedSearches, journalVersions, propertyDefinitions, categories, rawAttachments, userPreferences, learningGoals, learningTasks, zero2ReviewSessions, zero2Mastery, zero2ReviewPlans, zero2ReviewTasks] = await Promise.all([
     db.journals.toArray(),
     db.notes.toArray(),
     db.cards.toArray(),
@@ -67,18 +75,30 @@ export async function collectAllData(syncAgentData = false): Promise<FullData> {
     db.userPreferences.toArray(),
     db.learningGoals.toArray(),
     db.learningTasks.toArray(),
+    db.zero2ReviewSessions.toArray(),
+    db.zero2Mastery.toArray(),
+    db.zero2ReviewPlans.toArray(),
+    db.zero2ReviewTasks.toArray(),
   ]);
   // Agent 数据（会话/消息/运行记录）可选同步：含撤销快照等敏感内容，默认关闭
   let agentSessions: unknown[] | undefined;
   let agentMessages: unknown[] | undefined;
   let agentRuns: unknown[] | undefined;
   let agentAuditLogs: unknown[] | undefined;
+  let zero2ReviewMessages: unknown[] | undefined;
+  let zero2ReviewAttempts: unknown[] | undefined;
   if (syncAgentData) {
     [agentSessions, agentMessages, agentRuns, agentAuditLogs] = await Promise.all([
       db.agentSessions.toArray(),
       db.agentMessages.toArray(),
       db.agentRuns.toArray(),
       db.agentAuditLogs.toArray(),
+    ]);
+  }
+  if (syncZero2ReviewHistory) {
+    [zero2ReviewMessages, zero2ReviewAttempts] = await Promise.all([
+      db.zero2ReviewMessages.toArray(),
+      db.zero2ReviewAttempts.toArray(),
     ]);
   }
   // 附件 Blob 无法直接 JSON 序列化，转成 dataUrl
@@ -90,12 +110,14 @@ export async function collectAllData(syncAgentData = false): Promise<FullData> {
     })),
   );
   return {
-    version: 2,
+    version: 5,
     exportedAt: Date.now(),
     journals, notes, cards, graphNodes, graphEdges, aiConversations,
     savedSearches, journalVersions, propertyDefinitions, categories, attachments,
     agentSessions, agentMessages, agentRuns, agentAuditLogs,
     userPreferences, learningGoals, learningTasks,
+    zero2ReviewSessions, zero2Mastery, zero2ReviewPlans, zero2ReviewTasks,
+    zero2ReviewMessages, zero2ReviewAttempts,
   };
 }
 
@@ -108,6 +130,8 @@ export async function writeAllData(data: FullData): Promise<void> {
       db.savedSearches, db.journalVersions, db.propertyDefinitions, db.attachments,
       db.categories, db.agentSessions, db.agentMessages, db.agentRuns, db.agentAuditLogs,
       db.userPreferences, db.learningGoals, db.learningTasks,
+      db.zero2ReviewSessions, db.zero2ReviewMessages, db.zero2Mastery,
+      db.zero2ReviewPlans, db.zero2ReviewTasks, db.zero2ReviewAttempts,
     ],
     async () => {
       await Promise.all([
@@ -129,6 +153,12 @@ export async function writeAllData(data: FullData): Promise<void> {
         db.userPreferences.bulkPut((data.userPreferences ?? []) as never),
         db.learningGoals.bulkPut((data.learningGoals ?? []) as never),
         db.learningTasks.bulkPut((data.learningTasks ?? []) as never),
+        db.zero2ReviewSessions.bulkPut((data.zero2ReviewSessions ?? []) as never),
+        db.zero2Mastery.bulkPut((data.zero2Mastery ?? []) as never),
+        db.zero2ReviewPlans.bulkPut((data.zero2ReviewPlans ?? []) as never),
+        db.zero2ReviewTasks.bulkPut((data.zero2ReviewTasks ?? []) as never),
+        ...(data.zero2ReviewMessages ? [db.zero2ReviewMessages.bulkPut(data.zero2ReviewMessages as never)] : []),
+        ...(data.zero2ReviewAttempts ? [db.zero2ReviewAttempts.bulkPut(data.zero2ReviewAttempts as never)] : []),
       ]);
     },
   );
@@ -260,7 +290,7 @@ async function pullAndMerge(cfg: SyncConfig, local: FullData, baseline: Record<s
   let conflicts = 0;
 
   if (remote?.content) {
-    const remoteData = JSON.parse(b64decode(remote.content)) as FullData;
+    const remoteData = applyZero2HistoryBoundary(JSON.parse(b64decode(remote.content)) as FullData, !!cfg.syncZero2ReviewHistory);
     // 三方冲突检测（本地与远端相对基线都改变且不同）
     const conflictedIds = detectConflictedIds(local.journals, remoteData.journals, baseline);
     conflicts = await recordConflicts(local.journals, remoteData.journals, conflictedIds);
@@ -292,7 +322,7 @@ async function pullAndMerge(cfg: SyncConfig, local: FullData, baseline: Record<s
  */
 export async function syncNow(cfg: SyncConfig): Promise<SyncResult> {
   return withSyncLock(async () => {
-    const local = await collectAllData(cfg.syncAgentData);
+    const local = await collectAllData(cfg.syncAgentData, cfg.syncZero2ReviewHistory);
     const baseline = cfg.baselineHashes ?? {};
 
     // 首次拉取合并
@@ -335,7 +365,7 @@ export interface PullResult {
 
 export async function pullFromCloud(cfg: SyncConfig): Promise<PullResult | null> {
   return withSyncLock(async () => {
-    const local = await collectAllData(cfg.syncAgentData);
+    const local = await collectAllData(cfg.syncAgentData, cfg.syncZero2ReviewHistory);
     const remote = await ghGet(cfg);
     const baseline = cfg.baselineHashes ?? {};
     let pulled = 0;

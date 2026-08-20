@@ -76,6 +76,7 @@ export async function getSettings(): Promise<AppSettings> {
         path: 'data.json',
         token: '',
         autoSync: true,
+        syncZero2ReviewHistory: false,
       },
     };
     await db.settings.put(settings);
@@ -95,7 +96,7 @@ export async function getSettings(): Promise<AppSettings> {
   }
   // 兼容旧数据：补全云同步配置
   if (!settings.sync) {
-    settings.sync = { enabled: false, owner: 'sxh313', repo: 'knowledge-base', branch: 'knowledge-base', path: 'data.json', token: '', autoSync: true };
+    settings.sync = { enabled: false, owner: 'sxh313', repo: 'knowledge-base', branch: 'knowledge-base', path: 'data.json', token: '', autoSync: true, syncZero2ReviewHistory: false };
   }
   // 修正：sxh313/knowledge-base 仓库的默认分支为 knowledge-base（早期默认 main 会导致同步 404）
   if (settings.sync && settings.sync.owner === 'sxh313' && settings.sync.repo === 'knowledge-base'

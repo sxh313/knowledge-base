@@ -149,6 +149,8 @@ export interface SyncConfig {
   baselineHashes?: Record<string, string>;
   /** 是否同步 Agent 运行记录（含撤销快照，可能含敏感内容；默认关闭） */
   syncAgentData?: boolean;
+  /** 是否同步 zero2Agent 的完整问答历史；默认关闭，仅同步进度与计划。 */
+  syncZero2ReviewHistory?: boolean;
 }
 
 export interface AppSettings {
@@ -334,7 +336,7 @@ export interface AgentAuditLog {
 }
 
 export interface UserPreference {
-  key: 'agent' | 'documentOrder';
+  key: 'agent' | 'documentOrder' | 'zero2Review';
   value: unknown;
   updatedAt: number;
 }
@@ -364,6 +366,88 @@ export interface LearningTask {
   deletedAt?: number;
 }
 
+export interface Zero2ReviewSession {
+  id: string;
+  title: string;
+  goalId?: string;
+  status: 'active' | 'finished' | 'archived';
+  createdAt: number;
+  updatedAt: number;
+  finishedAt?: number;
+  deletedAt?: number;
+}
+
+export interface Zero2ReviewMessage {
+  id: string;
+  sessionId: string;
+  role: 'user' | 'assistant' | 'coach';
+  intent: 'review_question' | 'review_command' | 'review_meta';
+  content: string;
+  topicIds: string[];
+  citations: { sourceId: string; chunkId: string; path: string; title: string; heading?: string }[];
+  diagnosticQuestion?: { id: string; topicId: string; type: 'recall' | 'comparison' | 'boundary' | 'application' | 'diagnostic'; prompt: string; sourceChunkIds: string[] };
+  createdAt: number;
+}
+
+export interface Zero2Mastery {
+  topicId: string;
+  mastery: number | null;
+  confidence: number;
+  evidenceCount: number;
+  questionCount: number;
+  correctCount: number;
+  interestScore: number;
+  stability: number;
+  difficulty: number;
+  lastReviewAt?: number;
+  nextReviewAt: number;
+  repetitions: number;
+  state: 'new' | 'learning' | 'review' | 'relearning';
+  updatedAt: number;
+  deletedAt?: number;
+}
+
+export interface Zero2ReviewPlan {
+  id: string;
+  goalId: string;
+  title: string;
+  dailyMinutes: number;
+  startDate: string;
+  deadline?: string;
+  topicIds: string[];
+  status: 'active' | 'paused' | 'completed';
+  version: number;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
+}
+
+export interface Zero2ReviewTask {
+  id: string;
+  planId: string;
+  topicId: string;
+  date: string;
+  type: 'learn' | 'recall' | 'quiz' | 'practice' | 'review';
+  estimatedMinutes: number;
+  sourceIds: string[];
+  status: 'todo' | 'done' | 'skipped';
+  createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
+}
+
+export interface Zero2ReviewAttempt {
+  id: string;
+  sessionId: string;
+  topicId: string;
+  question: string;
+  answer: string;
+  score: 0 | 1 | 2 | 3 | 4;
+  mistakeTypes: ('concept' | 'boundary' | 'comparison' | 'application' | 'terminology')[];
+  evidenceChunkIds: string[];
+  answeredAt: number;
+}
+
 // ──── Database Class ────
 
 export class StudyJournalDB extends Dexie {
@@ -389,6 +473,12 @@ export class StudyJournalDB extends Dexie {
   userPreferences!: Table<UserPreference>;
   learningGoals!: Table<LearningGoal>;
   learningTasks!: Table<LearningTask>;
+  zero2ReviewSessions!: Table<Zero2ReviewSession>;
+  zero2ReviewMessages!: Table<Zero2ReviewMessage>;
+  zero2Mastery!: Table<Zero2Mastery>;
+  zero2ReviewPlans!: Table<Zero2ReviewPlan>;
+  zero2ReviewTasks!: Table<Zero2ReviewTask>;
+  zero2ReviewAttempts!: Table<Zero2ReviewAttempt>;
 
   constructor() {
     super('StudyJournalDB');
@@ -478,6 +568,15 @@ export class StudyJournalDB extends Dexie {
       await tx.table('agentRuns').toCollection().modify((run: { createdAt?: number; updatedAt?: number }) => {
         run.updatedAt ??= run.createdAt ?? Date.now();
       });
+    });
+    // version(9): zero2Agent 复习教练独立数据域，不与通用 Agent、个人文档和卡片混用。
+    this.version(9).stores({
+      zero2ReviewSessions: 'id, goalId, status, updatedAt, deletedAt',
+      zero2ReviewMessages: 'id, sessionId, intent, createdAt, [sessionId+createdAt]',
+      zero2Mastery: 'topicId, state, nextReviewAt, updatedAt, deletedAt',
+      zero2ReviewPlans: 'id, goalId, status, updatedAt, deletedAt',
+      zero2ReviewTasks: 'id, planId, topicId, date, status, updatedAt, [planId+date]',
+      zero2ReviewAttempts: 'id, sessionId, topicId, answeredAt, [topicId+answeredAt]',
     });
   }
 }

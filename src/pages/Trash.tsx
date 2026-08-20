@@ -36,8 +36,8 @@ export default function Trash() {
   };
 
   return (
-    <div className="animate-fade-in space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="animate-fade-in space-y-4 max-w-4xl mx-auto">
+      <div className="page-hero">
         <div className="flex items-center gap-2">
           <button className="btn-ghost" onClick={() => navigate('/')} title="返回">
             <ArrowLeft className="h-4 w-4" />
@@ -45,6 +45,7 @@ export default function Trash() {
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Trash2 className="h-6 w-6" /> 回收站
           </h1>
+          <p className="page-subtitle">已删除的内容会暂时保留，可恢复或永久清理。</p>
         </div>
       </div>
 

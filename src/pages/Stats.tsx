@@ -69,27 +69,30 @@ export default function Stats() {
   }
 
   return (
-    <div className="animate-fade-in space-y-6">
-      <div>
+    <div className="animate-fade-in space-y-6 max-w-6xl mx-auto">
+      <div className="page-hero">
+        <div className="page-hero-copy">
+        <div className="page-kicker">Your learning pulse</div>
         <h1 className="text-2xl font-bold text-[var(--color-text)]">统计</h1>
         <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
           你的学习数据概览
         </p>
       </div>
+      </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="card text-center">
+      <div className="stat-grid">
+        <div className="card stat-card">
           <BookOpen className="mx-auto h-6 w-6 text-brand-500 mb-2" />
           <p className="text-2xl font-bold text-[var(--color-text)]">{totalJournals}</p>
           <p className="text-xs text-[var(--color-text-secondary)]">文档</p>
         </div>
-        <div className="card text-center">
+        <div className="card stat-card">
           <Brain className="mx-auto h-6 w-6 text-accent-500 mb-2" />
           <p className="text-2xl font-bold text-[var(--color-text)]">{totalCards}</p>
           <p className="text-xs text-[var(--color-text-secondary)]">知识卡片</p>
         </div>
-        <div className="card text-center">
+        <div className="card stat-card">
           <BarChart3 className="mx-auto h-6 w-6 text-green-500 mb-2" />
           <p className="text-2xl font-bold text-[var(--color-text)]">{totalNodes}</p>
           <p className="text-xs text-[var(--color-text-secondary)]">知识点</p>
