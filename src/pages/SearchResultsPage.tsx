@@ -100,10 +100,16 @@ export default function SearchResultsPage() {
 
   return (
     <div className="animate-fade-in flex flex-col h-full">
-      <div className="px-4 py-3 border-b border-[var(--color-border)]">
-        <h1 className="text-lg font-bold mb-2 flex items-center gap-2">
+      <div className="page-hero px-1">
+        <div className="page-hero-copy">
+          <div className="page-kicker">Find anything</div>
+          <h1 className="text-lg font-bold mb-2 flex items-center gap-2">
           <Search className="h-4 w-4" /> 高级搜索
-        </h1>
+          </h1>
+          <p className="page-subtitle">用关键词、标签和筛选条件定位你的知识。</p>
+        </div>
+      </div>
+      <div className="page-toolbar">
         <form
           className="flex gap-2"
           onSubmit={(e) => {

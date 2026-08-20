@@ -48,10 +48,15 @@ export default function LearningGoals() {
   };
 
   return (
-    <div className="animate-fade-in space-y-5">
-      <div className="flex items-center gap-2">
-        <Target className="h-5 w-5 text-[var(--color-primary)]" />
-        <div><h1 className="text-xl font-bold">学习目标</h1><p className="text-xs text-[var(--color-text-secondary)]">把目标拆成每天可调整的学习任务</p></div>
+    <div className="animate-fade-in space-y-5 max-w-5xl mx-auto">
+      <div className="page-hero">
+        <div className="page-hero-copy">
+          <div className="page-kicker">Make progress visible</div>
+          <div className="flex items-center gap-2">
+            <Target className="h-5 w-5 text-[var(--color-primary)]" />
+            <div><h1 className="text-xl font-bold">学习目标</h1><p className="text-xs text-[var(--color-text-secondary)]">把目标拆成每天可调整的学习任务</p></div>
+          </div>
+        </div>
       </div>
       <div className="card p-4 grid gap-2 md:grid-cols-[1fr_120px_150px_auto]">
         <input className="input-field text-sm" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：两周掌握 RAG 基础" />

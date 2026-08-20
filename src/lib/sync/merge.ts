@@ -19,6 +19,12 @@ export interface FullData {
   userPreferences: unknown[];
   learningGoals: unknown[];
   learningTasks: unknown[];
+  zero2ReviewSessions?: unknown[];
+  zero2ReviewMessages?: unknown[];
+  zero2Mastery?: unknown[];
+  zero2ReviewPlans?: unknown[];
+  zero2ReviewTasks?: unknown[];
+  zero2ReviewAttempts?: unknown[];
 }
 
 interface TimedRow {
@@ -50,7 +56,7 @@ export function mergeByNewest(left: unknown[], right: unknown[]): unknown[] {
 export function mergeData(local: FullData, remote: FullData): FullData {
   const r = remote as Partial<FullData>;
   return {
-    version: 2,
+    version: 5,
     exportedAt: Date.now(),
     journals: mergeByNewest(local.journals, r.journals ?? []),
     notes: mergeByNewest(local.notes, r.notes ?? []),
@@ -70,5 +76,11 @@ export function mergeData(local: FullData, remote: FullData): FullData {
     userPreferences: mergeByNewest(local.userPreferences ?? [], r.userPreferences ?? []),
     learningGoals: mergeByNewest(local.learningGoals ?? [], r.learningGoals ?? []),
     learningTasks: mergeByNewest(local.learningTasks ?? [], r.learningTasks ?? []),
+    zero2ReviewSessions: mergeByNewest(local.zero2ReviewSessions ?? [], r.zero2ReviewSessions ?? []),
+    zero2ReviewMessages: mergeByNewest(local.zero2ReviewMessages ?? [], r.zero2ReviewMessages ?? []),
+    zero2Mastery: mergeByNewest(local.zero2Mastery ?? [], r.zero2Mastery ?? []),
+    zero2ReviewPlans: mergeByNewest(local.zero2ReviewPlans ?? [], r.zero2ReviewPlans ?? []),
+    zero2ReviewTasks: mergeByNewest(local.zero2ReviewTasks ?? [], r.zero2ReviewTasks ?? []),
+    zero2ReviewAttempts: mergeByNewest(local.zero2ReviewAttempts ?? [], r.zero2ReviewAttempts ?? []),
   };
 }

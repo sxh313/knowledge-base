@@ -22,6 +22,7 @@ const navItems = [
   { to: '/inbox', icon: Inbox, label: '收集箱' },
   { to: '/ai', icon: MessageSquare, label: '知屿 AI' },
   { to: '/review', icon: BookOpen, label: '复习' },
+  { to: '/zero2-review', icon: Brain, label: 'zero2 复习' },
   { to: '/learning', icon: Target, label: '学习目标' },
   { to: '/cards', icon: Layers, label: '卡片库' },
   { to: '/knowledge', icon: Brain, label: '知识图谱' },
@@ -210,7 +211,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </button>
         </div>
 
-        <main className="flex-1 min-h-0 overflow-y-auto px-3 py-4">
+        <main className="app-main flex-1 min-h-0 overflow-y-auto px-3 py-4">
           <div key={location.pathname} className="min-h-full animate-slide-up">
             <Outlet />
           </div>
@@ -455,7 +456,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-hidden flex flex-col">
+      <main className="app-main flex-1 overflow-hidden flex flex-col">
         <div className="glass sticky top-0 z-10 flex items-center gap-3 border-b border-[var(--color-border)] px-5 h-12 shrink-0">
           <button
             onClick={onOpenPalette}
@@ -525,7 +526,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </button>
         </div>
 
-        <div key={location.pathname} className="px-5 py-6 animate-slide-up flex-1 min-h-0 overflow-y-auto">
+        <div key={location.pathname} className="app-content px-5 py-6 animate-slide-up flex-1 min-h-0 overflow-y-auto">
           <Outlet />
         </div>
       </main>

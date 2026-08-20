@@ -92,11 +92,17 @@ export default function Inbox() {
   };
 
   return (
-    <div className="animate-fade-in space-y-4">
-      <div className="flex items-center gap-2">
-        <InboxIcon className="h-5 w-5 text-[var(--color-primary)]" />
-        <h1 className="text-2xl font-bold text-[var(--color-text)]">收集箱</h1>
-        <span className="text-sm text-[var(--color-text-secondary)]">快速捕捉想法 / 网页剪藏，稍后整理</span>
+    <div className="animate-fade-in space-y-4 max-w-5xl mx-auto">
+      <div className="page-hero">
+        <div className="page-hero-copy">
+          <div className="page-kicker">Capture now, organize later</div>
+          <div className="flex items-center gap-2">
+            <InboxIcon className="h-5 w-5 text-[var(--color-primary)]" />
+            <h1 className="text-2xl font-bold text-[var(--color-text)]">收集箱</h1>
+          </div>
+          <p className="page-subtitle">快速捕捉想法、网页剪藏和临时素材，稍后再整理。</p>
+        </div>
+        <span className="tag-brand">待整理 {inboxItems.length}</span>
       </div>
 
       {/* 快速收集 / 网页剪藏表单 */}
