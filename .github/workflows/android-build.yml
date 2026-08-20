@@ -86,4 +86,4 @@ jobs:
             android/app/build/outputs/apk/release/app-release.apk
           draft: false
           prerelease: false
-          generate_release_notes: true
+          body_path: CHANGELOG.md
