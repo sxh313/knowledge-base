@@ -74,4 +74,4 @@ jobs:
             ${{ runner.temp }}/kb-release/latest.yml
           draft: false
           prerelease: false
-          generate_release_notes: true
+          body_path: CHANGELOG.md
