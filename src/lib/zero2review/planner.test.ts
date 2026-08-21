@@ -18,4 +18,10 @@ describe('zero2 deterministic planner', () => {
     const input = { topics: [...topics, { id: 'advanced', path: 'advanced', title: 'Advanced', module: 'm', order: 3, prerequisiteIds: ['missing'], estimatedMinutes: 10 }], mastery: [], dailyMinutes: 40, planId: 'p', date: '2026-08-20', now: 0 };
     expect(buildDailyPlan(input).some((task) => task.topicId === 'advanced')).toBe(false);
   });
+  it('preserves completed tasks and stores an explainable recommendation', () => {
+    const completed = { id: 'p:2026-08-20:a:learn', planId: 'p', topicId: 'a', date: '2026-08-20', type: 'learn' as const, estimatedMinutes: 5, sourceIds: ['a'], status: 'done' as const, createdAt: 1, updatedAt: 2 };
+    const result = buildDailyPlan({ topics, mastery: [], dailyMinutes: 20, planId: 'p', date: '2026-08-20', now: 0, existingTasks: [completed] });
+    expect(result).toContainEqual(completed);
+    expect(result.some((task) => task.recommendationReason)).toBe(true);
+  });
 });
