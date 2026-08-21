@@ -76,5 +76,5 @@ export function searchContextToChunks(context: SearchAIContext): RetrievedChunk[
 }
 
 export function formatSearchContextForPrompt(context: SearchAIContext): string {
-  return context.items.map((item, index) => `[${index + 1}] journalId=${item.journalId}\n标题：${item.title}\n章节：${item.heading}\n命中摘要：${item.snippet}\n原文摘录：\n${item.contentExcerpt}`).join('\n\n---\n\n');
+  return context.items.map((item, index) => `[${index + 1}] journalId=${item.journalId}\n标题：${item.title}\n章节：${item.heading}\n命中摘要：${item.snippet.slice(0, 300)}\n原文摘录：\n${item.contentExcerpt.slice(0, 1200)}`).join('\n\n---\n\n').slice(0, 9000);
 }

@@ -43,6 +43,8 @@ export async function routeAI(
   const preferred = bindingOverride ?? settings.preferredModels?.[preferredKey];
   const modelIds = Array.from(new Set([preferred, ...TASK_MODELS[task]].filter((id): id is string => !!id)));
   let lastError: string | null = null;
+  // QA 输出过长会显著拉高总延迟；需要更长内容的任务仍可通过专用 prompt 控制。
+  const maxTokens = task === 'qa' ? 768 : task === 'summarize' ? 768 : undefined;
 
   // 记录已尝试过的 (provider, model)，避免 fallback 阶段重复调用
   const tried = new Set<string>();
@@ -64,7 +66,7 @@ export async function routeAI(
         { name: provider, baseUrl: prov.baseUrl, apiKey: prov.apiKey, enabled: true },
         model,
         messages,
-        { stream: !!onToken, onToken, signal: signal ?? controller?.signal },
+        { stream: !!onToken, onToken, maxTokens, signal: signal ?? controller?.signal },
       );
       if (timeout) clearTimeout(timeout);
       return { content: result.content, model, provider, usage: result.usage };
@@ -87,7 +89,7 @@ export async function routeAI(
         { name: profile.id, baseUrl: profile.baseUrl, apiKey: profile.apiKey, enabled: profile.enabled },
         profile.modelId,
         messages,
-        { stream: !!onToken, onToken, signal: signal ?? controller?.signal },
+        { stream: !!onToken, onToken, maxTokens, signal: signal ?? controller?.signal },
       );
       if (timeout) clearTimeout(timeout);
       return { content: result.content, model: profile.modelId, provider: profile.id, usage: result.usage };

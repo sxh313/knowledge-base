@@ -25,8 +25,8 @@ function parseObject(text: string): Record<string, unknown> | null {
 function buildMessages(question: string, chunks: RetrievedChunk[]) {
   const context = chunks.map((chunk, index) => {
     const path = chunk.headingPath?.length ? chunk.headingPath.join(' > ') : chunk.heading || '正文';
-    return `[${index + 1}] chunkId=${chunk.chunkId}\n来源：${chunk.title} / ${path}\n${chunk.content}`;
-  }).join('\n\n---\n\n');
+    return `[${index + 1}] chunkId=${chunk.chunkId}\n来源：${chunk.title} / ${path}\n${chunk.content.slice(0, 1200)}`;
+  }).join('\n\n---\n\n').slice(0, 9000);
   return [
     {
       role: 'system' as const,
@@ -46,6 +46,20 @@ function buildMessages(question: string, chunks: RetrievedChunk[]) {
   ];
 }
 
+function buildStreamingMessages(question: string, chunks: RetrievedChunk[]) {
+  const context = chunks.map((chunk, index) => {
+    const path = chunk.headingPath?.length ? chunk.headingPath.join(' > ') : chunk.heading || '正文';
+    return `[${index + 1}] 来源：${chunk.title} / ${path}\n${chunk.content.slice(0, 1200)}`;
+  }).join('\n\n---\n\n').slice(0, 9000);
+  return [
+    {
+      role: 'system' as const,
+      content: '你是严格基于课程原文的学习问答助手。只能依据资料回答，不得补充常识或猜测。直接输出 Markdown，按“### 结论”“### 关键要点”“### 详细解释”组织。每个来自资料的事实后必须添加 [1]、[2] 这类资料编号；不要输出 JSON、代码围栏或未定义占位符。回答控制在 600-900 个中文字符内，优先给出结论和最相关的 3-5 个要点。',
+    },
+    { role: 'user' as const, content: `问题：${question}\n\n课程原文：\n${context}` },
+  ];
+}
+
 function extractiveFallback(chunks: RetrievedChunk[]): string {
   if (chunks.length === 0) return '当前知识库中没有足够内容回答这个问题。';
   return [
@@ -58,11 +72,25 @@ function extractiveFallback(chunks: RetrievedChunk[]): string {
  * zero2Agent/课程问答的唯一生成入口。
  * 生成结果必须通过 citation 白名单；解析失败时退回原文摘录，绝不退回模型常识。
  */
-export async function answerGroundedQuestion(question: string, chunks: RetrievedChunk[]): Promise<GroundedAnswer> {
+export async function answerGroundedQuestion(
+  question: string,
+  chunks: RetrievedChunk[],
+  onToken?: (token: string) => void,
+  signal?: AbortSignal,
+): Promise<GroundedAnswer> {
   const allowed = new Map(chunks.map((chunk) => [chunk.chunkId, chunk]));
   if (chunks.length === 0) return { answer: extractiveFallback(chunks), citations: [], grounded: false, insufficient: true };
   try {
-    const result = await routeAI('qa', buildMessages(question, chunks), undefined, 'answerModelId');
+    const result = await routeAI('qa', onToken ? buildStreamingMessages(question, chunks) : buildMessages(question, chunks), onToken, 'answerModelId', signal);
+    if (onToken) {
+      const streamed = result.content.trim();
+      const parsed = parseObject(streamed);
+      const answer = typeof parsed?.answer === 'string' ? parsed.answer.trim() : streamed;
+      const indexes = Array.from(answer.matchAll(/\[(\d+)\]/g)).map((match) => Number(match[1]) - 1).filter((index) => index >= 0 && index < chunks.length);
+      const citations = Array.from(new Set(indexes)).map((index) => chunks[index]);
+      if (!answer || citations.length === 0) return { answer: extractiveFallback(chunks), citations: chunks, grounded: false, insufficient: false };
+      return { answer, citations, grounded: true, insufficient: false };
+    }
     const parsed = parseObject(result.content);
     const answer = typeof parsed?.answer === 'string' ? parsed.answer.trim() : '';
     const ids = Array.isArray(parsed?.citationChunkIds)
