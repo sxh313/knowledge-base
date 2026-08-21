@@ -12,20 +12,21 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { usePomodoroStore } from '../stores/pomodoroStore';
 import { useJournalStore } from '../stores/journalStore';
 import TemplatePicker from './TemplatePicker';
+import { useFocusTrap } from '../lib/ui/useFocusTrap';
 
 interface LayoutProps {
   onOpenPalette?: () => void;
 }
 
 const navItems = [
-  { to: '/', icon: FileText, label: '文档' },
-  { to: '/inbox', icon: Inbox, label: '收集箱' },
-  { to: '/ai', icon: MessageSquare, label: '知屿 AI' },
-  { to: '/zero2-review', icon: Brain, label: 'zero2 复习' },
-  { to: '/learning', icon: Target, label: '学习目标' },
-  { to: '/stats', icon: BarChart3, label: '统计' },
-  { to: '/tags', icon: Tag, label: '标签' },
-  { to: '/settings', icon: Settings, label: '设置' },
+  { to: '/', icon: FileText, label: '文档', group: '创作' },
+  { to: '/inbox', icon: Inbox, label: '收集箱', group: '创作' },
+  { to: '/ai', icon: MessageSquare, label: '知屿 AI', group: '智能' },
+  { to: '/zero2-review', icon: Brain, label: '面试训练营', group: '智能' },
+  { to: '/learning', icon: Target, label: '学习目标', group: '成长' },
+  { to: '/stats', icon: BarChart3, label: '统计', group: '成长' },
+  { to: '/tags', icon: Tag, label: '标签', group: '管理' },
+  { to: '/settings', icon: Settings, label: '设置', group: '管理' },
 ];
 
 const mobileNavItems = [
@@ -35,6 +36,17 @@ const mobileNavItems = [
 ];
 const DEFAULT_MOBILE_NAV_ORDER = mobileNavItems.map((item) => item.to);
 const MOBILE_NAV_ORDER_KEY = 'knowledge-base-mobile-nav-order';
+const DESKTOP_NAV_ORDER_KEY = 'knowledge-base-desktop-nav-order';
+
+function loadNavOrder(key: string, fallback: string[]): string[] {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    const saved = raw ? JSON.parse(raw) as string[] : [];
+    const valid = saved.filter((to) => fallback.includes(to));
+    return [...valid, ...fallback.filter((to) => !valid.includes(to))];
+  } catch { return fallback; }
+}
 
 function loadMobileNavOrder(): string[] {
   if (typeof window === 'undefined') return DEFAULT_MOBILE_NAV_ORDER;
@@ -76,12 +88,25 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
   const [showTemplates, setShowTemplates] = useState(false);
   const [isEditingMobileNav, setIsEditingMobileNav] = useState(false);
   const [mobileNavOrder, setMobileNavOrder] = useState<string[]>(loadMobileNavOrder);
+  const [desktopNavOrder, setDesktopNavOrder] = useState<string[]>(() => loadNavOrder(DESKTOP_NAV_ORDER_KEY, navItems.map((item) => item.to)));
+  const [draggingNav, setDraggingNav] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const newSheetRef = useRef<HTMLDivElement>(null);
+  const moreSheetRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(showNewSheet, newSheetRef);
+  useFocusTrap(showMoreSheet, moreSheetRef);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(t);
   }, []);
+  useEffect(() => {
+    if (!showMoreSheet && !showNewSheet) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { setShowMoreSheet(false); setShowNewSheet(false); } };
+    window.addEventListener('keydown', onKey);
+    const previous = document.body.style.overflow; document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = previous; };
+  }, [showMoreSheet, showNewSheet]);
 
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     const saved = Number(localStorage.getItem('sidebar-width'));
@@ -138,6 +163,17 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
   const orderedMobileNavItems = mobileNavOrder.map((to) => mobileNavByPath.get(to)).filter(Boolean) as typeof mobileNavItems;
   const mobileTabItems = orderedMobileNavItems.slice(0, 4);
   const mobileMoreOrderedItems = orderedMobileNavItems.slice(4);
+  const desktopNavByPath = new Map(navItems.map((item) => [item.to, item]));
+  const orderedDesktopNavItems = desktopNavOrder.map((to) => desktopNavByPath.get(to)).filter(Boolean) as typeof navItems;
+
+  const moveDesktopNav = (target: string) => {
+    if (!draggingNav || draggingNav === target) return;
+    const next = [...desktopNavOrder];
+    const from = next.indexOf(draggingNav); const to = next.indexOf(target);
+    if (from < 0 || to < 0) return;
+    next.splice(from, 1); next.splice(to, 0, draggingNav);
+    setDesktopNavOrder(next); localStorage.setItem(DESKTOP_NAV_ORDER_KEY, JSON.stringify(next));
+  };
 
   const updateMobileNavOrder = (next: string[]) => {
     setMobileNavOrder(next);
@@ -187,6 +223,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
             onClick={cycleMode}
             className="btn-ghost p-1.5"
             title={`当前: ${viewModeConfig[viewMode].label} — 点击切换为${viewModeConfig[nextViewMode].label}`}
+            aria-label={`当前: ${viewModeConfig[viewMode].label}，切换为${viewModeConfig[nextViewMode].label}`}
             type="button"
           >
             <ViewModeIcon className="h-4 w-4" />
@@ -231,13 +268,17 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
         {showNewSheet && (
           <div className="fixed inset-0 z-50 flex min-h-[100dvh] flex-col justify-end" onClick={() => setShowNewSheet(false)}>
             <div className="flex-1 bg-black/30 animate-fade-in" />
-            <div
-              className="glass rounded-t-2xl border-t border-[var(--color-border)] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
+          <div
+            ref={newSheetRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="新建文档"
+            className="glass rounded-t-2xl border-t border-[var(--color-border)] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mb-3 flex items-center justify-between">
                 <span className="text-sm font-medium text-[var(--color-text)]">新建</span>
-                <button className="btn-ghost h-8 w-8 p-0" onClick={() => setShowNewSheet(false)} type="button">
+                <button className="btn-ghost h-8 w-8 p-0" onClick={() => setShowNewSheet(false)} aria-label="关闭新建菜单" type="button">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -291,8 +332,12 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
         {showMoreSheet && (
           <div className="fixed inset-0 z-50 flex min-h-[100dvh] flex-col justify-end" onClick={() => setShowMoreSheet(false)}>
             <div className="flex-1 bg-black/30 animate-fade-in" />
-            <div
-              className="glass rounded-t-2xl border-t border-[var(--color-border)] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
+          <div
+            ref={moreSheetRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={isEditingMobileNav ? '调整移动端导航顺序' : '更多入口'}
+            className="glass rounded-t-2xl border-t border-[var(--color-border)] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="mb-2.5 flex items-center justify-between">
@@ -313,7 +358,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
                       </button>
                     </>
                   )}
-                  <button className="btn-ghost h-8 w-8 p-0" onClick={() => setShowMoreSheet(false)} type="button">
+                  <button className="btn-ghost h-8 w-8 p-0" onClick={() => setShowMoreSheet(false)} aria-label="关闭更多菜单" type="button">
                     <X className="h-4 w-4" />
                   </button>
                 </div>
@@ -412,7 +457,9 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
         </div>
 
         <nav className="flex-1 space-y-1 p-2 overflow-y-auto">
-          {navItems.map((item) => {
+          {(['创作', '智能', '成长', '管理'] as const).map((group) => <div key={group} className="mb-3">
+          {!collapsed && <div className="px-3 pb-1 pt-2 text-[10px] font-semibold tracking-[.14em] text-[var(--color-text-tertiary)]">{group}</div>}
+          {orderedDesktopNavItems.filter((item) => item.group === group).map((item) => {
             const isActive = item.to === '/'
               ? location.pathname === '/'
               : location.pathname.startsWith(item.to);
@@ -421,12 +468,18 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
                 key={item.to}
                 to={item.to}
                 end={item.to === '/'}
+                draggable
+                onDragStart={() => setDraggingNav(item.to)}
+                onDragEnd={() => setDraggingNav(null)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => { event.preventDefault(); moveDesktopNav(item.to); setDraggingNav(null); }}
                 className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
                   isActive
                     ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)]'
                     : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
                 }`}
                 title={item.label}
+                aria-label={item.label}
               >
                 <item.icon className={`h-5 w-5 flex-shrink-0 ${isActive ? '' : 'transition-transform group-hover:scale-110'}`} />
                 {!collapsed && <span>{item.label}</span>}
@@ -434,6 +487,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
               </NavLink>
             );
           })}
+          </div>)}
         </nav>
 
         <div className="border-t border-[var(--color-border)] p-2">
@@ -457,16 +511,6 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
 
       <main className="app-main flex-1 overflow-hidden flex flex-col">
         <div className="glass sticky top-0 z-10 flex items-center gap-3 border-b border-[var(--color-border)] px-5 h-12 shrink-0">
-          <button
-            onClick={onOpenPalette}
-            className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)] transition-colors"
-            title="搜索 (⌘K)"
-            type="button"
-          >
-            <Search className="h-4 w-4" />
-            <span className="hidden sm:inline">全局搜索</span>
-            <kbd className="ml-1 text-[10px] text-[var(--color-text-tertiary)]">⌘K</kbd>
-          </button>
           <div className="flex-1" />
           <span className="text-xs text-[var(--color-text-tertiary)] tabular-nums hidden sm:inline">
             {new Intl.DateTimeFormat('zh-CN', {

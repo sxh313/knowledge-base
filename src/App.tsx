@@ -13,6 +13,7 @@ import CommandPalette from './components/CommandPalette';
 import ShortcutsModal from './components/ShortcutsModal';
 import PomodoroWidget from './components/PomodoroWidget';
 import UpdatePrompt from './components/UpdatePrompt';
+import ToastViewport from './components/ToastViewport';
 
 // 路由级懒加载：按需加载各页面，显著减小首屏主 chunk 体积
 const JournalList = lazy(() => import('./pages/JournalList'));
@@ -131,7 +132,7 @@ export default function App() {
     <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
-      <Suspense fallback={<div className="flex items-center justify-center h-screen text-gray-400">加载中…</div>}>
+      <Suspense fallback={<div className="app-loading-state"><div className="app-loading-card"><div className="app-loading-mark"><span className="text-lg">⌁</span></div><strong className="text-sm text-[var(--color-text)]">正在打开知屿</strong><span className="text-xs">整理你的知识航线…</span></div></div>}>
       <Routes>
         <Route element={<Layout onOpenPalette={() => setPaletteOpen(true)} />}>
           <Route path="/" element={<JournalList />} />
@@ -153,6 +154,7 @@ export default function App() {
       </Suspense>
       <PomodoroWidget />
       <UpdatePrompt />
+      <ToastViewport />
     </Router>
   );
 }

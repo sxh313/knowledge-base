@@ -58,7 +58,10 @@ interface AIStore {
   callAI: (taskType: TaskType, messages: ChatMessage[], onToken?: (token: string) => void) => Promise<string>;
   /** 直接调用指定模型 */
   callDirect: (providerName: ProviderName, modelName: string, messages: ChatMessage[], onToken?: (token: string) => void) => Promise<string>;
+  stop: () => void;
 }
+
+let activeController: AbortController | null = null;
 
 export const useAIStore = create<AIStore>((set) => ({
   isProcessing: false,
@@ -90,16 +93,17 @@ export const useAIStore = create<AIStore>((set) => ({
   },
 
   chat: async (messages, onToken) => {
+    activeController?.abort(); activeController = new AbortController();
     set({ isProcessing: true, error: null, streamingContent: '' });
     // 查找或创建 'qa' 任务类型的 AI 调用
     try {
-      const result = await routeAI('qa', messages, onToken);
+      const result = await routeAI('qa', messages, onToken, undefined, activeController.signal);
       const fullContent = result.content;
       set({ isProcessing: false, streamingContent: fullContent });
       return fullContent;
     } catch (e) {
       const msg = (e as Error).message;
-      set({ isProcessing: false, error: msg });
+      set({ isProcessing: false, error: activeController?.signal.aborted ? null : msg });
       throw e;
     }
   },
@@ -107,6 +111,7 @@ export const useAIStore = create<AIStore>((set) => ({
   // ─── 底层 API（保持向后兼容） ───
 
   callAI: async (taskType, messages, onToken) => {
+    activeController?.abort(); activeController = new AbortController();
     set({ isProcessing: true, error: null, streamingContent: '' });
     try {
       // 前置检查：是否已配置任何 Provider
@@ -117,7 +122,7 @@ export const useAIStore = create<AIStore>((set) => ({
         throw new Error(friendlyMsg);
       }
 
-      const result = await routeAI(taskType, messages, onToken);
+      const result = await routeAI(taskType, messages, onToken, undefined, activeController.signal);
       const fullContent = result.content;
       set({ isProcessing: false, streamingContent: fullContent });
       return fullContent;
@@ -125,12 +130,13 @@ export const useAIStore = create<AIStore>((set) => ({
       const msg = (e as Error).message;
       // 如果已经是友好消息就直接用，否则转换
       const friendly = msg.includes('尚未配置') ? msg : friendlyAIError(e);
-      set({ isProcessing: false, error: friendly });
+      set({ isProcessing: false, error: activeController?.signal.aborted ? null : friendly });
       throw new Error(friendly);
     }
   },
 
   callDirect: async (providerName, modelName, messages, onToken) => {
+    activeController?.abort(); activeController = new AbortController();
     const settings = await getSettings();
     const provider = settings.aiProviders[providerName];
     if (!provider?.enabled || (providerNeedsApiKey(providerName) && !provider.apiKey)) {
@@ -145,14 +151,15 @@ export const useAIStore = create<AIStore>((set) => ({
         { name: providerName, baseUrl: provider.baseUrl, apiKey: provider.apiKey, enabled: true },
         modelName,
         messages,
-        { stream: !!onToken, onToken },
+        { stream: !!onToken, onToken, signal: activeController.signal },
       );
       set({ isProcessing: false, streamingContent: result.content });
       return result.content;
     } catch (e) {
-      set({ isProcessing: false, error: (e as Error).message });
+      set({ isProcessing: false, error: activeController.signal.aborted ? null : (e as Error).message });
       throw e;
     }
   },
+  stop: () => { activeController?.abort(); activeController = null; set({ isProcessing: false, streamingContent: '', error: null }); },
 }));
 

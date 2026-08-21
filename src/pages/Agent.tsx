@@ -7,7 +7,7 @@ import MarkdownContent from '../components/MarkdownContent';
 import {
   Send, Paperclip, Check, X, FileText, Plus, Pencil, ArrowDownToLine,
   ArrowUpFromLine, CornerDownRight, Search, Loader2, Trash2, ExternalLink, MessageSquare,
-  Tag, FolderInput, Layers, Undo2, ShieldAlert, ShieldCheck, Shield, Wrench, Network, Link2, PanelLeft,
+  Tag, FolderInput, Layers, Undo2, ShieldAlert, ShieldCheck, Shield, Wrench, Network, Link2, PanelLeft, Bot,
 } from 'lucide-react';
 import type { AgentOp, AgentOpResult } from '../lib/agent/tools';
 import { diffLines } from '../lib/agent/diff';
@@ -191,7 +191,7 @@ export default function Agent() {
   const [input, setInput] = useState('');
   const [attached, setAttached] = useState<{ name: string; content: string } | null>(null);
   const [approved, setApproved] = useState<Set<string>>(new Set());
-  const [showSessions, setShowSessions] = useState(true);
+  const [showSessions, setShowSessions] = useState<boolean>(() => localStorage.getItem('agent-sessions') !== '0');
   const [showRuns, setShowRuns] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
   const [preferences, setPreferences] = useState<AgentPreferences>(DEFAULT_AGENT_PREFERENCES);
@@ -205,6 +205,12 @@ export default function Agent() {
   useEffect(() => {
     if (isMobile) setShowSessions(false);
   }, [isMobile]);
+
+  const toggleSessions = () => setShowSessions((current) => {
+    const next = !current;
+    localStorage.setItem('agent-sessions', next ? '1' : '0');
+    return next;
+  });
 
   // 初始化：从 IndexedDB 恢复会话
   useEffect(() => {
@@ -362,22 +368,21 @@ export default function Agent() {
         />
       )}
       <aside className={`${isMobile ? 'absolute inset-y-0 left-0 z-30 w-[84vw] max-w-[280px] shadow-xl' : 'w-64'} shrink-0 border-r border-[var(--color-border)] flex flex-col ${showSessions ? '' : 'hidden'}`}>
-        <div className="p-2 border-b border-[var(--color-border)] flex items-center justify-between">
-          <span className="text-xs font-semibold text-[var(--color-text-secondary)]">会话</span>
-          <button
-            className="btn-ghost text-xs flex items-center gap-1 px-2 py-1 rounded-md hover:bg-[var(--color-surface-2)]"
-            onClick={handleNewSession}
-            title="新建会话"
-          >
-            <Plus className="h-3.5 w-3.5" /> 新建
+        <div className="flex items-center justify-between border-b border-[var(--color-border)] p-3">
+          <span className="text-xs font-medium text-[var(--color-text-secondary)]">对话历史</span>
+          <button className="btn-ghost p-1" onClick={toggleSessions} title="隐藏会话列表" aria-label="隐藏会话列表" type="button">
+            <PanelLeft className="h-4 w-4" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        <button className="m-2 btn-primary text-xs flex items-center justify-center gap-1" onClick={handleNewSession} title="新建对话" type="button">
+          <Plus className="h-3.5 w-3.5" /> 新建对话
+        </button>
+        <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
           {sessions.map((s) => (
             <div
               key={s.id}
-              className={`group rounded-md px-2 py-1.5 text-sm cursor-pointer flex items-center justify-between gap-1 ${
-                s.id === sessionId ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' : 'hover:bg-[var(--color-surface-2)]'
+              className={`group rounded-md px-2 py-1.5 text-xs cursor-pointer flex items-center justify-between gap-1 ${
+                s.id === sessionId ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)] font-medium' : 'hover:bg-[var(--color-surface-2)] text-[var(--color-text-secondary)]'
               }`}
               onClick={() => handleSelectSession(s.id)}
             >
@@ -440,30 +445,8 @@ export default function Agent() {
       {/* Header */}
       <div className="flex items-center justify-between gap-2 px-4 py-2 border-b border-[var(--color-border)]">
         <div className="flex items-center gap-2">
-          {!showSessions && (
-            <button className="btn-ghost p-1" onClick={() => setShowSessions(true)} title="显示会话列表" aria-label="显示会话列表" type="button">
-              <PanelLeft className="h-4 w-4" />
-            </button>
-          )}
-          <h1 className="text-lg font-bold flex items-center gap-1.5">🤖 AI 助手（Agent）</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            className="btn-ghost text-xs px-2.5 py-1 flex items-center gap-1 rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-2)]"
-            onClick={() => navigate('/ai?mode=chat')}
-            title="切换到普通 AI 对话"
-          >
-            <MessageSquare className="h-3.5 w-3.5" /> <span className="hidden sm:inline">普通对话</span>
-          </button>
-          <span className="text-xs text-[var(--color-text-tertiary)] hidden sm:inline">
-            可新建 / 编辑 / 追加文档，执行前会先预览确认
-          </span>
-          <button className="btn-ghost text-xs flex items-center gap-1" onClick={clear} title="清空对话">
-            <Trash2 className="h-3.5 w-3.5" /> <span className="hidden sm:inline">清空</span>
-          </button>
-          <button className={`btn-ghost text-xs flex items-center gap-1 ${showSkills ? 'text-[var(--color-primary)]' : ''}`} onClick={() => setShowSkills((v) => !v)} title="查看 Skill Registry 与安全检查点" aria-label="Skill Registry">
-            <Wrench className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Skills</span>
-          </button>
+          {!showSessions && <button className="btn-ghost p-1" onClick={toggleSessions} title="显示会话列表" aria-label="显示会话列表" type="button"><PanelLeft className="h-4 w-4" /></button>}
+          <h1 className="flex items-center" title="Agent 工作区" aria-label="Agent 工作区"><Bot className="h-5 w-5 text-[var(--color-primary)]" /></h1>
         </div>
       </div>
 
@@ -494,7 +477,7 @@ export default function Agent() {
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.length === 0 && (
           <div className="empty-state mx-auto max-w-3xl space-y-2 text-sm text-[var(--color-text-tertiary)]">
-            <div className="empty-state-icon mb-2 text-2xl">🤖</div>
+          <div className="empty-state-icon mb-2"><Bot className="h-6 w-6" /></div>
             <p className="font-medium text-[var(--color-text)]">让 Agent 帮你执行文档任务</p>
             <p className="max-w-xl text-xs">可以新建、编辑、追加或整理文档。执行前会展示操作计划，由你确认后再写入。</p>
             <div className="mt-2 flex flex-wrap justify-center gap-1.5 text-[11px]"><span className="tag-gray">整理学习笔记</span><span className="tag-gray">生成卡片</span><span className="tag-gray">追加总结</span></div>
@@ -576,7 +559,7 @@ export default function Agent() {
               {/* 执行结果 */}
               {msg.applied && (
                 <div className="mt-3 border-t border-[var(--color-border)] pt-2 space-y-1">
-                  <div className="text-xs font-medium text-emerald-600">✅ 已执行：</div>
+                  <div className="flex items-center gap-1 text-xs font-medium text-emerald-600"><Check className="h-3.5 w-3.5" /> 已执行：</div>
                   {msg.applied.results.map((r, j) => (
                     <OpResult key={j} result={r} />
                   ))}
@@ -608,13 +591,29 @@ export default function Agent() {
         )}
 
         {error && (
-          <div className="text-center text-sm text-red-500 py-2">❌ {error}</div>
+          <div className="mx-auto flex max-w-3xl items-center gap-2 rounded-lg border border-[var(--color-danger)]/30 bg-[var(--color-danger-light)] px-3 py-2 text-sm text-[var(--color-danger)]"><ShieldAlert className="h-4 w-4 shrink-0" />{error}</div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input */}
       <div className="px-4 pb-4 pt-3 border-t border-[var(--color-border)] bg-[var(--color-bg)]">
+        <div className="mx-auto mb-2 flex max-w-4xl items-center gap-2 overflow-x-auto whitespace-nowrap">
+          <button
+            className="btn-ghost flex h-8 shrink-0 items-center gap-1 rounded-md border border-[var(--color-border)] px-2.5 py-1 text-xs hover:bg-[var(--color-surface-2)]"
+            onClick={() => navigate('/ai?mode=chat')}
+            title="返回普通 AI 对话"
+            type="button"
+          >
+            <MessageSquare className="h-3.5 w-3.5" /> 普通对话
+          </button>
+          <button className="btn-ghost flex h-8 shrink-0 items-center gap-1 px-2 text-xs" onClick={clear} title="清空对话" type="button">
+            <Trash2 className="h-3.5 w-3.5" /> 清空
+          </button>
+          <button className={`btn-ghost flex h-8 shrink-0 items-center gap-1 px-2 text-xs ${showSkills ? 'text-[var(--color-primary)]' : ''}`} onClick={() => setShowSkills((v) => !v)} title="查看 Skill Registry 与安全检查点" aria-label="Skill Registry" type="button">
+            <Wrench className="h-3.5 w-3.5" /> Skills
+          </button>
+        </div>
         {attached && (
           <div className="flex items-center gap-2 mb-2 text-xs bg-[var(--color-surface-2)] rounded-md px-3 py-1.5">
             <FileText className="h-3.5 w-3.5 text-indigo-500" />

@@ -62,6 +62,7 @@ export async function retrieveZero2Review(question: string, topK = 8, pathPrefix
     sourceUrl: chunk.sourceUrl,
     sourceAnchor: chunk.sourceAnchor,
     localUrl: chunk.localUrl,
+    content: chunk.content,
   }));
 
   const sortedScores = candidates.map((candidate) => candidate.score).sort((a, b) => b - a);

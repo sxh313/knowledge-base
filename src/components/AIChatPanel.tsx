@@ -1,6 +1,6 @@
 import MarkdownContent from './MarkdownContent';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Brain, Code2, FileText, Lightbulb, Download } from 'lucide-react';
 import { useAIStore } from '../stores/aiStore';
 
 interface AIChatPanelProps {
@@ -16,9 +16,9 @@ export default function AIChatPanel({ onAccept, onAction, onClose }: AIChatPanel
   const navigate = useNavigate();
 
   const actions = [
-    { key: 'summarize', label: '📝 总结', desc: '提炼核心要点' },
-    { key: 'codeReview', label: '🔍 代码', desc: '审查代码' },
-    { key: 'codeExplain', label: '📖 解释', desc: '解释代码' },
+    { key: 'summarize', label: '总结', desc: '提炼核心要点', icon: FileText },
+    { key: 'codeReview', label: '代码审查', desc: '审查代码', icon: Code2 },
+    { key: 'codeExplain', label: '解释代码', desc: '解释代码', icon: Lightbulb },
   ] as const;
 
   const isConfigError = error?.includes('尚未配置');
@@ -34,21 +34,21 @@ export default function AIChatPanel({ onAccept, onAction, onClose }: AIChatPanel
               <ArrowLeft className="h-4 w-4" />
             </button>
           )}
-          <span className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--color-primary)] text-white text-xs">🧠</span>
+          <span className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--color-primary)] text-white text-xs"><Brain className="h-3.5 w-3.5" /></span>
           AI 助手
         </span>
       </div>
 
       {/* Action buttons */}
       <div className="grid grid-cols-2 gap-1 p-2 border-b border-[var(--color-border)]">
-        {actions.map(({ key, label, desc }) => (
+        {actions.map(({ key, label, desc, icon: Icon }) => (
           <button
             key={key}
             className="btn-ghost text-xs flex-col py-2 h-auto"
             onClick={() => onAction?.(key)}
             title={desc}
           >
-            <span>{label}</span>
+            <Icon className="h-4 w-4 text-[var(--color-primary)]" /><span>{label}</span>
             <span className="text-[10px] text-gray-400 font-normal">{desc}</span>
           </button>
         ))}
@@ -103,7 +103,7 @@ export default function AIChatPanel({ onAccept, onAction, onClose }: AIChatPanel
               className="btn-secondary text-xs w-full"
               onClick={() => onAccept(streamingContent)}
             >
-              📥 采纳到笔记
+              <Download className="inline h-3.5 w-3.5" /> 采纳到笔记
             </button>
           )}
         </div>

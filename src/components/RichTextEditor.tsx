@@ -17,7 +17,7 @@ import {
   Code, Link as LinkIcon, List, ListOrdered,
   Quote, Heading1, Heading2, Heading3, Heading4, Heading5, Pilcrow, CodeXml, Minus, Image as ImageIcon,
   Undo2, Redo2, ListChecks, ZoomIn, ZoomOut, Copy, Table2, ImageDown, X,
-  Lightbulb, Languages, Sparkles, BookOpen, Search, PaintRoller,
+  Lightbulb, Languages, Sparkles, BookOpen, Search, PaintRoller, MoreHorizontal,
 } from 'lucide-react';
 import { markdownToHtml, htmlToMarkdown } from '../lib/markdownUtils';
 import { putAttachment, getAttachment } from '../lib/db/queries';
@@ -63,7 +63,7 @@ interface RichTextEditorProps {
   onChange: (value: string) => void;  // 返回 Markdown
   placeholder?: string;
   autoFocus?: boolean;
-  /** 选中→AI 操作（飞书式）：翻译/解释/润色 */
+  /** 选中→AI 操作：翻译/解释/润色 */
   onAIAction?: (action: 'translate' | 'explain' | 'polish', selectedText: string) => void;
   /** 点击双向链接 [[目标]] 时触发（父组件负责跳转到目标文档） */
   onWikilinkClick?: (target: string) => void;
@@ -117,6 +117,8 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
   const [svgError, setSvgError] = useState('');
   const [svgRendering, setSvgRendering] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const [showMoreTools, setShowMoreTools] = useState(false);
   // 格式刷：第一次点复制选区格式，第二次点应用到新选区
   const [storedMarks, setStoredMarks] = useState<{ type: string }[] | null>(null);
   // 双向链接 [[ 浮层
@@ -160,7 +162,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
       TaskList,
       TaskItem.configure({ nested: true }),
       EnhancedCodeBlock.configure({ lowlight }),
-      Table.configure({ resizable: false }),
+      Table.configure({ resizable: true }),
       TableRow,
       TableCell,
       TableHeader,
@@ -414,7 +416,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
     return () => { editor.off('transaction', onTransaction); };
   }, [editor]);
 
-  // 飞书式：粘贴（Ctrl+V 截图）/ 拖拽图片自动插入（DOM 级监听，HMR 友好）
+  // 粘贴截图 / 拖拽图片自动插入（DOM 级监听，HMR 友好）
   useEffect(() => {
     if (!editor) return;
     const insertImageFile = (file: File) =>
@@ -799,8 +801,18 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
           const target = window.prompt(`输入要链接的文档标题（双向链接）。\n\n可用文档：\n${list}`, '');
           if (target && target.trim()) editor.chain().focus().insertWikilink(target.trim()).run();
         }} title="插入双向链接 [[]]"><LinkIcon className="w-4 h-4" /></ToolbarBtn>
+        <button type="button" className={`editor-more-tools inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs ${showMoreTools ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)]' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'}`} onClick={() => setShowMoreTools((value) => !value)} aria-expanded={showMoreTools} aria-label="更多编辑工具"><MoreHorizontal className="h-4 w-4" /><span className="hidden sm:inline">更多</span></button>
+        {showMoreTools && <>
         <ToolbarBtn onClick={toggleCodeBlockSmart} active={isActive('codeBlock')} title="代码块"><CodeXml className="w-4 h-4" /></ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} title="插入 3×3 表格"><Table2 className="w-4 h-4" /></ToolbarBtn>
+        <div className="relative">
+          <ToolbarBtn onClick={() => setTablePickerOpen((open) => !open)} title="插入表格"><Table2 className="w-4 h-4" /></ToolbarBtn>
+          {tablePickerOpen && <div className="table-picker-popover absolute left-0 top-[calc(100%+0.4rem)] z-50 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-2 shadow-xl" onMouseDown={(event) => event.preventDefault()}>
+            <p className="mb-1.5 text-[10px] text-[var(--color-text-tertiary)]">选择表格大小</p>
+            <div className="grid grid-cols-8 gap-1">
+              {Array.from({ length: 64 }, (_, index) => { const row = Math.floor(index / 8) + 1; const col = (index % 8) + 1; return <button key={`${row}-${col}`} type="button" className="table-picker-cell h-4 w-4 rounded-sm border border-[var(--color-border)]" title={`${row} × ${col}`} onClick={() => { editor.chain().focus().insertTable({ rows: row, cols: col, withHeaderRow: true }).run(); setTablePickerOpen(false); }} />; })}
+            </div>
+          </div>}
+        </div>
         <ToolbarBtn onClick={openSvgDialog} title="SVG 代码转 PNG 图片"><ImageDown className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="分隔线"><Minus className="w-4 h-4" /></ToolbarBtn>
         <label className="p-1.5 rounded-md transition-colors text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] cursor-pointer" title="插入图片（选文件）">
@@ -837,6 +849,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
           <PaintRoller className="w-4 h-4" />
         </ToolbarBtn>
         <ToolbarBtn onClick={() => setShowSearch(true)} title="查找替换 (Ctrl+H)"><Search className="w-4 h-4" /></ToolbarBtn>
+        </>}
       </div>
 
       {showSearch && editor && <SearchReplaceBar editor={editor} onClose={() => setShowSearch(false)} />}

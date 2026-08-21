@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { useFocusTrap } from '../lib/ui/useFocusTrap';
 
 interface CategoryDialogProps {
   title: string;
@@ -21,6 +22,8 @@ export default function CategoryDialog({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLFormElement>(null);
+  useFocusTrap(true, dialogRef, inputRef);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -52,9 +55,9 @@ export default function CategoryDialog({
 
   return createPortal(
     <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/35 p-4" onMouseDown={() => { if (!busy) onClose(); }}>
-      <form className="w-full max-w-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-2xl" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}>
+      <form ref={dialogRef} className="w-full max-w-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="category-dialog-title" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-[var(--color-text)]">{title}</h2>
+          <h2 id="category-dialog-title" className="text-base font-semibold text-[var(--color-text)]">{title}</h2>
           <button type="button" className="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)]" onClick={onClose} disabled={busy} title="关闭">
             <X className="h-4 w-4" />
           </button>

@@ -1,7 +1,9 @@
 import { useNavigate } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { TEMPLATES, type DocTemplate } from '../lib/templates';
 import { useJournalStore } from '../stores/journalStore';
+import { useFocusTrap } from '../lib/ui/useFocusTrap';
 
 interface TemplatePickerProps {
   onClose: () => void;
@@ -10,6 +12,10 @@ interface TemplatePickerProps {
 export default function TemplatePicker({ onClose }: TemplatePickerProps) {
   const navigate = useNavigate();
   const { create, setCurrent } = useJournalStore();
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(true, dialogRef, closeRef);
+  useEffect(() => { closeRef.current?.focus(); const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); }; window.addEventListener('keydown', onKey); const previous = document.body.style.overflow; document.body.style.overflow = 'hidden'; return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = previous; }; }, [onClose]);
 
   const handlePick = async (tpl: DocTemplate) => {
     const content = tpl.build();
@@ -36,12 +42,15 @@ export default function TemplatePicker({ onClose }: TemplatePickerProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in p-4" onClick={onClose}>
       <div
         className="w-full max-w-2xl rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-2xl animate-scale-in overflow-hidden"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
         <div className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-3">
           <h2 className="text-base font-semibold text-[var(--color-text)]">从模板新建</h2>
-          <button className="btn-ghost p-1.5" onClick={onClose} title="关闭">
+          <button ref={closeRef} className="btn-ghost p-1.5" onClick={onClose} title="关闭" aria-label="关闭">
             <X className="h-4 w-4" />
           </button>
         </div>

@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Search, Star, Trash2, Bookmark, Filter } from 'lucide-react';
+import { Search, Star, Trash2, Bookmark, Filter, Sparkles, RotateCcw } from 'lucide-react';
 import { searchDocuments, type SearchResult } from '../lib/search/searchDocuments';
 import { parseQuery } from '../lib/search/queryParser';
 import { getSavedSearches, saveSavedSearch, deleteSavedSearch } from '../lib/db/queries';
 import { useJournalStore } from '../stores/journalStore';
 import type { SavedSearch } from '../lib/db/schema';
+import { buildSearchAIContext, saveSearchAIContext } from '../lib/ai/searchContext';
+import { Button, Input } from '../components/ui';
 
 /** 把文本中命中 terms 的部分包成 <mark> */
 function Highlight({ text, terms }: { text: string; terms: string[] }) {
@@ -98,6 +100,12 @@ export default function SearchResultsPage() {
     navigate(`/edit/${id}`);
   };
 
+  const askAIFromResults = () => {
+    if (!activeQuery.trim() || results.length === 0) return;
+    saveSearchAIContext(buildSearchAIContext(activeQuery, results));
+    navigate(`/ai?q=${encodeURIComponent(activeQuery)}&from=search`);
+  };
+
   return (
     <div className="content-frame flex h-full flex-col animate-fade-in">
       <div className="page-hero px-1">
@@ -117,14 +125,14 @@ export default function SearchResultsPage() {
             submit(input);
           }}
         >
-          <input
+          <Input
             className="input-field flex-1 text-sm"
             placeholder="关键词 tag:编程 subject:计算机 after:2026-01-01 is:inbox &quot;精确短语&quot;"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             autoFocus
           />
-          <button type="submit" className="btn-primary text-sm">搜索</button>
+          <Button type="submit" variant="primary" size="sm">搜索</Button>
           <button
             type="button"
             className="btn-ghost text-xs flex items-center gap-1"
@@ -175,10 +183,13 @@ export default function SearchResultsPage() {
 
         {/* 状态行 */}
         {activeQuery.trim() && (
-          <p className="text-xs text-[var(--color-text-secondary)] mb-2 flex items-center gap-1">
-            <Filter className="h-3 w-3" />
-            {loading ? '搜索中…' : `找到 ${results.length} 条结果`}
-          </p>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-xs text-[var(--color-text-secondary)] flex items-center gap-1">
+              <Filter className="h-3 w-3" />
+              {loading ? '搜索中…' : `找到 ${results.length} 条结果`}
+            </p>
+            {!loading && results.length > 0 && <Button type="button" variant="ghost" size="sm" icon={<Sparkles className="h-3.5 w-3.5" />} onClick={askAIFromResults}>基于结果询问 AI</Button>}
+          </div>
         )}
 
         {/* 结果列表 */}
@@ -215,7 +226,7 @@ export default function SearchResultsPage() {
           ))}
 
           {!loading && activeQuery.trim() && results.length === 0 && (
-            <div className="empty-state"><p className="text-sm text-[var(--color-text-tertiary)]">没有匹配的文档。试试简化关键词，或检查字段语法。</p></div>
+            <div className="empty-state"><div className="empty-state-icon mb-3"><Search className="h-6 w-6" /></div><p className="text-sm font-medium text-[var(--color-text)]">没有找到匹配内容</p><p className="mt-1 text-xs text-[var(--color-text-secondary)]">可以换个关键词、清除筛选，或直接让 AI 帮你继续探索。</p><div className="mt-4 flex flex-wrap justify-center gap-2"><button className="btn-secondary text-xs" onClick={() => { setInput(''); submit(''); }} type="button"><RotateCcw className="h-3.5 w-3.5" />清除筛选</button><button className="btn-primary text-xs" onClick={() => navigate(`/ai?q=${encodeURIComponent(activeQuery)}`)} type="button"><Sparkles className="h-3.5 w-3.5" />问 AI</button></div></div>
           )}
           {!activeQuery.trim() && (
             <div className="empty-state"><div className="empty-state-icon mb-3"><Search className="h-6 w-6" /></div><p className="text-sm text-[var(--color-text-tertiary)]">输入关键词或使用字段语法开始搜索。</p></div>

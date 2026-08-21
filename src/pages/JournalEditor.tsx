@@ -36,6 +36,8 @@ export default function JournalEditor() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
   // 仅在切换到新文档时从 store 初始化，避免自动保存/同步更新 currentEntry 时覆盖正在编辑的光标。
   const initializedEntryIdRef = useRef<string | null>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -80,6 +82,14 @@ export default function JournalEditor() {
   });
   // 字数统计：useMemo 缓存，避免每次渲染都重复计算 content.replace
   const charCount = useMemo(() => content.replace(/\s+/g, '').length, [content]);
+  const commonTags = useMemo(() => Array.from(new Set(entries.flatMap((entry) => entry.tags ?? []))).filter((tag) => !tags.includes(tag)).slice(0, 12), [entries, tags]);
+  const addTag = (raw: string) => {
+    const tag = raw.trim().replace(/^#/, '').replace(/\s+/g, '-');
+    if (!tag || tags.includes(tag)) return;
+    setTags((current) => [...current, tag]);
+    setTagInput('');
+  };
+  const removeTag = (tag: string) => setTags((current) => current.filter((item) => item !== tag));
   // 稳定的导航回调：避免每次渲染都创建新引用，配合子组件 React.memo 减少重渲染
   const handleNavigate = useCallback((targetId: string) => navigate(`/edit/${targetId}`), [navigate]);
   const handleMarkdownOutlineJump = useCallback((line: number) => {
@@ -147,12 +157,14 @@ export default function JournalEditor() {
       initializedEntryIdRef.current = null;
       setCurrent(null);
       setTitle(''); setContent(''); setMode(isMobile ? 'markdown' : 'rich');
+      setTags([]); setTagInput('');
     }
   }, [id]);
   useEffect(() => {
     if (currentEntry && currentEntry.id === id && initializedEntryIdRef.current !== currentEntry.id) {
       setTitle(currentEntry.title);
       setContent(currentEntry.content);
+      setTags(currentEntry.tags ?? []);
       initializedEntryIdRef.current = currentEntry.id;
     }
   }, [currentEntry, id]);
@@ -184,7 +196,7 @@ export default function JournalEditor() {
       title: title.trim(),
       content,
       contentPlain: content.replace(/[#*`[\]()>|~_ -]/g, '').replace(/\s+/g, ' ').trim(),
-      tags: currentEntry?.tags ?? [],
+      tags,
       subject: currentEntry?.subject ?? '',
       sourceType: 'manual' as const,
     };
@@ -200,7 +212,7 @@ export default function JournalEditor() {
     }
     setSaving(false);
     // 本地保存完成（编辑停顿约 3 秒自动存）。云同步独立：顶部☁️手动 / 编辑停顿 10s 自动
-  }, [title, content, isNew, id, currentEntry]);
+  }, [title, content, tags, isNew, id, currentEntry]);
 
   // 编辑停顿 10s 后自动同步（仅当启用且开启 autoSync）
   useEffect(() => {
@@ -216,7 +228,7 @@ export default function JournalEditor() {
     if (!title.trim() && !content.trim()) return;
     const timer = setTimeout(handleSave, 3000);
     return () => clearTimeout(timer);
-  }, [title, content]);
+  }, [title, content, tags]);
 
   // 全局快捷键（Ctrl+S 保存）
   useEffect(() => {
@@ -362,7 +374,7 @@ export default function JournalEditor() {
     <div className="flex flex-col h-full animate-fade-in">
       {/* 工具栏（可隐藏） */}
       {showToolbar && (
-      <div className="editor-toolbar glass relative z-30 flex items-center gap-1.5 px-3 py-1.5 border-b border-[var(--color-border)] flex-wrap">
+      <div className="editor-toolbar glass relative z-30 flex items-center gap-1.5 px-3 py-1.5 border border-[var(--color-border)] flex-wrap">
         <button className="btn-ghost p-1.5" onClick={toggleToolbar} title="隐藏工具栏">
           <ChevronUp className="h-4 w-4" />
         </button>
@@ -486,9 +498,9 @@ export default function JournalEditor() {
         </button>
         {/* 保存状态指示器 */}
         <span className="text-xs text-[var(--color-text-secondary)] flex items-center gap-1">
-          {saveStatus === 'saving' && <span key="saving" className="animate-fade-in text-[var(--color-accent)]">💾 保存中...</span>}
-          {saveStatus === 'saved' && <span key="saved" className="animate-fade-in text-[var(--color-success)]">✅ 已保存</span>}
-          {saveStatus === 'error' && <span key="error" className="animate-fade-in text-[var(--color-danger)]">⚠️ 保存失败</span>}
+          {saveStatus === 'saving' && <span key="saving" className="animate-fade-in text-[var(--color-accent)]"><Loader2 className="inline h-3.5 w-3.5 animate-spin" /> 保存中</span>}
+          {saveStatus === 'saved' && <span key="saved" className="animate-fade-in text-[var(--color-success)]"><Check className="inline h-3.5 w-3.5" /> 已保存</span>}
+          {saveStatus === 'error' && <span key="error" className="animate-fade-in text-[var(--color-danger)]"><span aria-hidden="true">!</span> 保存失败，可重试</span>}
         </span>
         <button className="btn-primary text-sm" onClick={handleSave} disabled={saving || !title.trim()}>
           {saving ? '保存中...' : '保存'}
@@ -540,7 +552,20 @@ export default function JournalEditor() {
               autoFocus={isNew}
             />
 
-            {/* 元信息行（飞书式轻量信息条） */}
+            <div className="mt-3 flex min-h-8 flex-wrap items-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/45 px-2 py-1.5">
+              {tags.map((tag) => <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-[var(--color-primary-light)] px-2 py-0.5 text-xs text-[var(--color-primary)]">#{tag}<button type="button" className="rounded-full p-0.5 hover:bg-[var(--color-primary)]/15" onClick={() => removeTag(tag)} aria-label={`删除标签 ${tag}`}><X className="h-3 w-3" /></button></span>)}
+              <input
+                className="min-w-[8rem] flex-1 border-0 bg-transparent px-1 py-0.5 text-xs text-[var(--color-text)] outline-none placeholder:text-[var(--color-text-tertiary)]"
+                value={tagInput}
+                onChange={(event) => setTagInput(event.target.value)}
+                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ',' || event.key === '、') { event.preventDefault(); addTag(tagInput); } if (event.key === 'Backspace' && !tagInput && tags.length) removeTag(tags[tags.length - 1]); }}
+                placeholder={tags.length ? '添加标签…' : '添加标签，回车创建'}
+                list="common-document-tags"
+              />
+              <datalist id="common-document-tags">{commonTags.map((tag) => <option key={tag} value={tag} />)}</datalist>
+            </div>
+
+            {/* 元信息行 */}
             <div className="mt-3 flex items-center gap-2 text-xs text-[var(--color-text-tertiary)] flex-wrap">
               {currentEntry?.createdAt && (
                 <span>

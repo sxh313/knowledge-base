@@ -3,6 +3,7 @@ import { Play, Pause, RotateCcw, Timer, Coffee, Settings2, X, EyeOff } from 'luc
 import { usePomodoroStore } from '../stores/pomodoroStore';
 import { useJournalStore } from '../stores/journalStore';
 import { useViewModeStore } from '../stores/viewModeStore';
+import { useLocation } from 'react-router-dom';
 
 function formatTime(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -40,6 +41,7 @@ export default function PomodoroWidget() {
   const visible = usePomodoroStore((s) => s.visible);
   const setVisible = usePomodoroStore((s) => s.setVisible);
   const isMobile = useViewModeStore((s) => s.isMobile);
+  const location = useLocation();
   // 可拖动位置（持久化）
   const [pos, setPos] = useState<{ x: number; y: number } | null>(() => loadPos());
   const posRef = useRef(pos); posRef.current = pos;
@@ -141,8 +143,8 @@ export default function PomodoroWidget() {
     <div
       className="pomo-root fixed z-30 select-none"
       style={isMobile
-        ? (pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : { right: 16, bottom: 'calc(8.5rem + env(safe-area-inset-bottom))' })
-        : (pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : { right: 16, bottom: 16 })}
+        ? (pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : location.pathname === '/ai' ? { right: 12, top: 58, bottom: 'auto' } : { right: 16, bottom: 'calc(8.5rem + env(safe-area-inset-bottom))' })
+        : (pos ? { left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' } : { right: 16, top: location.pathname === '/ai' ? 64 : 60, bottom: 'auto' })}
     >
       {/* 展开面板 */}
       {expanded && (
