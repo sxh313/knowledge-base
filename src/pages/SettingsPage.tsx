@@ -12,7 +12,7 @@ import { exportKeys, importKeys, type KeyBundle } from '../lib/utils/keyVault';
 import SyncSettingsSection from '../components/settings/SyncSettingsSection';
 import AIModelCenter from '../components/settings/AIModelCenter';
 import DesktopUpdater from '../components/DesktopUpdater';
-import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck, ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
+import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck, ArrowUp, ArrowDown, GripVertical, Bot } from 'lucide-react';
 import { useViewModeStore } from '../stores/viewModeStore';
 
 const isAndroidApp = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
@@ -196,7 +196,7 @@ export default function SettingsPage() {
       }
       await updateAI(merged);
       setLocalProviders(JSON.parse(JSON.stringify(merged)));
-      setVaultMsg(`✅ 导入成功：${count} 个 Key 已写入（${names.join(' / ')}），可在上方「AI 服务配置」展开查看`);
+      setVaultMsg(`✅ 导入成功：${count} 个 Key 已写入（${names.join(' / ')}），可在上方「API 服务配置」展开查看`);
       setImportText('');
     } catch {
       setVaultMsg('❌ 解密失败：主密码错误或密文损坏');
@@ -215,12 +215,11 @@ export default function SettingsPage() {
       <header className="page-hero !items-start !flex-col !gap-0">
         <div className="page-kicker">Workspace preferences</div>
         <h1 className="text-2xl font-bold">设置</h1>
-        <p className="text-sm text-gray-500 mt-1">凭据由你在本机配置，不写入安装包；调用 AI 时直连你选择的服务商</p>
       </header>
 
-      {/* AI 服务配置 */}
+      {/* API 服务配置 */}
       <section id="ai-services" className="scroll-mt-6 space-y-4">
-        <h2 className="text-lg font-semibold">🤖 AI 服务配置</h2>
+        <h2 className="flex items-center gap-2 text-lg font-semibold"><Bot className="h-5 w-5 text-[var(--color-primary)]" /> API 服务配置</h2>
         <p className="text-xs text-gray-400">填写 API Key 后点击「刷新模型」获取可用模型列表，勾选你想使用的模型</p>
 
         {PROVIDER_INFO.map(({ key, label, desc, icon }) => {

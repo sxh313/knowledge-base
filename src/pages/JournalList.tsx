@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Star, Menu, X, Copy, CalendarDays, UploadCloud, LayoutTemplate, Trash2, FolderInput, Plus, MoreVertical } from 'lucide-react';
+import { Star, Menu, X, Copy, CalendarDays, UploadCloud, LayoutTemplate, Trash2, FolderInput, Plus, MoreVertical, PenLine } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useViewModeStore } from '../stores/viewModeStore';
@@ -9,6 +9,7 @@ import ContextMenu from '../components/ContextMenu';
 import CategoryDialog from '../components/CategoryDialog';
 import type { JournalEntry } from '../lib/db/schema';
 import TemplatePicker from '../components/TemplatePicker';
+import { showToast } from '../lib/ui/toast';
 
 export default function JournalList() {
   const navigate = useNavigate();
@@ -78,7 +79,9 @@ export default function JournalList() {
         /* 跳过失败的文件 */
       }
     }
-    setImportMsg(ok > 0 ? `✅ 已导入 ${ok} 篇文档` : '未能导入任何 .md 文件');
+    if (ok > 0) showToast('success', `已导入 ${ok} 篇文档`, '文档已保存到你的知识岛屿。');
+    else showToast('error', '导入失败', '没有找到可读取的 Markdown 文件。');
+    setImportMsg(ok > 0 ? `已导入 ${ok} 篇文档` : '未能导入任何 .md 文件');
     setTimeout(() => setImportMsg(null), 3500);
   }, [create]);
 
@@ -310,19 +313,20 @@ export default function JournalList() {
         {showOnboarding && (
           <div className="mb-3 rounded-xl border p-4 animate-fade-in" style={{ borderColor: 'color-mix(in srgb, var(--color-primary) 30%, transparent)', backgroundColor: 'var(--color-primary-light)' }}>
             <div className="flex items-start gap-3">
-              <span className="text-2xl">👋</span>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--color-primary)] text-white"><PenLine className="h-4 w-4" /></span>
               <div className="flex-1">
-                <h3 className="font-medium text-sm text-[var(--color-primary)]">欢迎来到知屿！</h3>
+                <h3 className="font-medium text-sm text-[var(--color-primary)]">先写下第一条航线</h3>
                 <p className="text-xs text-[var(--color-text-secondary)] mt-1">
-                  配置 AI API 入口后，即可使用智能总结、代码分析等功能。
+                  先创建一篇笔记，再决定是否连接 AI。你会在写作中看到它的价值。
                 </p>
                 <div className="flex gap-2 mt-3">
-                  <button className="btn-primary text-xs px-3 py-1.5" onClick={() => navigate('/settings')}>
-                    前往配置
+                  <button className="btn-primary text-xs px-3 py-1.5" onClick={() => { setCurrent(null); navigate('/edit/new'); }}>
+                    写第一篇
                   </button>
-                  <button className="btn-ghost text-xs px-3 py-1.5" onClick={dismissOnboarding}>
-                    稍后再说
+                  <button className="btn-ghost text-xs px-3 py-1.5" onClick={() => navigate('/ai')}>
+                    先试试 AI
                   </button>
+                  <button className="btn-ghost text-xs px-3 py-1.5" onClick={dismissOnboarding}>关闭</button>
                 </div>
               </div>
             </div>
@@ -384,7 +388,7 @@ export default function JournalList() {
           ) : filtered.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon mb-3">
-                <span className="text-3xl">📝</span>
+                <PenLine className="h-7 w-7" />
               </div>
               {searchQuery || selectedSubject ? (
                 <>
@@ -397,7 +401,7 @@ export default function JournalList() {
               ) : (
                 <>
                   <p className="text-[var(--color-text)] font-medium text-sm">你还没有任何文档</p>
-                  <p className="text-xs text-[var(--color-text-secondary)] mt-1">记录今天学到的第一个知识点吧</p>
+              <p className="text-xs text-[var(--color-text-secondary)] mt-1">记录今天学到的第一个知识点，岛屿会从这里长出来。</p>
                   <button className="btn-primary mt-4 px-6 py-2.5"
                     onClick={() => { setCurrent(null); navigate('/edit/new'); }}>
                     写第一篇文档

@@ -1,4 +1,6 @@
 import { X } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { useFocusTrap } from '../lib/ui/useFocusTrap';
 
 const SHORTCUTS = [
   {
@@ -24,16 +26,23 @@ const SHORTCUTS = [
 ];
 
 export default function ShortcutsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(open, dialogRef, closeRef);
+  useEffect(() => { if (!open) return; closeRef.current?.focus(); const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); }; window.addEventListener('keydown', onKey); const previous = document.body.style.overflow; document.body.style.overflow = 'hidden'; return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = previous; }; }, [open, onClose]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center" onClick={onClose}>
       <div
         className="bg-[var(--color-surface)] rounded-2xl shadow-xl border border-[var(--color-border)] p-6 max-w-md w-full mx-4 animate-scale-in"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold">⌨️ 快捷键</h2>
-          <button onClick={onClose} className="btn-ghost p-1"><X className="h-4 w-4" /></button>
+          <button ref={closeRef} onClick={onClose} className="btn-ghost p-1" aria-label="关闭快捷键"><X className="h-4 w-4" /></button>
         </div>
         <div className="space-y-4">
           {SHORTCUTS.map(g => (

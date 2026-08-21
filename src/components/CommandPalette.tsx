@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useMemo, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, FileText, Plus, BarChart3, Settings, MessageSquare, CalendarDays, Tag } from 'lucide-react';
+import { Search, FileText, Plus, BarChart3, Settings, MessageSquare, CalendarDays, Tag, Sparkles } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { searchJournals } from '../lib/search/fuse';
+import { buildSearchAIContext, saveSearchAIContext } from '../lib/ai/searchContext';
+import { useFocusTrap } from '../lib/ui/useFocusTrap';
 
 interface CommandPaletteProps {
   open: boolean;
@@ -18,6 +20,8 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(open, dialogRef, inputRef);
 
   // Reset when opened
   useEffect(() => {
@@ -41,20 +45,20 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   // Build command list
   const commands = useMemo(() => {
     const actions = [
-      { type: 'action' as const, icon: Plus, label: '新建文档', desc: '创建一篇新文档', action: () => { setCurrent(null); navigate('/edit/new'); } },
-      { type: 'action' as const, icon: Search, label: '高级搜索', desc: '按标签/分类/时间/状态等条件搜索文档', action: () => navigate(deferredQuery.trim() ? `/search?q=${encodeURIComponent(deferredQuery.trim())}` : '/search') },
-      { type: 'action' as const, icon: CalendarDays, label: '今日笔记', desc: '一键创建/打开今天的每日总结', action: async () => {
+      { type: 'action' as const, group: '常用动作', icon: Plus, label: '新建文档', desc: '创建一篇新文档', action: () => { setCurrent(null); navigate('/edit/new'); } },
+      { type: 'action' as const, group: '常用动作', icon: Search, label: '高级搜索', desc: '按标签/分类/时间/状态等条件搜索文档', action: () => navigate(deferredQuery.trim() ? `/search?q=${encodeURIComponent(deferredQuery.trim())}` : '/search') },
+      { type: 'action' as const, group: '常用动作', icon: CalendarDays, label: '今日笔记', desc: '一键创建/打开今天的每日总结', action: async () => {
         const { entry } = await createTodayNote();
         navigate(`/edit/${entry.id}`);
       } },
-      { type: 'action' as const, icon: MessageSquare, label: 'AI 助手', desc: '与 AI 对话', action: () => navigate('/ai') },
-      { type: 'action' as const, icon: BarChart3, label: '统计', desc: '查看学习数据', action: () => navigate('/stats') },
-      { type: 'action' as const, icon: Tag, label: '标签管理', desc: '标签云与按标签筛选', action: () => navigate('/tags') },
-      { type: 'action' as const, icon: Settings, label: '设置', desc: 'API 配置和数据管理', action: () => navigate('/settings') },
+      { type: 'action' as const, group: '学习路径', icon: MessageSquare, label: 'AI 助手', desc: '与 AI 对话', action: () => navigate('/ai') },
+      { type: 'action' as const, group: '学习路径', icon: BarChart3, label: '统计', desc: '查看学习数据', action: () => navigate('/stats') },
+      { type: 'action' as const, group: '管理', icon: Tag, label: '标签管理', desc: '标签云与按标签筛选', action: () => navigate('/tags') },
+      { type: 'action' as const, group: '管理', icon: Settings, label: '设置', desc: 'API 配置和数据管理', action: () => navigate('/settings') },
     ];
 
     // Search documents if query is not empty
-    let docResults: { type: 'doc'; id: string; title: string; subject: string; tags: string[]; createdAt: number }[] = [];
+    let docResults: { type: 'doc'; group?: string; id: string; title: string; subject: string; tags: string[]; createdAt: number }[] = [];
     if (deferredQuery.trim()) {
       // 优先用 Fuse 模糊搜索（加权 + 拼写容错，索引由 App 启动时构建）；
       // 若索引尚未就绪（冷启动），降级为简单字段 includes 匹配，保证总有结果
@@ -70,18 +74,25 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
           ).slice(0, 8);
       docResults = matched.map(e => ({
         type: 'doc' as const,
+        group: '文档结果',
         id: e.id,
         title: e.title || '无标题',
         subject: e.subject,
         tags: e.tags,
         createdAt: e.createdAt,
       }));
+      if (deferredQuery.trim()) actions.unshift({ type: 'action' as const, group: '智能动作', icon: Sparkles, label: '基于结果询问 AI', desc: `把 ${matched.length} 条结果作为上下文继续追问`, action: () => {
+        saveSearchAIContext(buildSearchAIContext(deferredQuery.trim(), matched.map((item) => ({ item, score: 0, reasons: ['搜索结果'], snippet: item.contentPlain.slice(0, 180), matchedTerms: [] }))));
+        navigate(`/ai?q=${encodeURIComponent(deferredQuery.trim())}&from=search`);
+      } });
+    } else {
+      docResults = [...entries].filter((entry) => !entry.deletedAt).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 5).map((e) => ({ type: 'doc' as const, group: '最近编辑', id: e.id, title: e.title || '无标题', subject: e.subject, tags: e.tags, createdAt: e.createdAt }));
     }
 
     // Filter actions by query
     const qAct = deferredQuery.toLowerCase();
     const filteredActions = deferredQuery.trim()
-      ? actions.filter(a => a.label.toLowerCase().includes(qAct) || a.desc.toLowerCase().includes(qAct))
+      ? actions.filter(a => a.label === '基于结果询问 AI' || a.label.toLowerCase().includes(qAct) || a.desc.toLowerCase().includes(qAct))
       : actions;
 
     return [...filteredActions, ...docResults];
@@ -135,6 +146,10 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
       >
         {/* Panel */}
         <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="搜索和快捷操作"
           className="w-full max-w-xl bg-[var(--color-surface)] rounded-2xl shadow-2xl border border-[var(--color-border)] overflow-hidden"
           onClick={e => e.stopPropagation()}
         >
@@ -160,7 +175,9 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 没有找到匹配的结果
               </div>
             ) : (
-              commands.map((cmd, i) => (
+      commands.map((cmd, i) => (
+                <div key={`row-${i}`}>
+                {(i === 0 || commands[i - 1].group !== cmd.group) && <p className="px-4 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[.12em] text-[var(--color-text-tertiary)]">{cmd.group}</p>}
                 <button
                   key={i}
                   className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
@@ -192,7 +209,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
                       ))}
                     </div>
                   )}
-                </button>
+                </button></div>
               ))
             )}
           </div>

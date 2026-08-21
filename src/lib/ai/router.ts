@@ -28,6 +28,7 @@ export async function routeAI(
   messages: ChatMessage[],
   onToken?: (token: string) => void,
   preferredModelId?: string,
+  signal?: AbortSignal,
 ): Promise<RouteResult> {
   const settings = await getSettings();
   // 将设置页选择的模型放在任务专属 fallback 链最前面，避免 UI 选择与实际调用脱节。
@@ -57,17 +58,18 @@ export async function routeAI(
       return null;
     }
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 60000);
+      const controller = signal ? undefined : new AbortController();
+      const timeout = controller ? setTimeout(() => controller.abort(), 60000) : undefined;
       const result = await chatCompletion(
         { name: provider, baseUrl: prov.baseUrl, apiKey: prov.apiKey, enabled: true },
         model,
         messages,
-        { stream: !!onToken, onToken, signal: controller.signal },
+        { stream: !!onToken, onToken, signal: signal ?? controller?.signal },
       );
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       return { content: result.content, model, provider, usage: result.usage };
     } catch (err) {
+      if (signal?.aborted) throw err;
       lastError = `${provider}/${model}: ${(err as Error).message}`;
       console.warn(`AI failover: ${lastError}`);
       return null;
@@ -79,17 +81,18 @@ export async function routeAI(
     if (tried.has(key)) return null;
     tried.add(key);
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 60000);
+      const controller = signal ? undefined : new AbortController();
+      const timeout = controller ? setTimeout(() => controller.abort(), 60000) : undefined;
       const result = await chatCompletion(
         { name: profile.id, baseUrl: profile.baseUrl, apiKey: profile.apiKey, enabled: profile.enabled },
         profile.modelId,
         messages,
-        { stream: !!onToken, onToken, signal: controller.signal },
+        { stream: !!onToken, onToken, signal: signal ?? controller?.signal },
       );
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       return { content: result.content, model: profile.modelId, provider: profile.id, usage: result.usage };
     } catch (err) {
+      if (signal?.aborted) throw err;
       lastError = `[${profile.id}/${profile.modelId}]: ${(err as Error).message}`;
       console.warn(`AI failover: ${lastError}`);
       return null;

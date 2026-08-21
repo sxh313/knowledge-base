@@ -1,6 +1,8 @@
-import { useState } from 'react';
 import { BookOpen, FileText, Globe2, ChevronDown, ChevronUp, LocateFixed } from 'lucide-react';
+import { useState } from 'react';
 import type { RetrievedChunk } from '../lib/ai/retrieval';
+import SourcePreviewModal from './SourcePreviewModal';
+import MarkdownContent from './MarkdownContent';
 
 interface CitationListProps {
   citations: RetrievedChunk[];
@@ -8,10 +10,11 @@ interface CitationListProps {
 }
 
 /** 展示 RAG 回答的参考来源（实际发送的分块：文档标题 + 章节，点击跳转） */
-export default function CitationList({ citations, onNavigate }: CitationListProps) {
+export default function CitationList({ citations }: CitationListProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [preview, setPreview] = useState<RetrievedChunk | null>(null);
   if (citations.length === 0) return null;
-  return (
+  return <>
     <div className="citation-card mt-3 rounded-lg border p-2.5">
       <p className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--color-text-secondary)] mb-1.5">
         <BookOpen className="h-3 w-3" /> 参考来源（{citations.length}）
@@ -23,8 +26,8 @@ export default function CitationList({ citations, onNavigate }: CitationListProp
           return (
           <div key={citationKey} className="rounded px-1.5 py-1.5 hover:bg-[var(--color-surface-2)] transition-colors">
             <div className="flex items-start gap-1.5 text-left text-xs">
-            <span className="text-[var(--color-text-tertiary)] tabular-nums w-4 shrink-0">{i + 1}.</span>
-            <button className="min-w-0 flex-1 text-left" onClick={() => onNavigate?.(c)} title={c.source === 'zero2agent' ? `定位 zero2Agent：${c.path || c.title}` : `定位《${c.title}》`} type="button">
+            <span className="citation-index shrink-0">{i + 1}</span>
+            <button className="min-w-0 flex-1 text-left" onClick={() => setPreview(c)} title="查看原文依据" type="button">
               <span className="flex items-center gap-1 text-[var(--color-primary)] truncate">
                 {c.source === 'zero2agent' || c.source === 'web' ? <Globe2 className="h-3 w-3 shrink-0" /> : <FileText className="h-3 w-3 shrink-0" />}
                 <span className="truncate">{c.source === 'zero2agent' ? 'zero2Agent · ' : c.source === 'web' ? '联网来源 · ' : '个人文档 · '}《{c.title}》
@@ -40,11 +43,11 @@ export default function CitationList({ citations, onNavigate }: CitationListProp
               {expanded.has(citationKey) ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
             </button>
             </div>
-            {expanded.has(citationKey) && <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap rounded border border-[var(--color-border)] bg-[var(--color-surface-2)] p-2 text-[11px] leading-5 text-[var(--color-text-secondary)]">{c.content}</pre>}
+            {expanded.has(citationKey) && <div className="citation-markdown mt-1.5 max-h-40 overflow-auto rounded border border-[var(--color-border)] bg-[var(--color-surface-2)] p-2 text-[11px] leading-5 text-[var(--color-text-secondary)]"><MarkdownContent>{c.content}</MarkdownContent></div>}
           </div>
           );
         })}
       </div>
-    </div>
-  );
+    </div><SourcePreviewModal citation={preview} onClose={() => setPreview(null)} />
+  </>;
 }

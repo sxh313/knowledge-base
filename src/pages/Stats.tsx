@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '../lib/db/schema';
-import { CalendarDays, BookOpen, Loader2 } from 'lucide-react';
+import { CalendarDays, BookOpen } from 'lucide-react';
 import Heatmap from '../components/Heatmap';
+import { listTopicMastery } from '../lib/zero2review/repository';
+import { getTopicCandidates } from '../lib/zero2review/catalog';
 
 interface DailyCount {
   date: string;
@@ -9,10 +12,12 @@ interface DailyCount {
 }
 
 export default function Stats() {
+  const navigate = useNavigate();
   const [totalJournals, setTotalJournals] = useState(0);
   const [loading, setLoading] = useState(true);
   const [dailyData, setDailyData] = useState<DailyCount[]>([]);
   const [subjectStats, setSubjectStats] = useState<{ subject: string; count: number }[]>([]);
+  const [weakTopics, setWeakTopics] = useState<{ id: string; title: string; mastery: number | null; evidenceCount: number }[]>([]);
 
   useEffect(() => {
     loadStats();
@@ -49,13 +54,20 @@ export default function Stats() {
       .map(([subject, count]) => ({ subject, count }))
       .sort((a, b) => b.count - a.count);
     setSubjectStats(sorted);
+    try {
+      const mastery = (await listTopicMastery()).filter((item) => item.mastery === null || item.mastery < 0.6).sort((a, b) => (a.mastery ?? 0) - (b.mastery ?? 0)).slice(0, 5);
+      const topics = await getTopicCandidates(mastery.map((item) => item.topicId));
+      const titles = new Map(topics.map((topic) => [topic.id, topic.title]));
+      setWeakTopics(mastery.map((item) => ({ id: item.topicId, title: titles.get(item.topicId) ?? item.topicId, mastery: item.mastery, evidenceCount: item.evidenceCount })));
+    } catch {
+      setWeakTopics([]);
+    }
     setLoading(false);
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-brand-500" />
+      <div className="content-frame space-y-5"><div className="page-hero"><div className="page-hero-copy"><div className="h-3 w-28 rounded shimmer" /><div className="mt-3 h-8 w-20 rounded shimmer" /></div></div><div className="stat-grid"><div className="card h-24 shimmer" /><div className="card h-24 shimmer" /><div className="card h-24 shimmer" /></div><div className="card h-64 shimmer" />
       </div>
     );
   }
@@ -98,7 +110,7 @@ export default function Stats() {
           {subjectStats.map(({ subject, count }) => {
             const pct = (count / totalJournals) * 100;
             return (
-              <div key={subject}>
+              <button key={subject} className="block w-full text-left" onClick={() => navigate(`/search?q=${encodeURIComponent(`subject:${subject}`)}`)} type="button" title={`搜索 ${subject} 相关文档`}>
                 <div className="flex items-center justify-between text-sm mb-1">
                   <span className="text-[var(--color-text)]">{subject}</span>
                   <span className="text-[var(--color-text-secondary)]">{count} 篇</span>
@@ -109,12 +121,18 @@ export default function Stats() {
                     style={{ width: `${pct}%` }}
                   />
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
       </div>
       </div>
+      {weakTopics.length > 0 && <div className="card">
+        <div className="mb-3 flex items-center justify-between gap-2"><div><h2 className="text-sm font-semibold text-[var(--color-text)]">下一条航线</h2><p className="mt-1 text-xs text-[var(--color-text-secondary)]">优先补齐掌握度较低或证据不足的主题。</p></div><button className="btn-primary text-xs" onClick={() => navigate('/zero2-review')} type="button">进入训练</button></div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {weakTopics.map((topic) => <button key={topic.id} className="rounded-lg border border-[var(--color-border)] p-3 text-left transition-colors hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-hover)]" onClick={() => navigate('/zero2-review')} type="button"><span className="block truncate text-sm font-medium text-[var(--color-text)]">{topic.title}</span><span className="mt-1 block text-xs text-[var(--color-text-secondary)]">{topic.mastery == null ? '掌握度未知' : `掌握度 ${Math.round(topic.mastery * 100)}%`} · {topic.evidenceCount} 条证据</span></button>)}
+        </div>
+      </div>}
     </div>
   );
 }

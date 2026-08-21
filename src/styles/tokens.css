@@ -1,0 +1,71 @@
+/* 知屿视觉决策：知识岛屿 / 海图 / 灯塔
+   蓝不是装饰色，而是内容路径；暖光只用于当前任务与完成反馈。 */
+:root {
+  --color-bg: #eef4f3;
+  --color-bg-grad: radial-gradient(circle at 88% -10%, rgba(32, 127, 139, .14), transparent 32%), linear-gradient(145deg, #f5f8f7 0%, #eaf1f0 100%);
+  --color-surface: #fbfdfc;
+  --color-surface-hover: #f1f7f5;
+  --color-surface-2: #e8f0ee;
+  --color-border: #d4e1de;
+  --color-border-strong: #b8cbc6;
+  --color-text: #172b2d;
+  --color-text-secondary: #557073;
+  --color-text-tertiary: #819596;
+  --color-primary: #197b88;
+  --color-primary-hover: #126572;
+  --color-primary-light: #dff1ef;
+  --color-accent: #d98d42;
+  --color-accent-hover: #b96f2b;
+  --color-accent-light: #fff0dc;
+  --color-success: #2d936c;
+  --color-success-light: #e2f3e9;
+  --color-danger: #c65a56;
+  --color-danger-light: #fce8e5;
+  --color-info: #3677a4;
+  --color-info-light: #e3eff8;
+  --shadow-xs: 0 1px 2px rgba(24, 57, 59, .04);
+  --shadow-sm: 0 5px 16px rgba(24, 57, 59, .07);
+  --shadow-md: 0 12px 28px rgba(24, 57, 59, .11);
+  --shadow-lg: 0 22px 48px rgba(24, 57, 59, .16);
+  --shadow-xl: 0 30px 70px rgba(24, 57, 59, .2);
+  --shadow-glow: 0 0 0 3px rgba(25, 123, 136, .18);
+  --shadow-card-hover: var(--shadow-sm);
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --duration-fast: 120ms;
+  --duration-normal: 180ms;
+  --duration-emphasis: 360ms;
+}
+
+.dark {
+  --color-bg: #101c20;
+  --color-bg-grad: radial-gradient(circle at 86% -8%, rgba(31, 128, 139, .18), transparent 34%), linear-gradient(145deg, #101c20 0%, #16262a 100%);
+  --color-surface: #1b2b2e;
+  --color-surface-hover: #22363a;
+  --color-surface-2: #203337;
+  --color-border: #355055;
+  --color-border-strong: #4b696d;
+  --color-text: #e5f1ef;
+  --color-text-secondary: #a6c0bf;
+  --color-text-tertiary: #769092;
+  --color-primary: #68c4c4;
+  --color-primary-hover: #8bd9d2;
+  --color-primary-light: #1e4549;
+  --color-accent: #e7a45d;
+  --color-accent-hover: #f0bb7e;
+  --color-accent-light: #49331d;
+  --color-success: #71d19f;
+  --color-success-light: #193b2e;
+  --color-danger: #ef8d82;
+  --color-danger-light: #4a2527;
+  --color-info: #8ebce2;
+  --color-info-light: #1d3b50;
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, .24);
+  --shadow-sm: 0 6px 18px rgba(0, 0, 0, .25);
+  --shadow-md: 0 14px 32px rgba(0, 0, 0, .35);
+  --shadow-lg: 0 24px 56px rgba(0, 0, 0, .42);
+  --shadow-xl: 0 32px 78px rgba(0, 0, 0, .5);
+  --shadow-glow: 0 0 0 3px rgba(104, 196, 196, .24);
+}

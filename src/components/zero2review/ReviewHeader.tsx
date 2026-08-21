@@ -7,7 +7,7 @@ const labels: Record<Zero2ReviewStage, string> = {
 
 export default function ReviewHeader({ stage, dailyMinutes = 30, onStart }: { stage?: Zero2ReviewStage; dailyMinutes?: number; onStart?: () => void }) {
   return <header className="page-hero review-hero flex flex-wrap items-center justify-between gap-4">
-    <div className="page-hero-copy"><div className="page-kicker flex items-center gap-1"><Brain className="h-3.5 w-3.5" /> zero2Agent / 面试通关</div><h1 className="text-xl font-bold">Agent 面试复习教练</h1><p className="page-subtitle">围绕课程原文建立可验证的回答，再用诊断题确认真正掌握。</p></div>
+    <div className="page-hero-copy"><div className="page-kicker flex items-center gap-1"><Brain className="h-3.5 w-3.5" /> zero2Agent / 面试通关</div><h1 className="text-xl font-bold">Agent 面试训练营</h1><p className="page-subtitle">围绕课程原文建立可验证的回答，再用诊断题确认真正掌握。</p></div>
     <div className="review-hero-meta flex items-center gap-3 text-xs text-[var(--color-text-secondary)]"><span className="review-status inline-flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5" />{labels[stage ?? 'idle']}</span><span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />每天 {dailyMinutes} 分钟</span>{onStart && <button className="btn-primary text-xs" onClick={onStart}>开始新会话</button>}</div>
   </header>;
 }

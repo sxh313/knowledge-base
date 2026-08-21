@@ -21,7 +21,7 @@ export default function Manual() {
       {/* 快速开始 */}
       <Section icon={BookOpen} title="快速开始（4 步上手）" color="text-brand-500">
         <ol className="list-decimal pl-5 space-y-1">
-          <li><b>配置 AI</b> — 「设置 → AI 服务配置」填入自己的服务地址和 API Key；本地 OpenAI-compatible 服务可不填 Key</li>
+          <li><b>配置 API</b> — 「设置 → API 服务配置」填入自己的服务地址和 API Key；本地 OpenAI-compatible 服务可不填 Key</li>
           <li><b>写第一篇笔记</b> — 文档列表点「新建文档」，支持富文本/Markdown 双模式，可粘贴截图</li>
           <li><b>让 AI 帮忙</b> — 编辑页点「总结」提炼要点，或使用代码分析和解释功能</li>
           <li><b>复习巩固</b> — 去「复习」页翻面评分，算法自动安排下次复习</li>
@@ -151,7 +151,7 @@ export default function Manual() {
           <li><b>代码解释</b> — 点击「📖 解释」，AI 逐行解释代码逻辑</li>
           <li><b>AI 对话（RAG）</b> — 在同一入口选择个人文档、zero2Agent、全部知识库或不使用知识库；回答附可定位的参考来源</li>
           <li><b>Agent 模式</b> — 切换到 Agent 后可让 AI 规划知识库操作；写入前会展示风险、影响和 diff，必须由你确认，并支持撤销</li>
-          <li><b>本地模型</b> — 「设置 → AI 服务配置 → 本地模型」可连接 Ollama、LM Studio、vLLM、LocalAI 等 OpenAI 兼容服务；API 地址填写本地 <code className="font-mono">/v1</code> 入口，API Key 可留空，并确保本地服务允许浏览器 CORS。</li>
+          <li><b>本地模型</b> — 「设置 → API 服务配置 → 本地模型」可连接 Ollama、LM Studio、vLLM、LocalAI 等 OpenAI 兼容服务；API 地址填写本地 <code className="font-mono">/v1</code> 入口，API Key 可留空，并确保本地服务允许浏览器 CORS。</li>
           <li><b>模型中心</b> — 「设置 → 模型中心」可分别填写 dsv4 Chat 和 BGE Embedding 端点，再绑定回答、向量召回、重排、复习辅导和评分角色。Embedding 不配置也可以使用。</li>
           <li><b>混合检索</b> — 默认使用关键词检索；开启并配置 Embedding、生成向量索引后，才启用关键词 + 向量双路召回，随后可由 dsv4 对候选片段重排。</li>
           <li><b>多模型路由</b> — 支持胜算云、中转站、硅基流动、智谱、DeepSeek 和本地服务，已启用模型之间可故障转移</li>
@@ -167,9 +167,9 @@ export default function Manual() {
           <li><b>状态流转</b> — 🆕新 → 🔶学习中 → ✅复习中（忘了变 🔁重学）</li>
         </ul>
       </Section>
-      <Section icon={Brain} title="Agent 面试复习教练" color="text-cyan-500">
+      <Section icon={Brain} title="Agent 面试训练营" color="text-cyan-500">
         <ul>
-          <li><b>独立入口</b> — 从侧栏进入「zero2 复习」，与普通 AI 和通用 Agent 分开</li>
+          <li><b>独立入口</b> — 从侧栏进入「面试训练营」，与普通 AI 和通用 Agent 分开</li>
           <li><b>固定来源</b> — 默认只检索内置“Agent 面试通关”原文；每个知识回答显示可验证的章节和 Citation</li>
           <li><b>提问不等于掌握</b> — 只有完成带来源证据的诊断题，才会更新掌握度和 FSRS 调度</li>
           <li><b>隐私边界</b> — 无关问题不会进入复习数据；问答历史默认不同步，可在云同步设置中主动开启</li>
@@ -222,7 +222,7 @@ export default function Manual() {
       {/* 设置 */}
       <Section icon={SettingsIcon} title="设置" color="text-gray-500">
         <ul className="list-disc pl-5 space-y-1">
-          <li><b>AI 服务配置</b> — 各服务商填 Key + 刷新模型 + 勾选；模型搜索框实时筛选可用模型</li>
+          <li><b>API 服务配置</b> — 各服务商填 Key + 刷新模型 + 勾选；模型搜索框实时筛选可用模型</li>
           <li><b>模型偏好</b> — 为高质量/代码/快速任务分别指定模型</li>
           <li><b>主题</b> — 白天 / 夜晚 / 跟随系统（侧栏底部一键切换）</li>
           <li><b>复习目标</b> — 设置每日学习时间和 zero2Agent 复习计划</li>
