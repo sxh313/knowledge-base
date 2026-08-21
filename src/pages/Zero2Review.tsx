@@ -28,10 +28,10 @@ export default function Zero2Review() {
   }, [refreshDashboard]);
   const generatePlan = () => void rebuildPlan(dailyMinutes, today(), 'learn-agent-interview');
   const rejected = state?.stage === 'rejected';
-  return <div className="content-frame-reading space-y-4">
+  return <div className="content-frame-reading review-page space-y-4">
     <ReviewHeader stage={state?.stage} dailyMinutes={dailyMinutes} />
-    <div className="card grid gap-3 p-4 md:grid-cols-[1fr_auto_auto]">
-      <textarea aria-label="复习问题" className="input-field min-h-20 w-full" value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); void submit(); } }} placeholder="例如：ReAct 和 Plan-and-Execute 如何选择？（Ctrl/⌘+Enter 提交）" />
+    <div className="review-question card grid gap-3 p-4 md:grid-cols-[1fr_auto_auto]">
+      <div className="min-w-0"><div className="mb-2 flex items-center justify-between gap-2"><span className="panel-eyebrow">ASK / 基于原文提问</span><span className="text-[11px] text-[var(--color-text-tertiary)]">Ctrl/⌘ + Enter</span></div><textarea aria-label="复习问题" className="input-field min-h-20 w-full resize-y" value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); void submit(); } }} placeholder="例如：ReAct 和 Plan-and-Execute 如何选择？" /></div>
       <label className="flex items-center gap-1 text-xs text-[var(--color-text-secondary)]"><span>每日</span><input className="input-field w-20 text-sm" type="number" min={10} max={240} value={dailyMinutes} onChange={(event) => setDailyMinutes(Number(event.target.value) || 30)} /><span>分钟</span></label>
       <div className="flex items-center justify-end gap-2"><button className="btn-ghost" onClick={reset}>新会话</button><button className="btn-primary" disabled={!input.trim()} onClick={() => void submit()}>开始提问</button></div>
     </div>

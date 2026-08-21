@@ -878,6 +878,19 @@
   .content-frame { width: 100%; max-width: 80rem; margin-inline: auto; }
   .content-frame-wide { width: 100%; max-width: 90rem; margin-inline: auto; }
   .content-frame-reading { width: 100%; max-width: 57.5rem; margin-inline: auto; }
+  .review-page { --review-ink: #172033; }
+  .dark .review-page { --review-ink: #eef3ff; }
+  .review-hero { position: relative; overflow: hidden; padding: 1.15rem 1.15rem 1.35rem; border: 1px solid color-mix(in srgb, var(--color-primary) 16%, var(--color-border)); border-radius: var(--radius-xl); background: linear-gradient(118deg, color-mix(in srgb, var(--color-primary-light) 78%, var(--color-surface)) 0%, var(--color-surface) 58%); box-shadow: var(--shadow-sm); }
+  .review-hero::after { content: ''; position: absolute; right: -3.5rem; top: -4rem; width: 12rem; height: 12rem; border-radius: 999px; background: color-mix(in srgb, var(--color-accent) 18%, transparent); filter: blur(1px); pointer-events: none; }
+  .review-hero-copy, .review-hero-meta { position: relative; z-index: 1; }
+  .review-status { border: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-border)); border-radius: 999px; padding: 0.36rem 0.62rem; color: var(--color-primary); background: color-mix(in srgb, var(--color-surface) 82%, transparent); }
+  .review-question { border-color: color-mix(in srgb, var(--color-primary) 26%, var(--color-border)); box-shadow: var(--shadow-md); }
+  .panel-eyebrow { color: var(--color-text-tertiary); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.1em; }
+  .review-progress { height: 0.3rem; overflow: hidden; border-radius: 999px; background: var(--color-surface-2); }
+  .review-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--color-primary), var(--color-accent)); transition: width 0.35s ease; }
+  .review-task-row { border: 1px solid transparent; transition: background-color 0.2s ease, border-color 0.2s ease; }
+  .review-task-row:hover { border-color: var(--color-border); background: var(--color-surface-hover); }
+  .review-empty { border: 1px dashed var(--color-border-strong); border-radius: var(--radius-md); padding: 1rem; background: color-mix(in srgb, var(--color-surface-2) 45%, transparent); }
   .two-column-layout { display: grid; grid-template-columns: minmax(0, 1fr) 18rem; align-items: start; gap: 1rem; }
   .empty-state { display: flex; min-height: 15rem; flex-direction: column; align-items: center; justify-content: center; border: 1px dashed var(--color-border-strong); border-radius: var(--radius-xl); background: color-mix(in srgb, var(--color-surface) 68%, transparent); padding: 2rem 1.25rem; text-align: center; }
   .empty-state-icon { display: flex; width: 3.5rem; height: 3.5rem; align-items: center; justify-content: center; border-radius: 1rem; color: var(--color-primary); background: var(--color-primary-light); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 10%, transparent); }
