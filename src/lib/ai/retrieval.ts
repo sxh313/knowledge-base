@@ -5,6 +5,7 @@ import { getSettings } from '../db/queries';
 import { embedQuery } from './embeddings';
 import { getEmbeddingProfile, getRetrievalSettings } from './modelProfiles';
 import { rerankChunks } from './reranker';
+import type { AIStage } from './performance';
 import { routeBoundAI } from './router';
 
 export type KnowledgeScope =
@@ -231,7 +232,7 @@ function selectPerDocument(chunks: RetrievedChunk[], topK: number): RetrievedChu
   return selected;
 }
 
-async function retrieveZero2Agent(question: string, topK: number, scope: Extract<KnowledgeScope, { kind: 'zero2agent' }> = { kind: 'zero2agent' }): Promise<RetrievedChunk[]> {
+async function retrieveZero2Agent(question: string, topK: number, scope: Extract<KnowledgeScope, { kind: 'zero2agent' }> = { kind: 'zero2agent' }, keywordOnly = false): Promise<RetrievedChunk[]> {
   const settings = await getSettings();
   const retrievalSettings = getRetrievalSettings(settings);
   const rewritten = await buildRetrievalQuery(question, retrievalSettings.queryRewriteEnabled);
@@ -254,7 +255,7 @@ async function retrieveZero2Agent(question: string, topK: number, scope: Extract
   }
   let queryVector: number[] | null = null;
   let vectorByChunk = new Map<string, number[]>();
-  if (retrievalSettings.vectorEnabled && getEmbeddingProfile(settings)) {
+  if (!keywordOnly && retrievalSettings.vectorEnabled && getEmbeddingProfile(settings)) {
     const index = await zero2AgentEmbeddings();
     if (index?.items?.length) {
       vectorByChunk = new Map(index.items.map((item) => [item.chunkId, item.vector]));
@@ -282,34 +283,51 @@ async function retrieveZero2Agent(question: string, topK: number, scope: Extract
   return selectPerDocument(blended, topK);
 }
 
-export async function retrieve(question: string, scope: KnowledgeScope, topK = 8): Promise<RetrievedChunk[]> {
+export async function retrieve(question: string, scope: KnowledgeScope, topK = 8, trace?: RetrievalTrace): Promise<RetrievedChunk[]> {
   if (scope.kind === 'none' || !question.trim()) return [];
+  const startedAt = performance.now();
+  trace?.onStage?.('retrieving');
   const settings = await getSettings();
   const retrievalSettings = getRetrievalSettings(settings);
-  const candidateTopK = retrievalSettings.rerankEnabled
+  const wantsRerank = retrievalSettings.rerankEnabled && shouldRerank(question, topK);
+  const candidateTopK = wantsRerank
     ? Math.max(topK, Math.min(50, retrievalSettings.candidateTopK))
     : topK;
+  const reportRetrieval = () => trace?.onTiming?.({ retrievalMs: Math.round(performance.now() - startedAt) });
   if (scope.kind === 'zero2agent') {
-    const candidates = await retrieveZero2Agent(question, candidateTopK, scope);
-    return rerankChunks(question, candidates, topK);
+    const candidates = await retrieveZero2Agent(question, candidateTopK, scope, !wantsRerank);
+    reportRetrieval();
+    if (!wantsRerank) return candidates.slice(0, topK);
+    trace?.onStage?.('reranking');
+    const rerankStartedAt = performance.now();
+    const result = await rerankChunks(question, candidates, topK);
+    trace?.onTiming?.({ rerankMs: Math.round(performance.now() - rerankStartedAt) });
+    return result;
   }
   if (scope.kind === 'combined') {
     const [personal, external] = await Promise.all([
       retrievePersonal(question, { kind: 'personal' }, topK),
-      retrieveZero2Agent(question, candidateTopK),
+      retrieveZero2Agent(question, candidateTopK, undefined, !wantsRerank),
     ]);
+    reportRetrieval();
+    if (!wantsRerank) return [...personal, ...external].sort((a, b) => b.score - a.score).slice(0, topK);
+    trace?.onStage?.('reranking');
+    const rerankStartedAt = performance.now();
     const reranked = await rerankChunks(question, external, Math.min(topK, external.length));
+    trace?.onTiming?.({ rerankMs: Math.round(performance.now() - rerankStartedAt) });
     return [...personal, ...reranked].sort((a, b) => b.score - a.score).slice(0, topK);
   }
-  return retrievePersonal(question, scope, topK);
+  const result = await retrievePersonal(question, scope, topK);
+  reportRetrieval();
+  return result;
 }
 
 export function formatContextForPrompt(chunks: RetrievedChunk[]): string {
   return chunks.map((c, i) => {
     const source = c.source === 'zero2agent' ? `zero2Agent / ${c.path}` : `个人文档 / ${c.title}`;
     const headingPath = c.headingPath?.length ? ` / 章节：${c.headingPath.join(' > ')}` : c.heading ? ` / 章节：${c.heading}` : '';
-    return `[${i + 1}] chunkId=${c.chunkId}\n来源：${source}${headingPath}\n${c.content}`;
-  }).join('\n\n---\n\n');
+    return `[${i + 1}] chunkId=${c.chunkId}\n来源：${source}${headingPath}\n${c.content.slice(0, 1200)}`;
+  }).join('\n\n---\n\n').slice(0, 9000);
 }
 
 function zero2AgentEmbeddings(): Promise<Zero2AgentEmbeddingIndex | null> {
@@ -330,6 +348,19 @@ function zero2AgentEmbeddings(): Promise<Zero2AgentEmbeddingIndex | null> {
 }
 
 export type RAGAnswerMode = 'strict' | 'hybrid';
+
+export interface RetrievalTrace {
+  onStage?: (stage: Extract<AIStage, 'retrieving' | 'reranking'>) => void;
+  onTiming?: (timing: { retrievalMs?: number; rerankMs?: number }) => void;
+}
+
+/** 简短事实问题通常不值得再付出一次 dsv4 重排请求。 */
+export function shouldRerank(question: string, candidateCount: number): boolean {
+  if (candidateCount <= 1) return false;
+  const text = question.trim();
+  if (text.length <= 18 && !/(比较|区别|为什么|如何|步骤|方案|分别|综合|总结|分析|对比)/.test(text)) return false;
+  return true;
+}
 
 export function buildRAGSystemPrompt(contextBlock: string, hasSources: boolean, mode: RAGAnswerMode = 'strict'): string {
   if (!hasSources) {

@@ -26,6 +26,7 @@ import Agent from './Agent';
 import { formatSearchContextForPrompt, readSearchAIContext, searchContextToChunks, type SearchAIContext } from '../lib/ai/searchContext';
 import { IconButton, Textarea } from '../components/ui';
 import { useFocusTrap } from '../lib/ui/useFocusTrap';
+import type { AIStage, AITimingMetrics } from '../lib/ai/performance';
 
 const GREETING: ChatMessage = { role: 'assistant', content: '从你的笔记出发，问一个问题，或把今天的学习整理成下一步。' };
 
@@ -71,7 +72,7 @@ function ScopeMenu({ value, options, onChange }: { value: string; options: Scope
 export default function AIChat() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { isProcessing, error, chat: aiChat, callDirect, streamingContent, stop } = useAIStore();
+  const { isProcessing, error, stage, timing, chat: aiChat, callDirect, streamingContent, stop } = useAIStore();
   const { entries, create } = useJournalStore();
   const { settings } = useSettingsStore();
   const { isMobile } = useViewModeStore();
@@ -101,6 +102,10 @@ export default function AIChat() {
   const streamFlushRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shouldAutoScrollRef = useRef(true);
   const groundedCancelledRef = useRef(false);
+  const requestStartedRef = useRef(0);
+  const firstTokenAtRef = useRef<number | null>(null);
+  const timingRef = useRef<AITimingMetrics>({});
+  const groundedControllerRef = useRef<AbortController | null>(null);
 
   // 移动端默认把历史栏收起，避免挤压聊天内容；用户仍可通过标题栏按钮打开抽屉。
   useEffect(() => {
@@ -176,6 +181,10 @@ export default function AIChat() {
     groundedCancelledRef.current = false;
     setLastQuestion(userText);
     setInput('');
+    requestStartedRef.current = performance.now();
+    firstTokenAtRef.current = null;
+    timingRef.current = {};
+    useAIStore.setState({ isProcessing: true, error: null, streamingContent: '', stage: 'retrieving', timing: null });
     const userMsg: ChatMessage = { role: 'user', content: userText };
     const baseMsgs = messages.filter((m) => m.role !== 'system');
     // 先把用户消息画出来，再执行检索和模型调用，避免点击后长时间无反馈。
@@ -187,7 +196,15 @@ export default function AIChat() {
     if (searchContext?.items.length) {
       sysPrefix = buildRAGSystemPrompt(formatSearchContextForPrompt(searchContext), true, ragMode);
     } else if (scope.kind !== 'none') {
-      try { newCitations = await retrieve(userText, scope, 8); } catch { newCitations = []; }
+      try {
+        newCitations = await retrieve(userText, scope, 8, {
+          onStage: (stage: Extract<AIStage, 'retrieving' | 'reranking'>) => useAIStore.setState({ stage }),
+          onTiming: (timing) => {
+            timingRef.current = { ...timingRef.current, ...timing };
+            useAIStore.setState({ timing: timingRef.current });
+          },
+        });
+      } catch { newCitations = []; }
       sysPrefix = buildRAGSystemPrompt(formatContextForPrompt(newCitations), newCitations.length > 0, ragMode);
     }
     // 联网搜索（维基百科，CORS 友好）
@@ -203,24 +220,12 @@ export default function AIChat() {
     const callMsgs: ChatMessage[] = [{ role: 'system', content: sysPrefix ? timeSys + '\n\n' + sysPrefix : timeSys }, ...baseMsgs, userMsg];
     try {
       let finalContent = '';
-      if (scope.kind === 'zero2agent') {
-        // 课程知识库始终走结构化、可校验的严格回答，不允许联网或混合常识。
-        const grounded = await answerGroundedQuestion(userText, newCitations);
-        finalContent = grounded.answer;
-        newCitations = grounded.citations;
-        // 严格回答接口需要先完成引用校验；校验完成后按小段推送，保持与 SSE 一致的实时体验。
-        setIsGroundedStreaming(true);
-        useAIStore.setState({ streamingContent: '' });
-        for (let index = 0; index < finalContent.length; index += 3) {
-          if (groundedCancelledRef.current) break;
-          useAIStore.setState({ streamingContent: finalContent.slice(0, index + 3) });
-          await new Promise((resolve) => window.setTimeout(resolve, 12));
-        }
-        useAIStore.setState({ streamingContent: '' });
-        setIsGroundedStreaming(false);
-        if (groundedCancelledRef.current) return;
-      } else {
       const onToken = (token: string) => {
+        if (firstTokenAtRef.current === null) {
+          firstTokenAtRef.current = performance.now();
+          timingRef.current = { ...timingRef.current, firstTokenMs: Math.round(firstTokenAtRef.current - requestStartedRef.current) };
+          useAIStore.setState({ timing: timingRef.current });
+        }
         streamBufferRef.current += token;
         if (!streamFlushRef.current) {
           streamFlushRef.current = setTimeout(() => {
@@ -230,6 +235,22 @@ export default function AIChat() {
           }, 50);
         }
       };
+      if (scope.kind === 'zero2agent') {
+        // 课程知识库使用真实 SSE；回答完成后再校验引用白名单。
+        setIsGroundedStreaming(true);
+        useAIStore.setState({ stage: 'generating', streamingContent: '' });
+        groundedControllerRef.current = new AbortController();
+        const grounded = await answerGroundedQuestion(userText, newCitations, onToken, groundedControllerRef.current.signal);
+        groundedControllerRef.current = null;
+        finalContent = grounded.answer;
+        newCitations = grounded.citations;
+        if (streamFlushRef.current) { clearTimeout(streamFlushRef.current); streamFlushRef.current = null; }
+        if (streamBufferRef.current) { useAIStore.setState({ streamingContent: useAIStore.getState().streamingContent + streamBufferRef.current }); streamBufferRef.current = ''; }
+        useAIStore.setState({ streamingContent: finalContent });
+        setIsGroundedStreaming(false);
+        if (groundedCancelledRef.current) return;
+      } else {
+      useAIStore.setState({ stage: 'generating' });
       if (modelChoice !== 'auto') {
         const bare = modelChoice.includes('/') ? modelChoice.split('/').slice(1).join('/') : modelChoice;
         const entry = MODEL_MAP[bare] ?? MODEL_MAP[modelChoice];
@@ -260,13 +281,18 @@ export default function AIChat() {
       await upsertConversation(conv);
       setCurrentId(conv.id);
       refreshConversations();
-    } catch { useAIStore.setState({ streamingContent: '' }); setIsGroundedStreaming(false); }
+      const totalMs = Math.round(performance.now() - requestStartedRef.current);
+      const generationMs = Math.max(0, totalMs - (timingRef.current.retrievalMs ?? 0) - (timingRef.current.rerankMs ?? 0));
+      timingRef.current = { ...timingRef.current, generationMs, totalMs };
+      useAIStore.setState({ timing: timingRef.current, isProcessing: false, stage: 'idle' });
+      useAIStore.setState({ streamingContent: '' });
+    } catch { groundedControllerRef.current = null; useAIStore.setState({ streamingContent: '', isProcessing: false, stage: 'idle' }); setIsGroundedStreaming(false); }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
-  const handleStop = () => { groundedCancelledRef.current = true; setIsGroundedStreaming(false); stop(); };
+  const handleStop = () => { groundedCancelledRef.current = true; groundedControllerRef.current?.abort(); groundedControllerRef.current = null; setIsGroundedStreaming(false); stop(); };
 
   // 把最近一条 AI 回答保存为新文档（绝不静默修改已有文档）
   const handleSaveAsDoc = async () => {
@@ -386,7 +412,9 @@ export default function AIChat() {
             <div className="ai-assistant-content mx-auto w-full max-w-4xl rounded-xl px-1 py-2 bg-transparent">
               <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
                 <span className="h-2 w-2 rounded-full bg-[var(--color-primary)] animate-pulse" />
-                <span>检索 · 整理 · 生成</span>
+                <span>{stage === 'retrieving' ? '检索中' : stage === 'reranking' ? '重排中' : '生成中'}</span>
+                {timing?.retrievalMs !== undefined && <span className="text-[var(--color-text-tertiary)]">检索 {timing.retrievalMs}ms</span>}
+                {timing?.rerankMs !== undefined && <span className="text-[var(--color-text-tertiary)]">重排 {timing.rerankMs}ms</span>}
               </div>
             </div>
           </div>
@@ -397,6 +425,7 @@ export default function AIChat() {
           <div className="flex justify-start">
             <div className="mx-auto w-full max-w-4xl">
               <CitationList citations={citations} />
+              {timing && <p className="mt-2 text-[11px] text-[var(--color-text-tertiary)]">耗时：检索 {timing.retrievalMs ?? 0}ms{timing.rerankMs !== undefined ? ` · 重排 ${timing.rerankMs}ms` : ''} · 生成 {timing.generationMs ?? 0}ms{timing.firstTokenMs !== undefined ? ` · 首 Token ${timing.firstTokenMs}ms` : ''}</p>}
               <div className="mt-2 flex flex-wrap items-center gap-2"><button className="btn-secondary text-xs" onClick={() => void copyLatest()} type="button"><Copy className="h-3 w-3" />复制回答</button><button className="btn-secondary text-xs" onClick={downloadLatest} type="button"><Download className="h-3 w-3" />导出 Markdown</button></div>
               <div className="mt-3 flex flex-wrap gap-2"><button className="btn-ghost text-xs" onClick={() => setInput('请举一个具体例子')}>举一个例子</button><button className="btn-ghost text-xs" onClick={() => setInput('请对比两个方案的区别')}>对比方案</button><button className="btn-ghost text-xs" onClick={() => setInput('请出一道面试诊断题')}>出一道面试题</button></div>
               <button
