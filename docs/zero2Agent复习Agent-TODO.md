@@ -7,7 +7,7 @@
 
 ## v1.6.0 执行结果
 
-已完成并已验证：独立 `zero2review` 领域与 Dexie schema v10、zero2Agent-only 检索和来源闸门、无关问题隔离、课程索引元数据、Markdown 标题栈/问答单元切块、Tutor/评价结构化输出、诊断题、掌握度与 FSRS 调度、可解释的确定性每日计划、独立路由和页面、JSON v5 备份、受控 GitHub 同步、移动端样式、帮助文档与发布元数据。后续增量补充了可注入依赖的 Orchestrator、幂等作答/任务操作、确定性时间参数、课程前置依赖校验、目录模块/依赖查询、掌握度解释、评分纠正重算、原子消息写入、模型中心/Embedding 配置、关键词+向量混合检索、dsv4 候选重排、刷新恢复计划面板、计划暂停/恢复和来源隔离测试。`npm test`（23 个测试文件、142 个用例）、Web 构建、zero2Agent 索引重建和 Android Web 资源同步均已通过；Android Gradle 被本机缺少 Java/JAVA_HOME 阻塞，Electron-builder 在依赖扫描阶段超时，已保留 `win-unpacked`，未把未完成安装器视为成功。
+已完成并已验证：独立 `zero2review` 领域与 Dexie schema v10、zero2Agent-only 检索和来源闸门、无关问题隔离、课程索引元数据、Markdown 标题栈/问答单元切块、Tutor/评价结构化输出、诊断题、掌握度与 FSRS 调度、可解释的确定性每日计划、独立路由和页面、JSON v5 备份、受控 GitHub 同步、移动端样式、帮助文档与发布元数据。后续增量补充了可注入依赖的 Orchestrator、幂等作答/任务操作、确定性时间参数、课程前置依赖校验、目录模块/依赖查询、掌握度解释、评分纠正重算、原子消息写入、模型中心/Embedding 配置、关键词+向量混合检索、dsv4 候选重排、刷新恢复计划面板、计划暂停/恢复、完整 UI 组件和真实编排器端到端流程测试。`npm test`（24 个测试文件、144 个用例）、TypeScript、Web 构建、zero2Agent 索引重建和 Android Web 资源同步均已通过；Android Gradle 被本机缺少 Java/JAVA_HOME 阻塞，Electron-builder 在依赖扫描阶段超时，未把未完成安装器视为成功。
 
 本 TODO 中的历史细分 checkbox 没有逐项回写，但以上执行结果以当前代码和测试为准。剩余发布门禁主要是外部环境（Java、Windows 安装器签名、Android 签名、远端发布）。Embedding 服务属于可选增强：不部署时使用关键词检索；部署并启用后才生成向量索引并启用关键词+向量双路召回。
 
