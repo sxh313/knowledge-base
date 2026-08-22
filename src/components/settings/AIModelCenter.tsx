@@ -30,6 +30,7 @@ export default function AIModelCenter({ settings, onUpdate }: Props) {
   const profiles = settings.modelProfiles ?? [];
   const bindings = { ...DEFAULT_MODEL_BINDINGS, ...(settings.modelBindings ?? {}) };
   const retrieval = getRetrievalSettings(settings);
+  const browserBlocksHttp = typeof window !== 'undefined' && window.location.protocol === 'https:';
   const chatProfiles = useMemo(() => profiles.filter((profile) => profile.kind === 'chat'), [profiles]);
   const embeddingProfiles = useMemo(() => profiles.filter((profile) => profile.kind === 'embedding'), [profiles]);
 
@@ -88,7 +89,8 @@ export default function AIModelCenter({ settings, onUpdate }: Props) {
               <label className="text-xs text-gray-400">API Key（可选）<input type="password" className="input-field mt-1 text-xs font-mono" value={profile.apiKey} onChange={(event) => updateProfile(profile.id, { apiKey: event.target.value })} placeholder="本地服务可留空" /></label>
               {profile.kind === 'embedding' && <label className="text-xs text-gray-400">向量维度<input type="number" className="input-field mt-1 text-xs font-mono" value={profile.dimension ?? ''} onChange={(event) => updateProfile(profile.id, { dimension: event.target.value ? Number(event.target.value) : undefined })} placeholder="512" /></label>}
             </div>
-            {testState[profile.id] && <p className="text-xs text-gray-500">{testState[profile.id]}</p>}
+            {testState[profile.id] && <p className={`model-test-status text-xs ${testState[profile.id].startsWith('✅') ? 'text-green-600' : testState[profile.id].startsWith('❌') ? 'text-red-500' : 'text-gray-500'}`}>{testState[profile.id]}</p>}
+            {browserBlocksHttp && /^http:\/\//i.test(profile.baseUrl) && <p className="model-test-status text-xs text-amber-600">当前网页使用 HTTPS；HTTP 模型地址只能在桌面版或安卓原生版访问，网页端需要 HTTPS + CORS。</p>}
           </div>
         ))}
         <button className="btn-secondary text-sm" onClick={() => void saveProfiles([...profiles, newProfile()])}>＋ 添加模型配置</button>
