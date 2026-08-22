@@ -46,6 +46,10 @@ jobs:
       # 从而支持安卓“覆盖安装”（否则每次 CI 用临时 keystore 签名不同，需先卸载才能装）。
       - name: 还原 Release 签名 keystore
         run: |
+          test -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" || (echo "缺少 ANDROID_KEYSTORE_BASE64，禁止生成未签名发布包" && exit 1)
+          test -n "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" || (echo "缺少 ANDROID_KEYSTORE_PASSWORD" && exit 1)
+          test -n "${{ secrets.ANDROID_KEY_ALIAS }}" || (echo "缺少 ANDROID_KEY_ALIAS" && exit 1)
+          test -n "${{ secrets.ANDROID_KEY_PASSWORD }}" || (echo "缺少 ANDROID_KEY_PASSWORD" && exit 1)
           mkdir -p android/keystore
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/keystore/release.keystore
           ls -la android/keystore/
@@ -79,11 +83,16 @@ jobs:
       # 若由 tag 触发,发布到 GitHub Releases（只发布已签名的 release APK，可覆盖安装）
       - name: 发布 APK 到 GitHub Releases
         if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk \
+            "android/app/build/outputs/apk/release/knowledge-base-android-${GITHUB_REF_NAME}.apk"
+
+      - name: 发布正式 APK 到 GitHub Releases
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            android/app/build/outputs/apk/debug/*.apk
-            android/app/build/outputs/apk/release/app-release.apk
+            android/app/build/outputs/apk/release/knowledge-base-android-${{ github.ref_name }}.apk
           draft: false
           prerelease: false
           body_path: CHANGELOG.md
