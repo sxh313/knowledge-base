@@ -990,6 +990,18 @@
   .inbox-capture { position: sticky; top: 0; }
   .tags-layout { display: grid; grid-template-columns: minmax(18rem, 0.8fr) minmax(24rem, 1.2fr); align-items: start; gap: 0.85rem; min-height: 0; }
   @media (max-width: 640px) {
+    .model-center-section { font-size: 0.92rem; }
+    .model-center-section > div:first-of-type p { max-width: 36rem; font-size: 0.75rem; line-height: 1.55; }
+    .model-center-section > .space-y-3 > .card,
+    .model-center-section > .card { padding: 0.85rem; border-radius: 1rem; }
+    .model-profile-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.55rem; }
+    .model-profile-header > input { min-width: 0; width: 100%; }
+    .model-profile-header > select { grid-column: 1 / -1; width: 100% !important; }
+    .model-profile-header > label { min-height: 2.5rem; }
+    .model-profile-header > button { min-height: 2.5rem; white-space: nowrap; }
+    .model-profile-fields { gap: 0.7rem; }
+    .model-profile-fields label { min-width: 0; line-height: 1.4; }
+    .model-profile-fields .input-field { min-width: 0; max-width: 100%; font-size: 0.8rem; }
     .page-hero { min-height: auto; align-items: flex-start; flex-direction: column; gap: 0.65rem; padding: 0 0 0.7rem; }
     .page-hero > :last-child { width: 100%; }
     .page-hero > :last-child > button { flex: 1; }
