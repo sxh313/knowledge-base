@@ -14,6 +14,7 @@ import AIModelCenter from '../components/settings/AIModelCenter';
 import DesktopUpdater from '../components/DesktopUpdater';
 import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck, ArrowUp, ArrowDown, GripVertical, Bot } from 'lucide-react';
 import { useViewModeStore } from '../stores/viewModeStore';
+import { describeConnectionError } from '../lib/ai/connectionError';
 
 const isAndroidApp = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
 const isElectronApp = !!window.electronAPI?.isElectron;
@@ -105,7 +106,7 @@ export default function SettingsPage() {
       setRefreshMsg(prev => ({ ...prev, [key]: `发现 ${models.length} 个模型` }));
       await load();
     } catch (err) {
-      setRefreshMsg(prev => ({ ...prev, [key]: `${(err as Error).message}` }));
+      setRefreshMsg(prev => ({ ...prev, [key]: describeConnectionError(err, prov.baseUrl || DEFAULT_BASE_URLS[key]) }));
     } finally {
       setRefreshing(prev => ({ ...prev, [key]: false }));
     }

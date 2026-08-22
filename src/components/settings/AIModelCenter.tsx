@@ -3,6 +3,7 @@ import type { AIModelBindings, AIModelProfile, AppSettings } from '../../lib/db/
 import { chatCompletion } from '../../lib/ai/client';
 import { DEFAULT_MODEL_BINDINGS, getRetrievalSettings } from '../../lib/ai/modelProfiles';
 import { testEmbeddingProfile } from '../../lib/ai/embeddings';
+import { describeConnectionError } from '../../lib/ai/connectionError';
 
 interface Props {
   settings: AppSettings;
@@ -55,12 +56,12 @@ export default function AIModelCenter({ settings, onUpdate }: Props) {
         setTestState((current) => ({ ...current, [profile.id]: `✅ 可用：${result.content.trim().slice(0, 30)}` }));
       }
     } catch (error) {
-      setTestState((current) => ({ ...current, [profile.id]: `❌ ${(error as Error).message}` }));
+      setTestState((current) => ({ ...current, [profile.id]: `❌ ${describeConnectionError(error, profile.baseUrl)}` }));
     }
   };
 
   return (
-    <section id="model-center" className="scroll-mt-6 space-y-4">
+    <section id="model-center" className="model-center-section scroll-mt-6 space-y-4">
       <div>
         <h2 className="text-lg font-semibold">🧩 模型中心与角色绑定</h2>
         <p className="mt-1 text-xs text-gray-400">每个本地端点只配置一次，再绑定到回答、召回、重排和复习角色。Embedding 是可选增强，不配置也能正常使用关键词检索。API Key 只保存在当前设备。</p>
@@ -69,7 +70,7 @@ export default function AIModelCenter({ settings, onUpdate }: Props) {
       <div className="space-y-3">
         {profiles.map((profile) => (
           <div key={profile.id} className="card space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="model-profile-header flex flex-wrap items-center gap-2">
               <input className="input-field min-w-[10rem] flex-1 text-sm" value={profile.name} onChange={(event) => updateProfile(profile.id, { name: event.target.value })} />
               <select className="input-field w-32 text-sm" value={profile.kind} onChange={(event) => updateProfile(profile.id, { kind: event.target.value as AIModelProfile['kind'] })}>
                 <option value="chat">Chat 对话</option>
@@ -81,7 +82,7 @@ export default function AIModelCenter({ settings, onUpdate }: Props) {
               <button className="btn-secondary text-xs" onClick={() => void testProfile(profile)}>测试连接</button>
               <button className="btn-ghost text-xs text-red-500" onClick={() => void saveProfiles(profiles.filter((item) => item.id !== profile.id))}>删除</button>
             </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="model-profile-fields grid grid-cols-1 gap-2 sm:grid-cols-2">
               <label className="text-xs text-gray-400">Base URL<input className="input-field mt-1 text-xs font-mono" value={profile.baseUrl} onChange={(event) => updateProfile(profile.id, { baseUrl: event.target.value })} placeholder="http://127.0.0.1:4900/v1" /></label>
               <label className="text-xs text-gray-400">Model ID<input className="input-field mt-1 text-xs font-mono" value={profile.modelId} onChange={(event) => updateProfile(profile.id, { modelId: event.target.value })} placeholder={profile.kind === 'embedding' ? 'BAAI/bge-small-zh-v1.5' : 'dsv4'} /></label>
               <label className="text-xs text-gray-400">API Key（可选）<input type="password" className="input-field mt-1 text-xs font-mono" value={profile.apiKey} onChange={(event) => updateProfile(profile.id, { apiKey: event.target.value })} placeholder="本地服务可留空" /></label>

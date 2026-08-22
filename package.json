@@ -1,7 +1,7 @@
 {
   "name": "knowledge-base",
   "private": true,
-  "version": "1.6.3",
+  "version": "1.6.4",
   "description": "本地优先的 AI 学习笔记与知识管理应用",
   "type": "module",
   "main": "electron/main.cjs",
