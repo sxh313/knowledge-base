@@ -9,6 +9,8 @@ declare module '*.md' {
 
 interface ImportMetaEnv {
   readonly VITE_APP_TITLE: string;
+  /** 远程搜索 API，例如 https://your-project.vercel.app；为空时使用当前站点 /api/search */
+  readonly VITE_SEARCH_API_URL?: string;
 }
 
 interface ImportMeta {

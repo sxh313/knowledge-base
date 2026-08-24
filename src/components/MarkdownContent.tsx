@@ -46,9 +46,27 @@ function CodeBlock({ children }: ComponentProps<'pre'>) {
   );
 }
 
-function linkCitations(markdown: string, count: number): string {
-  if (!count) return markdown;
-  return markdown.replace(/(^|[^\]])\[(\d+)\](?!\()/g, (match, prefix: string, index: string) => Number(index) <= count ? `${prefix}[${index}](citation:${index})` : match);
+function linkCitations(markdown: string): string {
+  return markdown.replace(/(^|[^\]!])\[((?:[KW])?\d+)\](?!\()/gi, (_match, prefix: string, ref: string) => `${prefix}[${ref}](citation:${ref})`);
+}
+
+function resolveCitation(ref: string, citationItems: RetrievedChunk[]): RetrievedChunk | null {
+  const normalized = ref.toUpperCase();
+  const typed = normalized.match(/^([KW])(\d+)$/);
+  if (typed) {
+    const sourceItems = citationItems.filter((item) => typed[1] === 'W' ? item.source === 'web' : item.source !== 'web');
+    return sourceItems[Number(typed[2]) - 1] ?? null;
+  }
+  const numeric = normalized.match(/^\d+$/);
+  if (!numeric) return null;
+  return citationItems[Number(normalized) - 1] ?? null;
+}
+
+function safeUrlTransform(url: string): string {
+  if (/^citation:/i.test(url)) return url;
+  if (/^(https?:|mailto:|tel:)/i.test(url)) return url;
+  if (/^(\/|#|\.)/.test(url)) return url;
+  return '';
 }
 
 export default function MarkdownContent({ components, citationItems = [], children, ...props }: MarkdownContentProps) {
@@ -62,14 +80,15 @@ export default function MarkdownContent({ components, citationItems = [], childr
   }, [preview]);
   return <>
     <div className="answer-markdown prose-custom">
-      <ReactMarkdown {...props} remarkPlugins={[remarkGfm]} children={typeof children === 'string' ? linkCitations(children, citationItems.length) : children} components={{
+      <ReactMarkdown {...props} remarkPlugins={[remarkGfm]} urlTransform={safeUrlTransform} children={typeof children === 'string' ? linkCitations(children) : children} components={{
         ...components,
         pre: CodeBlock,
         a: ({ href, children: linkChildren, ...rest }) => {
-          const match = href?.match(/^citation:(\d+)$/);
+          const match = href?.match(/^citation:((?:[KW])?\d+)$/i);
           if (match) {
-            const item = citationItems[Number(match[1]) - 1];
-            return item ? <button className="inline-citation" type="button" onClick={() => setCitationPreview(item)} title="查看回答依据">{linkChildren}</button> : <span>{linkChildren}</span>;
+            const item = resolveCitation(match[1], citationItems);
+            const label = `[${textContent(linkChildren)}]`;
+            return item ? <button className="inline-citation" type="button" onClick={() => setCitationPreview(item)} title="查看回答依据">{label}</button> : <span className="inline-citation opacity-60" title="没有找到对应来源">{label}</span>;
           }
           return <a href={href} target={href?.startsWith('http') ? '_blank' : undefined} rel={href?.startsWith('http') ? 'noreferrer' : undefined} {...rest}>{linkChildren}</a>;
         },

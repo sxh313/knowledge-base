@@ -3,7 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { useSettingsStore } from '../stores/settingsStore';
 import type { ProviderName } from '../lib/ai/providers';
 import { DEFAULT_BASE_URLS, providerNeedsApiKey } from '../lib/ai/providers';
-import type { AISettings } from '../lib/db/schema';
+import type { AISettings, WebSearchSettings } from '../lib/db/schema';
 import { fetchAvailableModels } from '../lib/db/queries';
 import type { SyncConfig } from '../lib/db/schema';
 import { useSyncStore } from '../stores/syncStore';
@@ -11,10 +11,11 @@ import { useUpdateStore, manualCheck, applyUpdate } from '../stores/updateStore'
 import { exportKeys, importKeys, type KeyBundle } from '../lib/utils/keyVault';
 import SyncSettingsSection from '../components/settings/SyncSettingsSection';
 import AIModelCenter from '../components/settings/AIModelCenter';
+import SettingsSelect from '../components/settings/SettingsSelect';
 import DesktopUpdater from '../components/DesktopUpdater';
 import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck, ArrowUp, ArrowDown, GripVertical, Bot } from 'lucide-react';
-import { useViewModeStore } from '../stores/viewModeStore';
 import { describeConnectionError } from '../lib/ai/connectionError';
+import { searchAndFetchWeb } from '../lib/ai/webSearch';
 
 const isAndroidApp = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
 const isElectronApp = !!window.electronAPI?.isElectron;
@@ -29,16 +30,46 @@ const PROVIDER_INFO: { key: ProviderName; label: string; desc: string; icon: str
   { key: 'local', label: '本地模型', desc: 'Ollama / LM Studio / vLLM / LocalAI（OpenAI 兼容，需开启 CORS）', icon: '🖥️' },
 ];
 
+const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
+  enabled: false,
+  provider: 'tavily',
+  baseUrl: 'http://127.0.0.1:3210',
+  apiKey: '',
+  mode: 'manual',
+  resultLimit: 5,
+  fetchLimit: 3,
+};
+
+type ApiTestResult = { status: 'waiting' | 'testing' | 'ok' | 'warn' | 'fail'; msg: string };
+
+function statusTextClass(status: ApiTestResult['status']): string {
+  if (status === 'testing') return 'text-yellow-500';
+  if (status === 'ok') return 'text-green-600';
+  if (status === 'warn') return 'text-amber-600';
+  if (status === 'fail') return 'text-red-500';
+  return 'text-gray-400';
+}
+
+function StatusMark({ status }: { status: ApiTestResult['status'] }) {
+  if (status === 'testing') return <RefreshCw className="h-4 w-4 animate-spin" />;
+  if (status === 'ok') return <Check className="h-4 w-4" />;
+  if (status === 'warn') return <ShieldCheck className="h-4 w-4" />;
+  if (status === 'fail') return <span>✗</span>;
+  return <span>—</span>;
+}
+
 export default function SettingsPage() {
   const { settings, load, updateAI, update } = useSettingsStore();
   const [localProviders, setLocalProviders] = useState<AISettings | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
   const [refreshMsg, setRefreshMsg] = useState<Record<string, string>>({});
+  const [apiTestResults, setApiTestResults] = useState<Record<string, ApiTestResult>>({});
+  const [webSearchTest, setWebSearchTest] = useState<ApiTestResult>({ status: 'waiting', msg: '' });
   const [manualModel, setManualModel] = useState<Record<string, string>>({});
   const { doSync, status: syncStatus, pullOnly, message: syncErrorMessage } = useSyncStore();
-  const isMobile = useViewModeStore((s) => s.isMobile);
   const [openProvider, setOpenProvider] = useState<ProviderName | null>(null);
+  const providerOpenInitialized = useRef(false);
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [mdBusy, setMdBusy] = useState(false);
@@ -50,6 +81,7 @@ export default function SettingsPage() {
   // 应用更新状态
   const { needRefresh, checking, lastCheckAt, markChecked, setChecking } = useUpdateStore();
   const [checkMsg, setCheckMsg] = useState<string | null>(null);
+  const [draggingProvider, setDraggingProvider] = useState<ProviderName | null>(null);
 
   const handleCheckUpdate = async () => {
     setChecking(true); setCheckMsg(null);
@@ -77,6 +109,14 @@ export default function SettingsPage() {
     }
   }, [settings, localProviders]);
 
+  // 设置页只展开一个服务，避免多个供应商的地址、Key 和模型列表同时堆叠。
+  useEffect(() => {
+    if (providerOpenInitialized.current || !localProviders) return;
+    providerOpenInitialized.current = true;
+    const firstEnabled = PROVIDER_INFO.find(({ key }) => localProviders[key]?.enabled);
+    if (firstEnabled) setOpenProvider(firstEnabled.key);
+  }, [localProviders]);
+
   useEffect(() => {
     if (!localProviders) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -90,6 +130,91 @@ export default function SettingsPage() {
 
   const updateField = (key: ProviderName, field: 'baseUrl' | 'apiKey' | 'enabled', value: string | boolean) => {
     setLocalProviders(prev => prev ? { ...prev, [key]: { ...prev[key], [field]: value } } : null);
+  };
+
+  const webSearchSettings = { ...DEFAULT_WEB_SEARCH_SETTINGS, ...(settings.webSearch ?? {}) };
+  const answerSettings = { retrievalTopK: 5 as const, detail: 'standard' as const, ...(settings.aiAnswer ?? {}) };
+
+  const updateWebSearch = (patch: Partial<WebSearchSettings>) => {
+    void update({ webSearch: { ...webSearchSettings, ...patch } });
+  };
+
+  const handleTestProvider = async (key: ProviderName) => {
+    const prov = localProviders[key];
+    if (!prov?.enabled || (providerNeedsApiKey(key) && !prov.apiKey)) {
+      setApiTestResults(prev => ({ ...prev, [key]: { status: 'waiting', msg: '未配置' } }));
+      return;
+    }
+    setApiTestResults(prev => ({ ...prev, [key]: { status: 'testing', msg: '测试中...' } }));
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const headers: Record<string, string> = {};
+      if (prov.apiKey.trim()) headers.Authorization = `Bearer ${prov.apiKey.trim()}`;
+      const res = await fetch(`${(prov.baseUrl || DEFAULT_BASE_URLS[key]).replace(/\/+$/, '')}/models`, {
+        headers,
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const data = await res.json();
+      const count = Array.isArray(data.data) ? data.data.length : 0;
+      setApiTestResults(prev => ({ ...prev, [key]: { status: 'ok', msg: `可用（${count} 个模型）` } }));
+    } catch (error) {
+      setApiTestResults(prev => ({ ...prev, [key]: { status: 'fail', msg: describeConnectionError(error, prov.baseUrl || DEFAULT_BASE_URLS[key]) } }));
+    }
+  };
+
+  const handleTestAllProviders = async () => {
+    for (const { key } of PROVIDER_INFO) await handleTestProvider(key);
+  };
+
+  const handleTestWebSearch = async () => {
+    if (webSearchSettings.provider === 'tavily' && !webSearchSettings.apiKey?.trim()) {
+      setWebSearchTest({ status: 'fail', msg: '请先填写 Tavily API Key' });
+      return;
+    }
+    if (webSearchSettings.provider === 'open-websearch' && !webSearchSettings.baseUrl?.trim()) {
+      setWebSearchTest({ status: 'fail', msg: '请先填写 open-webSearch 服务地址' });
+      return;
+    }
+    setWebSearchTest({ status: 'testing', msg: '测试中...' });
+    try {
+      const res = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          // 使用有稳定摘要的测试词，避免 DuckDuckGo 对过于具体的测试词返回空结果。
+          query: 'OpenAI',
+          fetch: true,
+          provider: webSearchSettings.provider,
+          baseUrl: webSearchSettings.baseUrl,
+          apiKey: webSearchSettings.apiKey,
+          limit: 2,
+          fetchLimit: 1,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      let pages = Array.isArray(data.pages) ? data.pages : [];
+      if (pages.length === 0 && webSearchSettings.provider === 'duckduckgo') {
+        pages = await searchAndFetchWeb('OpenAI', { provider: 'duckduckgo', limit: 2, fetchLimit: 1 });
+      }
+      const provider = pages.find((page: { provider?: string }) => page.provider)?.provider;
+      if (provider === 'tavily') {
+        setWebSearchTest({ status: 'ok', msg: `Tavily 可用，已抓取 ${pages.length} 个网页片段` });
+      } else if (provider === 'open-websearch') {
+        setWebSearchTest({ status: 'ok', msg: `open-webSearch 可用，已抓取 ${pages.length} 个网页片段` });
+      } else if (webSearchSettings.provider === 'duckduckgo' && pages.length > 0) {
+        setWebSearchTest({ status: 'ok', msg: `DuckDuckGo 摘要可用，已返回 ${pages.length} 条结果` });
+      } else if (pages.length > 0) {
+        setWebSearchTest({ status: 'warn', msg: '搜索代理可用，但当前使用 DuckDuckGo 摘要兜底' });
+      } else {
+        setWebSearchTest({ status: 'fail', msg: '没有返回网页内容，请检查联网搜索配置或网络' });
+      }
+    } catch (error) {
+      setWebSearchTest({ status: 'fail', msg: error instanceof Error ? error.message : '联网搜索测试失败' });
+    }
   };
 
   const handleRefreshModels = async (key: ProviderName) => {
@@ -148,6 +273,18 @@ export default function SettingsPage() {
     update({ providerOrder: order });
   };
 
+  const dropProvider = (targetKey: ProviderName) => {
+    if (!draggingProvider || draggingProvider === targetKey) return;
+    const order = [...(settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek', 'local'])];
+    const from = order.indexOf(draggingProvider);
+    const to = order.indexOf(targetKey);
+    if (from < 0 || to < 0) return;
+    order.splice(from, 1);
+    order.splice(to, 0, draggingProvider);
+    update({ providerOrder: order });
+    setDraggingProvider(null);
+  };
+
   const updateSync = (patch: Partial<SyncConfig>) => {
     const cur = settings?.sync ?? { enabled: false, owner: '', repo: '', branch: 'main', path: 'data.json', token: '', autoSync: true, syncZero2ReviewHistory: false };
     update({ sync: { ...cur, ...patch } });
@@ -169,6 +306,7 @@ export default function SettingsPage() {
     try {
       const bundle: Record<string, unknown> = {};
       for (const { key } of PROVIDER_INFO) bundle[key] = settings.aiProviders[key];
+      if (settings.webSearch?.apiKey) bundle.webSearch = settings.webSearch;
       const cipher = await exportKeys({ providers: bundle as KeyBundle['providers'] }, vaultPwd);
       setExportOut(cipher);
       setVaultMsg('✅ 已加密生成，可安全复制到任意位置（含 GitHub 公开仓库）');
@@ -181,9 +319,16 @@ export default function SettingsPage() {
     try {
       const bundle = await importKeys(importText.trim(), vaultPwd);
       const merged = { ...settings.aiProviders };
+      let webSearchPatch: WebSearchSettings | null = null;
       let count = 0;
       const names: string[] = [];
       for (const [k, v] of Object.entries(bundle.providers)) {
+        if (k === 'webSearch' && v.apiKey) {
+          webSearchPatch = { ...webSearchSettings, ...(v as Partial<WebSearchSettings>), apiKey: v.apiKey };
+          count++;
+          names.push('Tavily');
+          continue;
+        }
         const name = k as ProviderName;
         if (merged[name] && v.apiKey) {
           merged[name] = { ...merged[name], ...v };
@@ -195,6 +340,7 @@ export default function SettingsPage() {
         setVaultMsg('⚠️ 密文解密成功，但里面没有有效的 API Key（导出时应用里可能没填 Key）');
         return;
       }
+      if (webSearchPatch) await update({ webSearch: webSearchPatch });
       await updateAI(merged);
       setLocalProviders(JSON.parse(JSON.stringify(merged)));
       setVaultMsg(`✅ 导入成功：${count} 个 Key 已写入（${names.join(' / ')}），可在上方「API 服务配置」展开查看`);
@@ -204,11 +350,9 @@ export default function SettingsPage() {
     }
   };
 
-  const dropdownModels: string[] = (() => {
-    const models = new Set<string>(['deepseek-v4-flash']);
-    (settings.selectedModels ?? []).forEach(m => models.add(m));
-    return Array.from(models).sort();
-  })();
+  const orderedProviders = (settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek', 'local'])
+    .map((key) => PROVIDER_INFO.find((provider) => provider.key === key))
+    .filter((provider): provider is typeof PROVIDER_INFO[number] => Boolean(provider));
 
   return (
     <div className="settings-layout w-full p-1 sm:p-3">
@@ -219,11 +363,19 @@ export default function SettingsPage() {
       </header>
 
       {/* API 服务配置 */}
-      <section id="ai-services" className="scroll-mt-6 space-y-4">
-        <h2 className="flex items-center gap-2 text-lg font-semibold"><Bot className="h-5 w-5 text-[var(--color-primary)]" /> API 服务配置</h2>
+      <section id="ai-services" className="scroll-mt-6 flex flex-col space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <h2 className="flex items-center gap-2 text-lg font-semibold"><Bot className="h-5 w-5 text-[var(--color-primary)]" /> API 服务配置</h2>
+        </div>
         <p className="text-xs text-gray-400">填写 API Key 后点击「刷新模型」获取可用模型列表，勾选你想使用的模型</p>
-
-        {PROVIDER_INFO.map(({ key, label, desc, icon }) => {
+        <div className="order-1 flex items-center justify-between gap-3 px-1 pt-1">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-semibold">🔀 来源顺序</h2>
+            <p className="mt-1 text-xs text-gray-400">列表顺序就是服务优先级，可拖动调整；点击“配置服务”展开详细设置。</p>
+          </div>
+          <button className="btn-ghost shrink-0 px-2 py-1 text-[10px]" onClick={() => void handleTestAllProviders()} type="button">测试全部模型</button>
+        </div>
+        {orderedProviders.map(({ key, label, desc }) => {
           const prov = localProviders[key];
           const models = settings.availableModels?.[key] ?? [];
           const isRefreshing = refreshing[key];
@@ -233,37 +385,50 @@ export default function SettingsPage() {
           const filteredModels = filterText
             ? models.filter(m => m.toLowerCase().includes(filterText))
             : models;
-          const isProviderOpen = !isMobile || openProvider === key;
+          const isProviderOpen = openProvider === key;
 
           return (
-            <div key={key} className="card space-y-3">
+            <div key={key}
+              draggable
+              onDragStart={() => setDraggingProvider(key)}
+              onDragEnd={() => setDraggingProvider(null)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={() => dropProvider(key)}
+              className={`card order-1 space-y-3 ${draggingProvider === key ? 'provider-order-row-dragging' : ''}`}>
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <span className="text-xl">{icon}</span>
                   <div>
                     <h3 className="font-medium">{label}</h3>
                     <p className="text-xs text-gray-400">{desc}</p>
                   </div>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" checked={prov.enabled}
-                    onChange={(e) => updateField(key, 'enabled', e.target.checked)}
-                    className="sr-only peer" />
-                  <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-                </label>
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const result = apiTestResults[key] ?? { status: 'waiting' as const, msg: '未测试' };
+                    return <span className={`flex min-w-0 items-center gap-1 text-[10px] ${statusTextClass(result.status)}`}><StatusMark status={result.status} /><span className="hidden max-w-24 truncate sm:inline">{result.msg}</span></span>;
+                  })()}
+                  {prov.enabled && (
+                    <button className="btn-ghost h-8 px-2.5 text-xs" onClick={() => setOpenProvider(isProviderOpen ? null : key)} type="button" aria-expanded={isProviderOpen}>
+                      {isProviderOpen ? '收起配置' : '配置服务'}
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isProviderOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                  )}
+                  <label className="relative inline-flex cursor-pointer items-center">
+                    <input type="checkbox" checked={prov.enabled}
+                      onChange={(e) => {
+                        const enabled = e.target.checked;
+                        updateField(key, 'enabled', enabled);
+                        if (enabled) setOpenProvider(key);
+                        else if (openProvider === key) setOpenProvider(null);
+                      }}
+                      className="sr-only peer" />
+                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                  </label>
+                </div>
               </div>
-              {isMobile && prov.enabled && (
-                <button
-                  className="btn-secondary h-9 w-full text-sm"
-                  onClick={() => setOpenProvider(isProviderOpen ? null : key)}
-                  type="button"
-                >
-                  {isProviderOpen ? '收起配置' : '展开配置'}
-                </button>
-              )}
 
               {prov.enabled && isProviderOpen && (
-                <div className="space-y-2 sm:pl-10">
+                <div className="provider-config-panel space-y-2 sm:pl-10">
                   <div>
                     <label className="text-xs text-gray-400">API 地址</label>
                     <input className="input-field mt-1 text-xs font-mono"
@@ -368,8 +533,8 @@ export default function SettingsPage() {
           );
         })}
 
-        {/* 来源顺序：自定义 AI provider 优先级 */}
-        <div className="card space-y-2">
+        {/* 来源顺序已合并到上方服务列表；每个服务卡片就是一个可拖动的优先级项。 */}
+        <div className="hidden">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-medium text-sm">🔀 来源顺序</h3>
@@ -389,14 +554,29 @@ export default function SettingsPage() {
               const configured = prov?.enabled && (key === 'local' || prov?.apiKey);
               return (
                 <div key={key}
-                  className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
-                  <GripVertical className="h-4 w-4 flex-shrink-0 text-[var(--color-text-tertiary)]" />
+                  draggable
+                  onDragStart={() => setDraggingProvider(key)}
+                  onDragEnd={() => setDraggingProvider(null)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => dropProvider(key)}
+                  className={`provider-order-row flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 ${draggingProvider === key ? 'provider-order-row-dragging' : ''}`}>
+                  <GripVertical className="provider-order-grip h-4 w-4 flex-shrink-0 text-[var(--color-text-tertiary)]" aria-label="拖动排序" />
                   <span className="text-base">{info?.icon ?? '🔧'}</span>
                   <span className="flex-1 text-sm font-medium">{info?.label ?? key}</span>
+                  {(() => {
+                    const result = apiTestResults[key] ?? { status: 'waiting' as const, msg: '未测试' };
+                    return (
+                      <div className={`flex min-w-0 items-center gap-1.5 ${statusTextClass(result.status)}`}>
+                        <StatusMark status={result.status} />
+                        <span className="max-w-28 truncate text-[10px]">{result.msg}</span>
+                      </div>
+                    );
+                  })()}
                   {configured
                     ? <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] text-green-500">已配置</span>
                     : <span className="rounded-full bg-gray-500/10 px-2 py-0.5 text-[10px] text-gray-400">未配置</span>}
                   <span className="text-[10px] tabular-nums text-[var(--color-text-tertiary)]">#{i + 1}</span>
+                  <button className="btn-ghost shrink-0 px-2 py-1 text-xs" onClick={() => void handleTestProvider(key)} type="button">测试</button>
                   <div className="flex items-center gap-0.5">
                     <button
                       className="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)] disabled:opacity-30 disabled:hover:bg-transparent"
@@ -420,65 +600,60 @@ export default function SettingsPage() {
             })}
           </div>
         </div>
+
       </section>
 
       <AIModelCenter settings={settings} onUpdate={update} />
 
-      {/* 模型偏好 */}
-      <section id="model-preferences" className="scroll-mt-6 space-y-3">
-        <h2 className="text-lg font-semibold">🎯 模型偏好</h2>
-        <p className="text-xs text-gray-400">
-          从上方勾选的模型中选择，当前工作区默认：local/dsv4（DeepSeek-V4-Flash 本地部署）
-          {(settings.selectedModels ?? []).length === 0 && '（尚未勾选模型，使用默认）'}
-        </p>
-
-        {/* 已选模型概览 */}
-        {(settings.selectedModels ?? []).length > 0 && (
-          <div className="card">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-medium text-gray-500">
-                已选模型（{(settings.selectedModels ?? []).length} 个）
-              </span>
-              <button className="text-[10px] text-gray-400 hover:text-red-500" onClick={() => update({ selectedModels: [] })}>
-                清空全部
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {(settings.selectedModels ?? []).map(m => (
-                <span key={m} className="tag-brand text-xs flex items-center gap-1">
-                  <span className="font-mono">{m}</span>
-                  <button onClick={() => removeModel(m)} className="hover:text-red-500"><X className="w-3 h-3" /></button>
-                </span>
-              ))}
-            </div>
+      {/* 普通 AI 回答 */}
+      <section id="model-answer" className="scroll-mt-6 space-y-3">
+        <div className="card space-y-3">
+          <div>
+            <h3 className="font-medium text-sm">💬 普通 AI 回答策略</h3>
+            <p className="text-xs text-gray-400">控制普通聊天的上下文数量和回答长度。引用数量越少越快，越多越全面。</p>
           </div>
-        )}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <label className="text-xs text-gray-400">回答引用数量
+              <SettingsSelect className="mt-1" value={String(answerSettings.retrievalTopK)} ariaLabel="回答引用数量" onChange={(value) => void update({ aiAnswer: { ...answerSettings, retrievalTopK: Number(value) as 3 | 5 | 8 } })} options={[{ value: '3', label: '3（更快）' }, { value: '5', label: '5（推荐）' }, { value: '8', label: '8（更全面）' }]} />
+            </label>
+            <label className="text-xs text-gray-400">回答长度
+              <SettingsSelect className="mt-1" value={answerSettings.detail} ariaLabel="回答长度" onChange={(value) => void update({ aiAnswer: { ...answerSettings, detail: value as 'concise' | 'standard' | 'detailed' } })} options={[{ value: 'concise', label: '简洁' }, { value: 'standard', label: '标准' }, { value: 'detailed', label: '详细' }]} />
+            </label>
+          </div>
+        </div>
+      </section>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {([
-            { key: 'highQuality' as const, label: '高质量任务（总结/问答）' },
-            { key: 'codeTask' as const, label: '代码任务' },
-            { key: 'fastTask' as const, label: '快速任务（标签/情绪）' },
-          ]).map(({ key, label }) => (
-            <div key={key} className="card">
-              <label className="text-xs text-gray-400">{label}</label>
-              <div className="relative mt-1">
-                <select
-                  className="input-field appearance-none pr-8 cursor-pointer"
-                  value={settings.preferredModels[key]}
-                  onChange={(e) => update({ preferredModels: { ...settings.preferredModels, [key]: e.target.value } })}
-                >
-                  {!dropdownModels.includes(settings.preferredModels[key]) && (
-                    <option value={settings.preferredModels[key]}>{settings.preferredModels[key]}（当前）</option>
-                  )}
-                  {dropdownModels.map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              </div>
+      {/* 联网搜索 */}
+      <section id="web-search" className="scroll-mt-6 space-y-3">
+        <h2 className="text-lg font-semibold">🌐 联网搜索</h2>
+        <div className="card space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-medium text-sm">联网搜索服务</p>
+              <p className="text-xs text-gray-400">知识库没有命中时，可使用 Tavily、open-webSearch 或 DuckDuckGo 补充网页内容。</p>
             </div>
-          ))}
+            <label className="relative inline-flex cursor-pointer items-center">
+              <input type="checkbox" checked={webSearchSettings.enabled} onChange={(event) => updateWebSearch({ enabled: event.target.checked })} className="sr-only peer" />
+              <div className="w-9 h-5 rounded-full bg-gray-200 after:absolute after:start-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-indigo-600 peer-checked:after:translate-x-full"></div>
+            </label>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <label className="text-xs text-gray-400">联网搜索服务
+              <SettingsSelect className="mt-1" value={webSearchSettings.provider} ariaLabel="联网搜索服务" onChange={(value) => updateWebSearch({ provider: value as WebSearchSettings['provider'] })} options={[{ value: 'tavily', label: 'Tavily（推荐，不用本地部署）' }, { value: 'open-websearch', label: 'open-webSearch（本地/自托管）' }, { value: 'duckduckgo', label: 'DuckDuckGo 摘要兜底' }]} />
+            </label>
+            {webSearchSettings.provider === 'tavily' && <label className="text-xs text-gray-400">Tavily API Key<input type="password" className="input-field mt-1 text-xs font-mono" value={webSearchSettings.apiKey ?? ''} onChange={(event) => updateWebSearch({ apiKey: event.target.value })} placeholder="tvly-..." /></label>}
+            {webSearchSettings.provider === 'open-websearch' && <label className="text-xs text-gray-400">open-webSearch 地址<input className="input-field mt-1 text-xs font-mono" value={webSearchSettings.baseUrl} onChange={(event) => updateWebSearch({ baseUrl: event.target.value })} placeholder="http://127.0.0.1:3210" /></label>}
+            <label className="text-xs text-gray-400">聊天默认联网模式
+              <SettingsSelect className="mt-1" value={webSearchSettings.mode} ariaLabel="聊天默认联网模式" onChange={(value) => updateWebSearch({ mode: value as WebSearchSettings['mode'] })} options={[{ value: 'off', label: '不联网' }, { value: 'manual', label: '按需联网' }, { value: 'auto', label: '知识库不足时联网' }, { value: 'always', label: '总是联网补充' }]} />
+            </label>
+            <label className="text-xs text-gray-400">搜索结果数<input type="number" min={1} max={10} className="input-field mt-1 text-xs" value={webSearchSettings.resultLimit} onChange={(event) => updateWebSearch({ resultLimit: Math.max(1, Math.min(10, Number(event.target.value) || 5)) })} /></label>
+            <label className="text-xs text-gray-400">抓取网页数<input type="number" min={1} max={5} className="input-field mt-1 text-xs" value={webSearchSettings.fetchLimit} onChange={(event) => updateWebSearch({ fetchLimit: Math.max(1, Math.min(5, Number(event.target.value) || 3)) })} /></label>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button className="btn-secondary text-xs" onClick={() => void handleTestWebSearch()} disabled={webSearchTest.status === 'testing'}>{webSearchTest.status === 'testing' ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}测试联网搜索</button>
+            <span className={`text-xs ${statusTextClass(webSearchTest.status)}`}>{webSearchTest.msg || '未测试'}</span>
+          </div>
+          <p className="text-xs leading-5 text-[var(--color-text-tertiary)]">推荐启用「知识库不足时联网」，它会在本地知识库没有命中或问题包含“最新/今天/价格/版本/政策”等时效词时自动抓取网页正文。</p>
         </div>
       </section>
 
@@ -486,12 +661,16 @@ export default function SettingsPage() {
 
       {/* 密钥迁移（跨设备，基于主密码加密） */}
       <section id="key-migration" className="scroll-mt-6 space-y-3">
-        <h2 className="text-lg font-semibold">🔐 密钥迁移（跨设备）</h2>
-        <p className="text-xs text-gray-400">
-          用主密码加密 API Key 生成密文，可安全放任意位置（含 GitHub 公开仓库）；另一台设备用同一主密码解密恢复。<br/>
-          <span className="text-[var(--color-text-tertiary)]">基于 PBKDF2(310k) + AES-256，无主密码不可破解。</span>
-        </p>
-        <div className="card space-y-4">
+        <details className="settings-disclosure card group">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+            <div>
+              <h2 className="text-lg font-semibold">🔐 安全与迁移</h2>
+              <p className="mt-1 text-xs text-gray-400">用主密码加密和恢复 API Key，支持跨设备迁移。</p>
+            </div>
+            <ChevronDown className="h-4 w-4 text-[var(--color-text-tertiary)] transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="mt-4 border-t border-[var(--color-border)] pt-4">
+        <div className="space-y-4">
           {/* 导出 */}
           <div className="space-y-2">
             <label className="text-xs font-medium text-gray-500">导出（加密生成密文）</label>
@@ -521,13 +700,8 @@ export default function SettingsPage() {
           </div>
           {vaultMsg && <p className="text-xs text-gray-500">{vaultMsg}</p>}
         </div>
-      </section>
-
-      {/* 连接测试 */}
-      <section id="connection-test" className="scroll-mt-6 card">
-        <h2 className="text-lg font-semibold mb-3">🔌 连接测试</h2>
-        <p className="text-xs text-gray-400 mb-3">测试各 API 服务是否可用</p>
-        <ConnectionTest />
+          </div>
+        </details>
       </section>
 
       {/* 数据管理 */}
@@ -649,12 +823,12 @@ export default function SettingsPage() {
         <nav aria-label="设置分区" className="card !p-2">
           <p className="mb-2 px-2 text-sm font-semibold text-[var(--color-text-tertiary)]">设置导航</p>
           {[
-            ['ai-services', 'AI 服务'],
-            ['model-center', '模型中心'],
-            ['model-preferences', '模型偏好'],
+            ['ai-services', 'API 服务'],
+            ['model-center', '模型与回答'],
+            ['model-answer', '普通 AI 回答'],
+            ['web-search', '联网搜索'],
             ['cloud-sync', '云同步'],
-            ['key-migration', '密钥迁移'],
-            ['connection-test', '连接测试'],
+            ['key-migration', '安全与迁移'],
             ['data-management', '数据管理'],
             ['about-updates', '关于与更新'],
           ].map(([id, label]) => (
@@ -664,64 +838,6 @@ export default function SettingsPage() {
           ))}
         </nav>
       </aside>
-    </div>
-  );
-}
-
-function ConnectionTest() {
-  const [results, setResults] = useState<{ name: string; status: 'waiting' | 'testing' | 'ok' | 'fail'; msg: string }[]>(
-    PROVIDER_INFO.map(p => ({ name: p.label, status: 'waiting' as const, msg: '' }))
-  );
-
-  const testAll = async () => {
-    const newResults = [...results];
-    for (let i = 0; i < PROVIDER_INFO.length; i++) {
-      const { key } = PROVIDER_INFO[i];
-      newResults[i] = { ...newResults[i], status: 'testing', msg: '测试中...' };
-      setResults([...newResults]);
-
-      const settings = useSettingsStore.getState().settings;
-      const prov = settings?.aiProviders[key];
-      if (!prov?.enabled || (providerNeedsApiKey(key) && !prov.apiKey)) {
-        newResults[i] = { ...newResults[i], status: 'waiting', msg: '未配置' };
-        setResults([...newResults]);
-        continue;
-      }
-
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
-        const headers: Record<string, string> = {};
-        if (prov.apiKey.trim()) headers.Authorization = `Bearer ${prov.apiKey.trim()}`;
-        const res = await fetch(`${prov.baseUrl.replace(/\/+$/, '')}/models`, {
-          headers,
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (res.ok) {
-          const data = await res.json();
-          const count = data.data?.length ?? 0;
-          newResults[i] = { ...newResults[i], status: 'ok', msg: `✅ 可用（${count} 个模型）` };
-        } else {
-          newResults[i] = { ...newResults[i], status: 'fail', msg: `❌ ${res.status} ${res.statusText}` };
-        }
-      } catch (e) {
-        newResults[i] = { ...newResults[i], status: 'fail', msg: `❌ ${(e as Error).message}` };
-      }
-      setResults([...newResults]);
-    }
-  };
-
-  return (
-    <div className="space-y-2">
-      <button className="btn-primary text-sm" onClick={testAll}>🔄 全部测试</button>
-      {results.map((r, i) => (
-        <div key={i} className={`flex items-center gap-2 text-sm ${r.status === 'testing' ? 'text-yellow-500' : r.status === 'ok' ? 'text-green-600' : r.status === 'fail' ? 'text-red-500' : 'text-gray-400'}`}>
-          <span className="w-20">{PROVIDER_INFO[i].label}</span>
-          <span>{r.status === 'testing' ? '⟳' : r.status === 'ok' ? <Check className="w-4 h-4 inline" /> : r.status === 'fail' ? '✗' : '—'}</span>
-          <span className="text-xs">{r.msg}</span>
-        </div>
-      ))}
     </div>
   );
 }

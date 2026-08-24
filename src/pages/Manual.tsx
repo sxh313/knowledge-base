@@ -150,9 +150,11 @@ export default function Manual() {
           <li><b>代码分析</b> — 点击「🔍 代码」，AI 审查代码质量和安全</li>
           <li><b>代码解释</b> — 点击「📖 解释」，AI 逐行解释代码逻辑</li>
           <li><b>AI 对话（RAG）</b> — 在同一入口选择个人文档、zero2Agent、全部知识库或不使用知识库；回答附可定位的参考来源</li>
+          <li><b>联网补充</b> — 「设置 → API 服务配置 → 联网搜索服务」可选择 Tavily、open-webSearch 或 DuckDuckGo；推荐 Tavily +「知识库不足时联网」，无需本地常驻服务。</li>
+          <li><b>引用与长度</b> — 「设置 → API 服务配置 → 普通 AI 回答策略」可调整回答引用数量（3/5/8）和回答长度（简洁/标准/详细）。回答里的 <code className="font-mono">[1]</code>、<code className="font-mono">[K1]</code>、<code className="font-mono">[W1]</code> 可点击查看来源。</li>
           <li><b>Agent 模式</b> — 切换到 Agent 后可让 AI 规划知识库操作；写入前会展示风险、影响和 diff，必须由你确认，并支持撤销</li>
           <li><b>本地模型</b> — 「设置 → API 服务配置 → 本地模型」可连接 Ollama、LM Studio、vLLM、LocalAI 等 OpenAI 兼容服务；API 地址填写本地 <code className="font-mono">/v1</code> 入口，API Key 可留空，并确保本地服务允许浏览器 CORS。</li>
-          <li><b>模型中心</b> — 「设置 → 模型中心」可分别填写 dsv4 Chat 和 BGE Embedding 端点，再绑定回答、向量召回、重排、复习辅导和评分角色。Embedding 不配置也可以使用。</li>
+          <li><b>角色绑定</b> — 模型统一在「API 服务配置」中填写、启用并勾选；「设置 → 角色绑定」直接选择这些模型绑定到回答、向量召回、重排、复习辅导和评分角色，不再重复填写端点。</li>
           <li><b>混合检索</b> — 默认使用关键词检索；开启并配置 Embedding、生成向量索引后，才启用关键词 + 向量双路召回，随后可由 dsv4 对候选片段重排。</li>
           <li><b>多模型路由</b> — 支持胜算云、中转站、硅基流动、智谱、DeepSeek 和本地服务，已启用模型之间可故障转移</li>
         </ul>
@@ -223,6 +225,7 @@ export default function Manual() {
       <Section icon={SettingsIcon} title="设置" color="text-gray-500">
         <ul className="list-disc pl-5 space-y-1">
           <li><b>API 服务配置</b> — 各服务商填 Key + 刷新模型 + 勾选；模型搜索框实时筛选可用模型</li>
+          <li><b>联网搜索服务</b> — 推荐选择 Tavily 并填写 API Key；也可选择 open-webSearch（本地/自托管）或 DuckDuckGo 摘要兜底。</li>
           <li><b>模型偏好</b> — 为高质量/代码/快速任务分别指定模型</li>
           <li><b>主题</b> — 白天 / 夜晚 / 跟随系统（侧栏底部一键切换）</li>
           <li><b>复习目标</b> — 设置每日学习时间和 zero2Agent 复习计划</li>

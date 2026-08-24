@@ -1,9 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AIModelBindings, AIModelProfile, AppSettings } from '../../lib/db/schema';
-import { chatCompletion } from '../../lib/ai/client';
 import { DEFAULT_MODEL_BINDINGS, getRetrievalSettings } from '../../lib/ai/modelProfiles';
-import { testEmbeddingProfile } from '../../lib/ai/embeddings';
-import { describeConnectionError } from '../../lib/ai/connectionError';
+import { Check, ChevronDown } from 'lucide-react';
 
 interface Props {
   settings: AppSettings;
@@ -20,98 +18,156 @@ const ROLE_FIELDS: { key: keyof AIModelBindings; label: string; kind: AIModelPro
   { key: 'plannerModelId', label: '复习计划', kind: 'chat', description: '未来扩展的计划生成角色' },
 ];
 
-function newProfile(): AIModelProfile {
-  const id = `custom-${crypto.randomUUID().slice(0, 8)}`;
-  return { id, name: '自定义模型', kind: 'chat', baseUrl: 'http://127.0.0.1:4900/v1', modelId: '', apiKey: '', enabled: true };
+const PROVIDER_LABELS: Record<string, string> = {
+  shengsuanyun: '胜算云', relay: 'Relay', siliconflow: '硅基流动', zhipu: '智谱', deepseek: 'DeepSeek', local: '本地服务',
+};
+
+function serviceProfileId(provider: string, modelId: string): string {
+  return `api:${provider}:${modelId}`;
 }
 
-export default function AIModelCenter({ settings, onUpdate }: Props) {
-  const [testState, setTestState] = useState<Record<string, string>>({});
-  const profiles = settings.modelProfiles ?? [];
-  const bindings = { ...DEFAULT_MODEL_BINDINGS, ...(settings.modelBindings ?? {}) };
-  const retrieval = getRetrievalSettings(settings);
-  const browserBlocksHttp = typeof window !== 'undefined' && window.location.protocol === 'https:';
-  const chatProfiles = useMemo(() => profiles.filter((profile) => profile.kind === 'chat'), [profiles]);
-  const embeddingProfiles = useMemo(() => profiles.filter((profile) => profile.kind === 'embedding'), [profiles]);
+function isEmbeddingModel(modelId: string): boolean {
+  return /(embed|bge|e5-|gte-|text-embedding|向量)/i.test(modelId);
+}
 
-  const saveProfiles = (next: AIModelProfile[]) => onUpdate({ modelProfiles: next });
-  const updateProfile = (id: string, patch: Partial<AIModelProfile>) => {
-    void saveProfiles(profiles.map((profile) => profile.id === id ? { ...profile, ...patch } : profile));
-  };
-  const updateBinding = (key: keyof AIModelBindings, value: string) => {
-    void onUpdate({ modelBindings: { ...bindings, [key]: value || undefined } as AIModelBindings });
-  };
-  const testProfile = async (profile: AIModelProfile) => {
-    setTestState((current) => ({ ...current, [profile.id]: '测试中...' }));
-    try {
-      if (profile.kind === 'embedding') {
-        const result = await testEmbeddingProfile(profile);
-        setTestState((current) => ({ ...current, [profile.id]: `✅ 可用，${result.dimension} 维（${result.model}）` }));
-      } else {
-        const result = await chatCompletion(
-          { name: profile.id, baseUrl: profile.baseUrl, apiKey: profile.apiKey, enabled: profile.enabled },
-          profile.modelId,
-          [{ role: 'user', content: '只回复：连接成功' }],
-          { temperature: 0, maxTokens: 16 },
-        );
-        setTestState((current) => ({ ...current, [profile.id]: `✅ 可用：${result.content.trim().slice(0, 30)}` }));
-      }
-    } catch (error) {
-      setTestState((current) => ({ ...current, [profile.id]: `❌ ${describeConnectionError(error, profile.baseUrl)}` }));
-    }
+function RoleModelSelect({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: AIModelProfile[];
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selected = options.find((profile) => profile.id === value);
+  // 角色绑定只展示模型 ID；API、供应商和内部 profile ID 不属于用户需要做的选择。
+  const label = selected ? selected.modelId : '不绑定（使用旧配置/自动降级）';
+
+  useEffect(() => {
+    const close = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, []);
+
+  const choose = (nextValue: string) => {
+    onChange(nextValue);
+    setOpen(false);
   };
 
   return (
+    <div ref={rootRef} className="role-model-select relative mt-2">
+      <button
+        type="button"
+        className={`input-field role-binding-select flex w-full items-center justify-between gap-3 text-left text-xs ${open ? 'role-binding-select-open' : ''}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => { if (event.key === 'Escape') setOpen(false); }}
+      >
+        <span className="min-w-0 truncate">{label}</span>
+        <ChevronDown className={`h-4 w-4 flex-shrink-0 text-[var(--color-text-tertiary)] transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="role-binding-menu absolute left-0 right-0 z-30 mt-2 max-h-64 overflow-y-auto rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1.5 shadow-lg" role="listbox" aria-label="模型选项">
+          <button type="button" role="option" aria-selected={!value} className={`role-binding-option ${!value ? 'role-binding-option-selected' : ''}`} onClick={() => choose('')}>
+            <span>不绑定（使用旧配置/自动降级）</span>
+            {!value && <Check className="h-4 w-4 flex-shrink-0" />}
+          </button>
+          {options.map((profile) => {
+            const optionLabel = profile.modelId;
+            return (
+              <button key={profile.id} type="button" role="option" aria-selected={profile.id === value} className={`role-binding-option ${profile.id === value ? 'role-binding-option-selected' : ''}`} onClick={() => choose(profile.id)}>
+                <span className="min-w-0 truncate">{optionLabel}</span>
+                {profile.id === value && <Check className="h-4 w-4 flex-shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function AIModelCenter({ settings, onUpdate }: Props) {
+  const profiles = settings.modelProfiles ?? [];
+  const bindings = { ...DEFAULT_MODEL_BINDINGS, ...(settings.modelBindings ?? {}) };
+  const retrieval = getRetrievalSettings(settings);
+  // 只有 API 服务配置中明确勾选的模型才作为角色绑定候选项；首次绑定时自动物化为 modelProfile。
+  const serviceProfiles = useMemo(() => {
+    const result: AIModelProfile[] = [];
+    const selectedModels = new Set(settings.selectedModels ?? []);
+    for (const [provider, modelIds] of Object.entries(settings.availableModels ?? {})) {
+      const providerConfig = settings.aiProviders[provider as keyof typeof settings.aiProviders];
+      // 角色绑定只允许选择 API 服务配置中已启用的服务，避免旧的 local/dsv4 默认值混入候选项。
+      if (!providerConfig?.enabled) continue;
+      for (const modelId of modelIds ?? []) {
+        const selectedId = provider === 'local' ? `local/${modelId}` : modelId;
+        if (!selectedModels.has(selectedId)) continue;
+        result.push({
+          id: serviceProfileId(provider, modelId),
+          name: `${PROVIDER_LABELS[provider] ?? provider} · ${modelId}`,
+          kind: isEmbeddingModel(modelId) ? 'embedding' : 'chat',
+          baseUrl: providerConfig.baseUrl,
+          modelId,
+          apiKey: providerConfig.apiKey,
+          enabled: providerConfig.enabled,
+        });
+      }
+    }
+    return result;
+  }, [settings.availableModels, settings.aiProviders, settings.selectedModels]);
+  const updateBinding = (key: keyof AIModelBindings, value: string) => {
+    const selected = serviceProfiles.find((profile) => profile.id === value);
+    const nextProfiles = selected && !profiles.some((profile) => profile.id === selected.id)
+      ? [...profiles, selected]
+      : profiles;
+    void onUpdate({
+      modelProfiles: nextProfiles,
+      modelBindings: { ...bindings, [key]: value || undefined } as AIModelBindings,
+    });
+  };
+
+  useEffect(() => {
+    const validIds = new Set(serviceProfiles.map((profile) => profile.id));
+    const nextBindings: Partial<AIModelBindings> = { ...bindings };
+    let changed = false;
+    for (const key of Object.keys(DEFAULT_MODEL_BINDINGS) as (keyof AIModelBindings)[]) {
+      const current = nextBindings[key];
+      if (current && !validIds.has(current)) {
+        nextBindings[key] = undefined;
+        changed = true;
+      }
+    }
+    if (changed) void onUpdate({ modelBindings: nextBindings as AIModelBindings });
+  }, [serviceProfiles, settings.modelBindings]);
+  return (
     <section id="model-center" className="model-center-section scroll-mt-6 space-y-4">
       <div>
-        <h2 className="text-lg font-semibold">🧩 模型中心与角色绑定</h2>
-        <p className="mt-1 text-xs text-gray-400">每个本地端点只配置一次，再绑定到回答、召回、重排和复习角色。Embedding 是可选增强，不配置也能正常使用关键词检索。API Key 只保存在当前设备。</p>
+        <h2 className="text-lg font-semibold">🧩 角色绑定</h2>
+        <p className="mt-1 text-xs text-gray-400">模型只在上方「API 服务配置」中维护；这里直接选择已启用且已勾选的模型绑定到回答、召回、重排和复习角色，不再重复填写模型信息。Embedding 是可选增强，不配置也能正常使用关键词检索。</p>
       </div>
 
-      <div className="space-y-3">
-        {profiles.map((profile) => (
-          <div key={profile.id} className="card space-y-3">
-            <div className="model-profile-header flex flex-wrap items-center gap-2">
-              <input className="input-field min-w-[10rem] flex-1 text-sm" value={profile.name} onChange={(event) => updateProfile(profile.id, { name: event.target.value })} />
-              <select className="input-field w-32 text-sm" value={profile.kind} onChange={(event) => updateProfile(profile.id, { kind: event.target.value as AIModelProfile['kind'] })}>
-                <option value="chat">Chat 对话</option>
-                <option value="embedding">Embedding 向量</option>
-              </select>
-              <label className="flex items-center gap-2 text-xs text-gray-500">
-                <input type="checkbox" checked={profile.enabled} onChange={(event) => updateProfile(profile.id, { enabled: event.target.checked })} />启用
-              </label>
-              <button className="btn-secondary text-xs" onClick={() => void testProfile(profile)}>测试连接</button>
-              <button className="btn-ghost text-xs text-red-500" onClick={() => void saveProfiles(profiles.filter((item) => item.id !== profile.id))}>删除</button>
-            </div>
-            <div className="model-profile-fields grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <label className="text-xs text-gray-400">Base URL<input className="input-field mt-1 text-xs font-mono" value={profile.baseUrl} onChange={(event) => updateProfile(profile.id, { baseUrl: event.target.value })} placeholder="http://127.0.0.1:4900/v1" /></label>
-              <label className="text-xs text-gray-400">Model ID<input className="input-field mt-1 text-xs font-mono" value={profile.modelId} onChange={(event) => updateProfile(profile.id, { modelId: event.target.value })} placeholder={profile.kind === 'embedding' ? 'BAAI/bge-small-zh-v1.5' : 'dsv4'} /></label>
-              <label className="text-xs text-gray-400">API Key（可选）<input type="password" className="input-field mt-1 text-xs font-mono" value={profile.apiKey} onChange={(event) => updateProfile(profile.id, { apiKey: event.target.value })} placeholder="本地服务可留空" /></label>
-              {profile.kind === 'embedding' && <label className="text-xs text-gray-400">向量维度<input type="number" className="input-field mt-1 text-xs font-mono" value={profile.dimension ?? ''} onChange={(event) => updateProfile(profile.id, { dimension: event.target.value ? Number(event.target.value) : undefined })} placeholder="512" /></label>}
-            </div>
-            {testState[profile.id] && <p className={`model-test-status text-xs ${testState[profile.id].startsWith('✅') ? 'text-green-600' : testState[profile.id].startsWith('❌') ? 'text-red-500' : 'text-gray-500'}`}>{testState[profile.id]}</p>}
-            {browserBlocksHttp && /^http:\/\//i.test(profile.baseUrl) && <p className="model-test-status text-xs text-amber-600">当前网页使用 HTTPS；HTTP 模型地址只能在桌面版或安卓原生版访问，网页端需要 HTTPS + CORS。</p>}
+      <div className="card role-binding-card space-y-4">
+        <div className="role-binding-header">
+          <div>
+            <h3 className="font-medium">角色绑定</h3>
+            <p className="mt-1 text-xs text-gray-400">候选模型只来自「API 服务配置」中已启用并勾选的模型。未勾选或未启用的服务不会出现在这里。</p>
           </div>
-        ))}
-        <button className="btn-secondary text-sm" onClick={() => void saveProfiles([...profiles, newProfile()])}>＋ 添加模型配置</button>
-      </div>
-
-      <div className="card space-y-3">
-        <div>
-          <h3 className="font-medium">角色绑定</h3>
-          <p className="mt-1 text-xs text-gray-400">dsv4 可以绑定回答、重排、复习和评分；Embedding 模型只绑定向量召回。</p>
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="role-binding-grid grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           {ROLE_FIELDS.map((role) => {
-            const options = role.kind === 'embedding' ? embeddingProfiles : chatProfiles;
-            const value = bindings[role.key] ?? '';
+            const options = serviceProfiles.filter((profile) => profile.kind === role.kind);
+            const storedValue = bindings[role.key] ?? '';
+            const value = options.some((profile) => profile.id === storedValue) ? storedValue : '';
             return (
-              <label key={role.key} className="text-xs text-gray-400">
-                {role.label}<span className="ml-1 text-[var(--color-text-tertiary)]">· {role.description}</span>
-                <select className="input-field mt-1 text-xs" value={value} onChange={(event) => updateBinding(role.key, event.target.value)}>
-                  <option value="">不绑定（使用旧配置/自动降级）</option>
-                  {options.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.modelId}</option>)}
-                </select>
+              <label key={role.key} className="role-binding-item text-xs">
+                <span className="role-binding-label">{role.label}</span>
+                <span className="role-binding-description">{role.description}</span>
+                <RoleModelSelect value={value} options={options} onChange={(nextValue) => updateBinding(role.key, nextValue)} />
               </label>
             );
           })}

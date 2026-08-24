@@ -7,6 +7,10 @@ export interface SearchResult {
   url: string;
 }
 
+function decodeHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+}
+
 /** WMO 天气代码 → 中文描述 */
 function wmoDesc(code: number): string {
   const map: Record<number, string> = {
@@ -51,6 +55,54 @@ export async function doSearch(query: string): Promise<SearchResult[]> {
       if (title) results.push({ title, snippet, url });
     }
   } catch { /* ignore */ }
+
+  // DuckDuckGo HTML 偶尔会返回验证页或调整标记，使用官方 Instant Answer JSON
+  // 作为轻量兜底，至少保证测试和摘要搜索能拿到可用内容。
+  if (results.length === 0) {
+    try {
+      const apiRes = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`);
+      if (apiRes.ok) {
+        const data = await apiRes.json();
+        if (data.AbstractText) {
+          results.push({
+            title: data.Heading || query,
+            snippet: data.AbstractText,
+            url: data.AbstractURL || 'https://duckduckgo.com/',
+          });
+        }
+        const topics = Array.isArray(data.RelatedTopics) ? data.RelatedTopics : [];
+        for (const topic of topics) {
+          if (topic?.Text && topic?.FirstURL) {
+            results.push({ title: topic.Text.split(' - ')[0] || query, snippet: topic.Text, url: topic.FirstURL });
+          }
+          if (Array.isArray(topic?.Topics)) {
+            for (const nested of topic.Topics) {
+              if (nested?.Text && nested?.FirstURL) results.push({ title: nested.Text.split(' - ')[0] || query, snippet: nested.Text, url: nested.FirstURL });
+            }
+          }
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  // 某些本地运行环境无法连接 DuckDuckGo，使用 Bing HTML 作为服务端最终兜底。
+  if (results.length === 0) {
+    try {
+      const bingRes = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(query)}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      });
+      if (bingRes.ok) {
+        const html = await bingRes.text();
+        const resultRe = /<li class="b_algo"[\s\S]*?<h2><a href="([^"]+)"[^>]*>([\s\S]*?)<\/a><\/h2>[\s\S]*?(?:<p>([\s\S]*?)<\/p>)?/g;
+        for (const match of html.matchAll(resultRe)) {
+          const title = decodeHtml(match[2]);
+          const snippet = decodeHtml(match[3] || '');
+          if (title && match[1]) results.push({ title, snippet, url: match[1] });
+          if (results.length >= 8) break;
+        }
+      }
+    } catch { /* ignore */ }
+  }
 
   // 2. 天气查询（Open-Meteo，免费 CORS 友好）
   if (/天气|weather|温度|气温|temperature/i.test(query)) {

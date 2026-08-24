@@ -7,6 +7,8 @@ import type { AgentPlan, AgentExecutionResult } from './tools';
 
 /** 最多工具循环轮数，防止无限循环 */
 export const MAX_TOOL_ROUNDS = 5;
+/** 单轮工具回灌的字符上限，避免单篇文档耗尽模型上下文。 */
+export const MAX_TOOL_RESULT_CHARS = 24000;
 
 /** 只读操作类型：可自动执行，无需用户确认 */
 const READ_ONLY_TYPES = new Set([
@@ -48,8 +50,12 @@ export function formatToolResults(preview: AgentExecutionResult): string {
       continue;
     }
     if (r.op.type === 'read') {
+      const content = r.content || '';
+      const bounded = content.length > 12000
+        ? `${content.slice(0, 12000)}\n\n[文档已按上下文预算截断；需要后半部分请用更精确的读取/搜索]`
+        : content;
       lines.push(
-        `[工具结果 read] 文档「${r.title || ''}」(id=${r.journalId || ''}) 全文：\n${r.content || ''}`,
+        `[工具结果 read] 文档「${r.title || ''}」(id=${r.journalId || ''}) 全文：\n${bounded}`,
       );
     } else if (r.op.type === 'search') {
       const hits = r.searchResults ?? [];
@@ -156,7 +162,10 @@ export function formatToolResults(preview: AgentExecutionResult): string {
       lines.push(conflict ? `[工具结果 ${r.op.type}] ${conflict.title} 有 ${conflict.differences.length} 处差异，${conflict.needsManualReview ? '需要人工复核' : '可继续处理'}。${conflict.draft ? `\n合并草案：\n${conflict.draft}` : ''}` : `[工具结果 ${r.op.type}] 未找到冲突。`);
     }
   }
-  return lines.join('\n\n');
+  const result = lines.join('\n\n');
+  return result.length > MAX_TOOL_RESULT_CHARS
+    ? `${result.slice(0, MAX_TOOL_RESULT_CHARS)}\n\n[工具结果已按上下文预算截断，请缩小下一次查询范围]`
+    : result;
 }
 
 /**

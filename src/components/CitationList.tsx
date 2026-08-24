@@ -9,6 +9,11 @@ interface CitationListProps {
   onNavigate?: (citation: RetrievedChunk) => void;
 }
 
+function hostOf(url?: string): string {
+  if (!url) return '';
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
+}
+
 /** 展示 RAG 回答的参考来源（实际发送的分块：文档标题 + 章节，点击跳转） */
 export default function CitationList({ citations }: CitationListProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -23,14 +28,15 @@ export default function CitationList({ citations }: CitationListProps) {
         {citations.map((c, i) => {
           // 兼容早期未保存 sourceId/chunkId 的历史对话引用。
           const citationKey = c.chunkId || `${c.source}-${c.sourceId || c.journalId || c.knowledgeDocId || 'legacy'}-${c.offset?.start ?? i}`;
+          const domain = c.source === 'web' ? hostOf(c.sourceUrl) : '';
           return (
           <div key={citationKey} className="rounded px-1.5 py-1.5 hover:bg-[var(--color-surface-2)] transition-colors">
             <div className="flex items-start gap-1.5 text-left text-xs">
             <span className="citation-index shrink-0">{i + 1}</span>
-            <button className="min-w-0 flex-1 text-left" onClick={() => setPreview(c)} title="查看原文依据" type="button">
+            <button className="citation-source-link min-w-0 flex-1 text-left" onClick={() => setPreview(c)} title="查看原文依据" type="button">
               <span className="flex items-center gap-1 text-[var(--color-primary)] truncate">
                 {c.source === 'zero2agent' || c.source === 'web' ? <Globe2 className="h-3 w-3 shrink-0" /> : <FileText className="h-3 w-3 shrink-0" />}
-                <span className="truncate">{c.source === 'zero2agent' ? 'zero2Agent · ' : c.source === 'web' ? '联网来源 · ' : '个人文档 · '}《{c.title}》
+                <span className="truncate">{c.source === 'zero2agent' ? 'zero2Agent · ' : c.source === 'web' ? `联网来源${domain ? ` · ${domain}` : ''} · ` : '个人文档 · '}《{c.title}》
                 {c.heading && <span className="text-[var(--color-text-tertiary)]">#{c.heading}</span>}
                 </span>
                 <LocateFixed className="h-3 w-3 shrink-0 opacity-70" />

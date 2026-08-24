@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import type { SyncConfig } from '../../lib/db/schema';
 import type { SyncStatus } from '../../stores/syncStore';
 import SyncConflicts from '../SyncConflicts';
@@ -15,12 +17,23 @@ interface Props {
 }
 
 export default function SyncSettingsSection({ config, status, errorMessage, testing, testMessage, onUpdate, onTest, onPull, onSync }: Props) {
+  const [expanded, setExpanded] = useState(config.enabled);
+
   return (
     <section id="cloud-sync" className="scroll-mt-6 space-y-3">
-      <h2 className="text-lg font-semibold">☁️ 云同步（GitHub）</h2>
-      <p className="text-xs text-gray-400">数据推送到你的 GitHub 私有仓库，跨设备同步、免费、带版本历史</p>
-      <div className="card space-y-3">
-        <label className="flex items-center justify-between cursor-pointer"><span className="text-sm font-medium">启用云同步</span><input type="checkbox" checked={config.enabled} onChange={e => onUpdate({ enabled: e.target.checked })} className="h-4 w-4 rounded border-[var(--color-border)]" /></label>
+      <details className="settings-disclosure card group" open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-semibold">☁️ 云同步（GitHub）</h2>
+            <p className="mt-1 text-xs text-gray-400">数据推送到你的 GitHub 私有仓库，跨设备同步、免费、带版本历史</p>
+          </div>
+          <span className="flex shrink-0 items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
+            {config.enabled ? '已启用' : '未启用'}
+            <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+          </span>
+        </summary>
+        <div className="mt-4 space-y-3 border-t border-[var(--color-border)] pt-4">
+        <label className="flex cursor-pointer items-center justify-between"><span className="text-sm font-medium">启用云同步</span><input type="checkbox" checked={config.enabled} onChange={e => { setExpanded(e.target.checked); onUpdate({ enabled: e.target.checked }); }} className="h-4 w-4 rounded border-[var(--color-border)]" /></label>
         {config.enabled && <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="text-xs text-gray-400">GitHub 用户名或组织<input className="input-field mt-1" value={config.owner} onChange={e => onUpdate({ owner: e.target.value.trim() })} placeholder="your-name" /></label>
@@ -44,7 +57,8 @@ export default function SyncSettingsSection({ config, status, errorMessage, test
           {status === 'error' && <p className="text-xs text-red-500">同步失败：{errorMessage || '请检查配置与网络'}</p>}
           <SyncConflicts refreshKey={config.lastSyncAt ?? 0} />
         </>}
-      </div>
+        </div>
+      </details>
     </section>
   );
 }

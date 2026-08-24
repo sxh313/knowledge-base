@@ -180,6 +180,26 @@ export interface RetrievalSettings {
   rerankTimeoutMs: number;
 }
 
+export type AnswerDetailLevel = 'concise' | 'standard' | 'detailed';
+
+export interface AIAnswerSettings {
+  retrievalTopK: 3 | 5 | 8;
+  detail: AnswerDetailLevel;
+}
+
+export type WebSearchMode = 'manual' | 'auto' | 'always' | 'off';
+export type WebSearchProvider = 'tavily' | 'open-websearch' | 'duckduckgo';
+
+export interface WebSearchSettings {
+  enabled: boolean;
+  provider: WebSearchProvider;
+  baseUrl: string;
+  apiKey?: string;
+  mode: WebSearchMode;
+  resultLimit: number;
+  fetchLimit: number;
+}
+
 export interface SyncConfig {
   enabled: boolean;
   owner: string;        // GitHub 用户名，如 sxh313
@@ -222,6 +242,10 @@ export interface AppSettings {
   modelBindings?: AIModelBindings;
   /** 向量召回与 dsv4 重排开关。 */
   retrieval?: RetrievalSettings;
+  /** 普通 AI 问答的回答策略。 */
+  aiAnswer?: AIAnswerSettings;
+  /** 联网搜索服务配置，用于知识库不足时抓取网页正文作为补充来源。 */
+  webSearch?: WebSearchSettings;
 }
 
 // ──── 文档版本历史快照 ────
@@ -320,6 +344,65 @@ export interface AgentSession {
   deletedAt?: number;
 }
 
+/**
+ * Agent 的可恢复运行时状态。消息正文仍由 agentMessages 保存；这里仅保存
+ * 可控的摘要、任务、工具缓存元数据和权限策略，避免把整个历史重复存一份。
+ */
+export interface AgentStateRecord {
+  /** 与 AgentSession 一一对应，亦作为主键。 */
+  sessionId: string;
+  summary: string;
+  /** 已被压缩进 summary 的消息的最大 createdAt。 */
+  summarizedThroughAt?: number;
+  tasks: AgentTask[];
+  toolCache: AgentToolCacheEntry[];
+  permissions: AgentPermissionContext;
+  updatedAt: number;
+}
+
+export interface AgentTask {
+  id: string;
+  subject: string;
+  description: string;
+  state: 'pending' | 'in_progress' | 'completed' | 'blocked';
+  createdAt: number;
+  updatedAt: number;
+  blockedBy?: string[];
+}
+
+/** 不缓存工具正文，只记录可安全复用的定位和失效时间。 */
+export interface AgentToolCacheEntry {
+  key: string;
+  tool: string;
+  sourceId?: string;
+  contentHash?: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
+/** 用户配置的细粒度授权；具体写操作仍必须经过计划预览。 */
+export interface AgentPermissionContext {
+  mode: 'default' | 'plan_only';
+  allowReadTools: boolean;
+  allowWriteTools: boolean;
+  updatedAt: number;
+}
+
+/** 可审计的长期记忆。默认只由显式 UI/规则写入，绝不静默保存敏感正文。 */
+export interface MemoryItem {
+  id: string;
+  sessionId?: string;
+  scope: 'session' | 'global';
+  kind: 'preference' | 'decision' | 'fact' | 'task';
+  content: string;
+  keywords: string[];
+  sourceMessageIds: string[];
+  confidence: number;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
+}
+
 export type AgentMessageRole = 'user' | 'assistant' | 'tool';
 
 export interface AgentMessageRecord {
@@ -341,7 +424,9 @@ export type AgentRunStatus =
   | 'success'
   | 'partial'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'interrupted'
+  | 'rolled_back';
 
 export interface AgentRun {
   id: string;
@@ -365,6 +450,8 @@ export interface AgentRun {
   tokensOutput?: number;
   /** 失败原因 */
   error?: string;
+  /** 最近一次状态变化的原因，供恢复、审计和 UI 解释。 */
+  statusReason?: string;
   /** 撤销信息（版本快照 + 新建文档 id），供运行历史一键撤销 */
   undo?: {
     versions: { journalId: string; title: string; content: string }[];
@@ -527,6 +614,8 @@ export class StudyJournalDB extends Dexie {
   agentMessages!: Table<AgentMessageRecord>;
   agentRuns!: Table<AgentRun>;
   agentAuditLogs!: Table<AgentAuditLog>;
+  agentStates!: Table<AgentStateRecord>;
+  memoryItems!: Table<MemoryItem>;
   userPreferences!: Table<UserPreference>;
   learningGoals!: Table<LearningGoal>;
   learningTasks!: Table<LearningTask>;
@@ -647,6 +736,11 @@ export class StudyJournalDB extends Dexie {
       await tx.table('zero2ReviewAttempts').toCollection().modify((row: { answeredAt?: number; updatedAt?: number }) => {
         row.updatedAt ??= row.answeredAt ?? now;
       });
+    });
+    // version(11): AgentState 分层与可审计长期记忆；默认仍保持本地优先。
+    this.version(11).stores({
+      agentStates: 'sessionId, updatedAt',
+      memoryItems: 'id, sessionId, scope, kind, updatedAt, deletedAt, *keywords',
     });
   }
 }
