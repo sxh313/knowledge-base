@@ -60,7 +60,9 @@ export default function SourcePreviewModal({ citation, onClose }: Props) {
   const heading = citation.headingPath?.join(' > ') || citation.heading || '正文片段';
   const sourceUrl = citation.source === 'zero2agent' && citation.sourceUrl
     ? `${citation.sourceUrl}${citation.sourceAnchor ? `#${citation.sourceAnchor}` : ''}`
-    : undefined;
+    : citation.source === 'web' && isRetrieved(citation)
+      ? citation.sourceUrl
+      : undefined;
   const localUrl = citation.source === 'zero2agent'
     ? `/source/zero2agent?chunkId=${encodeURIComponent(citation.chunkId)}`
     : isRetrieved(citation) ? citation.localUrl : undefined;

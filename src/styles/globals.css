@@ -277,6 +277,216 @@
     box-shadow: var(--shadow-glow);
   }
 
+  /* 角色绑定：在统一设置控件之上增加一层轻量的选择面板，避免原生下拉框显得生硬。 */
+  .role-binding-card {
+    background: color-mix(in srgb, var(--color-surface) 94%, var(--color-primary-light));
+  }
+  .role-binding-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .role-binding-item {
+    display: block;
+    min-width: 0;
+    padding: 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--color-surface-2) 42%, transparent);
+    transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  }
+  .role-binding-item:hover {
+    border-color: var(--color-border-strong);
+    background: color-mix(in srgb, var(--color-surface-2) 62%, transparent);
+    box-shadow: var(--shadow-xs);
+    transform: translateY(-1px);
+  }
+  /* 打开菜单的角色项提升整块层级，避免下拉内容被下一行卡片盖住。 */
+  .role-binding-item:has(.role-binding-menu) {
+    position: relative;
+    z-index: 50;
+  }
+  .role-binding-label {
+    display: block;
+    color: var(--color-text);
+    font-size: 0.78rem;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+  .role-binding-description {
+    display: block;
+    margin-top: 0.2rem;
+    overflow: hidden;
+    color: var(--color-text-tertiary);
+    font-size: 0.7rem;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .role-binding-select {
+    min-height: 2.5rem;
+    border-radius: var(--radius-lg);
+    background-color: var(--color-surface);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  }
+  .role-binding-select:hover {
+    border-color: var(--color-primary);
+    background-color: var(--color-surface-hover);
+  }
+  .role-binding-select:focus {
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-glow);
+  }
+  .role-binding-select-open {
+    border-color: var(--color-primary);
+    background-color: var(--color-surface-hover);
+    box-shadow: var(--shadow-glow);
+  }
+  .role-binding-menu {
+    animation: role-binding-menu-in 0.16s ease-out both;
+    transform-origin: top center;
+  }
+  .role-binding-option {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-radius: var(--radius-md);
+    padding: 0.65rem 0.75rem;
+    color: var(--color-text-secondary);
+    text-align: left;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    transition: background-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+  }
+  .role-binding-option:hover,
+  .role-binding-option:focus-visible {
+    background: var(--color-surface-2);
+    color: var(--color-text);
+    transform: translateX(2px);
+  }
+  .role-binding-option-selected {
+    background: var(--color-primary-light);
+    color: var(--color-primary);
+    font-weight: 650;
+  }
+  .settings-select {
+    position: relative;
+    width: 100%;
+  }
+  .settings-select-trigger {
+    display: flex;
+    min-height: 2.5rem;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    padding: 0.55rem 0.75rem;
+    color: var(--color-text);
+    text-align: left;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .settings-select-trigger:hover,
+  .settings-select-open .settings-select-trigger {
+    border-color: var(--color-primary);
+    background: var(--color-surface-hover);
+    box-shadow: var(--shadow-glow);
+  }
+  .settings-select-trigger:focus-visible {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-glow);
+  }
+  .settings-select-menu {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 0.4rem);
+    left: 0;
+    right: 0;
+    max-height: 15rem;
+    overflow-y: auto;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--color-surface) 96%, transparent);
+    padding: 0.35rem;
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(16px);
+    animation: settings-select-menu-in 0.15s ease-out both;
+    transform-origin: top center;
+  }
+  .settings-select-option {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-radius: var(--radius-md);
+    padding: 0.62rem 0.7rem;
+    color: var(--color-text-secondary);
+    text-align: left;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    transition: background-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+  }
+  .settings-select-option:hover,
+  .settings-select-option:focus-visible {
+    outline: none;
+    background: var(--color-surface-2);
+    color: var(--color-text);
+    transform: translateX(2px);
+  }
+  .settings-select-option-selected {
+    background: var(--color-primary-light);
+    color: var(--color-primary);
+    font-weight: 650;
+  }
+  @keyframes settings-select-menu-in {
+    from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes role-binding-menu-in {
+    from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .provider-order-row {
+    cursor: grab;
+    transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease, transform 0.18s ease;
+  }
+  .provider-order-row:hover {
+    border-color: var(--color-primary);
+    background-color: var(--color-surface-hover);
+    box-shadow: var(--shadow-xs);
+  }
+  .provider-order-row:active,
+  .provider-order-row-dragging {
+    cursor: grabbing;
+    opacity: 0.58;
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-glow);
+    transform: scale(0.99);
+  }
+  .provider-order-grip {
+    cursor: grab;
+  }
+  .provider-config-panel {
+    animation: provider-config-panel-in 0.22s ease-out both;
+  }
+  @keyframes provider-config-panel-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .role-binding-item, .role-binding-select, .role-binding-option, .provider-order-row, .settings-select-trigger, .settings-select-option { transition: none; }
+    .role-binding-menu, .settings-select-menu, .provider-config-panel { animation: none; }
+  }
+
   /* 标签 */
   .tag {
     @apply inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-medium;
@@ -556,13 +766,20 @@
   .answer-markdown { max-width: 48rem; font-size: 0.9375rem; line-height: 1.8; }
   .answer-markdown > :first-child { margin-top: 0 !important; }
   .answer-markdown > :last-child { margin-bottom: 0 !important; }
-  .answer-markdown h1, .answer-markdown h2, .answer-markdown h3 { letter-spacing: -0.02em; }
-  .answer-markdown h2 { padding-top: 0.55rem; border-top: 1px solid var(--color-border); }
+  .answer-markdown h1, .answer-markdown h2, .answer-markdown h3 { letter-spacing: -0.02em; text-wrap: balance; }
+  .answer-markdown h1 { margin-bottom: 0.8rem !important; color: var(--color-text); font-size: 1.45em !important; }
+  .answer-markdown h2 { margin-top: 1.35rem !important; padding: 0.55rem 0 0.55rem 0.8rem; border-top: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); color: var(--color-text); background: color-mix(in srgb, var(--color-primary-light) 38%, transparent); border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+  .answer-markdown h3 { margin-top: 1rem !important; color: var(--color-primary); font-size: 1.08em !important; }
+  .answer-markdown blockquote { margin: 1rem 0 !important; padding: 0.75rem 1rem !important; border-left: 3px solid var(--color-primary) !important; border-radius: 0 var(--radius-lg) var(--radius-lg) 0; background: color-mix(in srgb, var(--color-primary-light) 72%, var(--color-surface)); color: var(--color-text) !important; }
+  .answer-markdown blockquote p { margin: 0 !important; font-weight: 650; }
   .answer-markdown strong { color: var(--color-text); font-weight: 700; }
   .answer-markdown li::marker { color: var(--color-primary); }
   .answer-markdown code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-  .inline-citation { display: inline-flex; align-items: center; margin: 0 0.08rem; padding: 0 0.22rem; border-radius: 0.25rem; color: var(--color-primary); background: var(--color-primary-light); font-size: 0.78em; font-weight: 700; vertical-align: baseline; cursor: pointer; }
-  .inline-citation:hover { text-decoration: underline; }
+  .inline-citation { display: inline-flex; align-items: center; margin: 0 0.1rem; padding: 0.05rem 0.32rem; border: 1px solid color-mix(in srgb, var(--color-primary) 42%, transparent); border-radius: 0.35rem; color: var(--color-primary-hover); background: var(--color-primary-light); font-size: 0.78em; font-weight: 750; vertical-align: baseline; cursor: pointer; transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease; }
+  .inline-citation:hover { border-color: var(--color-primary); color: var(--color-text); background: color-mix(in srgb, var(--color-primary-light) 72%, var(--color-surface)); text-decoration: none; transform: translateY(-1px); }
+  .citation-source-link { display: block; border-radius: var(--radius-md); color: var(--color-primary) !important; }
+  .citation-source-link:hover { background: color-mix(in srgb, var(--color-primary-light) 48%, transparent); }
+  .citation-source-link > span:first-child { color: var(--color-primary) !important; font-weight: 700; }
   .answer-image-figure { margin: 1.1rem 0; }
   .answer-image-button { display: block; width: 100%; padding: 0; border: 1px solid var(--color-border); border-radius: 0.7rem; background: var(--color-surface-2); overflow: hidden; cursor: zoom-in; }
   .answer-image-button img { display: block; width: 100%; max-height: 35rem; object-fit: contain; margin: 0 !important; transition: transform 0.2s ease; }
@@ -573,6 +790,10 @@
   .answer-table-scroll { overflow-x: auto; margin: 1rem 0; border: 1px solid var(--color-border); border-radius: 0.65rem; }
   .answer-table-scroll table { min-width: 32rem; margin: 0 !important; }
   .answer-table-scroll thead { position: sticky; top: 0; z-index: 1; }
+  .answer-markdown .answer-table-scroll th { color: var(--color-text); background: color-mix(in srgb, var(--color-primary-light) 62%, var(--color-surface-2)); font-weight: 750; }
+  .answer-markdown .answer-table-scroll td { color: var(--color-text-secondary); background: var(--color-surface); }
+  .answer-markdown .answer-table-scroll tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--color-surface-2) 38%, var(--color-surface)); }
+  .answer-markdown .answer-table-scroll td, .answer-markdown .answer-table-scroll th { border-color: var(--color-border-strong); }
   .image-preview-backdrop, .source-modal-backdrop { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 1rem; background: rgba(15, 23, 42, 0.68); backdrop-filter: blur(6px); animation: fade-in 0.16s ease-out; }
   .image-preview-dialog { position: relative; display: flex; max-width: min(92vw, 72rem); max-height: 92vh; flex-direction: column; align-items: center; gap: 0.55rem; }
   .image-preview-dialog img { max-width: 100%; max-height: 82vh; border-radius: 0.7rem; object-fit: contain; box-shadow: var(--shadow-xl); }

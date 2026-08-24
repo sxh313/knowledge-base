@@ -8,7 +8,9 @@ import type {
   AgentMessageRecord,
   AgentRun,
   AgentAuditLog,
+  AgentRunStatus,
 } from '../db/schema';
+import { getAgentState } from './state';
 import type { AgentPlan, AgentExecutionResult } from './tools';
 
 // ──── 会话 ────
@@ -24,6 +26,7 @@ export async function createAgentSession(title = '新会话'): Promise<AgentSess
     updatedAt: now,
   };
   await db.agentSessions.add(session);
+  await getAgentState(session.id);
   return session;
 }
 
@@ -127,12 +130,61 @@ export async function updateAgentRun(
       | 'tokensInput'
       | 'tokensOutput'
       | 'error'
+      | 'statusReason'
       | 'finishedAt'
       | 'undo'
     >
   >,
 ): Promise<void> {
   await db.agentRuns.update(runId, { ...patch, updatedAt: Date.now() });
+}
+
+const RUN_TRANSITIONS: Record<AgentRunStatus, readonly AgentRunStatus[]> = {
+  planned: ['approved', 'cancelled', 'failed', 'interrupted'],
+  approved: ['running', 'cancelled', 'failed', 'interrupted'],
+  running: ['success', 'partial', 'failed', 'cancelled', 'interrupted'],
+  success: ['rolled_back'],
+  partial: ['rolled_back'],
+  failed: [],
+  cancelled: [],
+  interrupted: ['planned', 'cancelled'],
+  rolled_back: [],
+};
+
+/**
+ * 受限的运行状态迁移。与普通 patch 分开，防止 UI 或恢复逻辑跳过批准阶段。
+ * Dexie 单线程事务读取后更新，足以避免同一浏览器上下文中的陈旧状态覆盖。
+ */
+export async function transitionAgentRun(
+  runId: string,
+  nextStatus: AgentRunStatus,
+  options: { reason?: string; expected?: AgentRunStatus | AgentRunStatus[]; patch?: Omit<Parameters<typeof updateAgentRun>[1], 'status' | 'statusReason'> } = {},
+): Promise<AgentRun> {
+  return db.transaction('rw', db.agentRuns, async () => {
+    const run = await db.agentRuns.get(runId);
+    if (!run) throw new Error('运行记录不存在');
+    const expected = options.expected ? (Array.isArray(options.expected) ? options.expected : [options.expected]) : undefined;
+    if (expected && !expected.includes(run.status)) throw new Error(`运行状态已变化：期望 ${expected.join('/')}，实际 ${run.status}`);
+    if (!RUN_TRANSITIONS[run.status].includes(nextStatus)) throw new Error(`不允许的运行状态转换：${run.status} → ${nextStatus}`);
+    const now = Date.now();
+    const patch = {
+      ...options.patch,
+      status: nextStatus,
+      statusReason: options.reason,
+      updatedAt: now,
+      ...(nextStatus === 'success' || nextStatus === 'partial' || nextStatus === 'failed' || nextStatus === 'cancelled' || nextStatus === 'interrupted' || nextStatus === 'rolled_back' ? { finishedAt: now } : {}),
+    };
+    await db.agentRuns.update(runId, patch);
+    // 状态转换也进入审计流，便于诊断“恢复后为何不能继续/为何被取消”。
+    await db.agentAuditLogs.add({
+      id: crypto.randomUUID(),
+      runId,
+      operation: `state:${run.status}->${nextStatus}${options.reason ? ` (${options.reason})` : ''}`,
+      result: 'success',
+      createdAt: now,
+    });
+    return { ...run, ...patch };
+  });
 }
 
 /** 获取会话的运行记录（按时间倒序） */
@@ -142,6 +194,18 @@ export async function listAgentRuns(sessionId: string): Promise<AgentRun[]> {
     .equals(sessionId)
     .sortBy('createdAt')
     .then((arr) => arr.reverse());
+}
+
+/**
+ * 页面/应用异常关闭后，不会盲目重放已经批准或正在执行的写计划。将它们
+ * 标为 interrupted，保留审计信息，让用户重新检查后再生成计划。
+ */
+export async function recoverInterruptedAgentRuns(sessionId: string): Promise<void> {
+  const runs = await db.agentRuns.where('sessionId').equals(sessionId).filter((run) => run.status === 'approved' || run.status === 'running').toArray();
+  await Promise.all(runs.map((run) => transitionAgentRun(run.id, 'interrupted', {
+    expected: run.status,
+    reason: '检测到应用重启，未自动重放可能产生副作用的运行',
+  })));
 }
 
 /** 获取单个运行记录 */

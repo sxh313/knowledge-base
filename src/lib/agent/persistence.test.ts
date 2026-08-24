@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   mockMessages: { add: vi.fn(), where: vi.fn() },
   mockRuns: { add: vi.fn(), update: vi.fn(), get: vi.fn(), where: vi.fn() },
   mockAudit: { add: vi.fn(), where: vi.fn() },
+  mockStates: { get: vi.fn(), put: vi.fn() },
 }));
 
 vi.mock('../db/schema', () => ({
@@ -14,6 +15,7 @@ vi.mock('../db/schema', () => ({
     agentMessages: mocks.mockMessages,
     agentRuns: mocks.mockRuns,
     agentAuditLogs: mocks.mockAudit,
+    agentStates: mocks.mockStates,
   },
 }));
 
@@ -36,7 +38,11 @@ function makePlan(): AgentPlan {
 }
 
 describe('createAgentSession', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.mockStates.get.mockResolvedValue(undefined);
+    mocks.mockStates.put.mockResolvedValue(undefined);
+  });
 
   it('创建会话并写入 IndexedDB', async () => {
     mocks.mockSessions.add.mockResolvedValue(undefined);

@@ -351,7 +351,9 @@ export default function Agent() {
     success: { label: '成功', color: 'text-emerald-600' },
     partial: { label: '部分成功', color: 'text-amber-600' },
     failed: { label: '失败', color: 'text-red-600' },
-    cancelled: { label: '已撤销', color: 'text-gray-500' },
+    cancelled: { label: '已取消', color: 'text-gray-500' },
+    interrupted: { label: '已中断', color: 'text-orange-600' },
+    rolled_back: { label: '已撤销', color: 'text-gray-500' },
   };
   const skillState = getSkillRegistryState();
   const updatePreference = async (patch: Partial<AgentPreferences>) => setPreferences(await saveAgentPreferences(patch));

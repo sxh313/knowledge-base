@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
 import fs from 'fs';
+import type { ServerWebSearchProvider } from './src/lib/server/webSearchProviders';
 
 // 桌面端(Electron)或安卓(Capacitor)构建:使用相对路径 base + 禁用 PWA
 const isDesktopBuild = process.env.BUILD_TARGET === 'electron' || process.env.BUILD_TARGET === 'android';
@@ -45,19 +46,40 @@ export default defineConfig({
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {
           if (!req.url?.startsWith('/api/search')) return next();
-          const url = new URL(req.url, 'http://localhost');
-          const q = url.searchParams.get('q');
-          if (!q) { res.statusCode = 400; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: 'Missing q' })); return; }
-          try {
-            const { doSearch } = await import('./src/lib/server/searchEngine');
-            const results = await doSearch(q);
-            res.setHeader('Content-Type', 'application/json');
- res.end(JSON.stringify({ results }));
-          } catch (e) {
-            res.statusCode = 500;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ error: e.message || 'Search failed' }));
-          }
+          const chunks: Buffer[] = [];
+          req.on('data', (chunk) => chunks.push(chunk));
+          req.on('end', async () => {
+            const url = new URL(req.url || '', 'http://localhost');
+            let body: Record<string, unknown> = {};
+            try { body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}; } catch { body = {}; }
+            const q = url.searchParams.get('q') || (typeof body.query === 'string' ? body.query : '');
+            if (!q) { res.statusCode = 400; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ error: 'Missing q' })); return; }
+            try {
+              res.setHeader('Content-Type', 'application/json');
+              if (req.method === 'POST' && body.fetch !== false) {
+                const { searchAndFetchWeb } = await import('./src/lib/server/webSearchProviders');
+                const provider = typeof body.provider === 'string' && ['tavily', 'open-websearch', 'duckduckgo'].includes(body.provider)
+                  ? body.provider as ServerWebSearchProvider
+                  : undefined;
+                const pages = await searchAndFetchWeb(q, {
+                  provider,
+                  baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl : undefined,
+                  apiKey: process.env.TAVILY_API_KEY || (typeof body.apiKey === 'string' ? body.apiKey : undefined),
+                  limit: body.limit ?? url.searchParams.get('limit'),
+                  fetchLimit: body.fetchLimit ?? url.searchParams.get('fetchLimit'),
+                });
+                res.end(JSON.stringify({ pages }));
+                return;
+              }
+              const { doSearch } = await import('./src/lib/server/searchEngine');
+              const results = await doSearch(q);
+              res.end(JSON.stringify({ results }));
+            } catch (e) {
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: e instanceof Error ? e.message : 'Search failed' }));
+            }
+          });
         });
       },
     },

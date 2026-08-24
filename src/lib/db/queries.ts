@@ -9,6 +9,7 @@ import {
   type DocumentLink,
   type SavedSearch,
   type SyncConflict,
+  type WebSearchProvider,
 } from './schema';
 export { createCard, updateCard, getCardsDueToday, getAllCards, deleteCard, deleteCards, resetCardProgress } from './cards';
 export { blobToDataUrl, putAttachment, getAttachment, getAttachmentsForJournal, deleteAttachment, deleteAttachmentsForJournal } from './attachments';
@@ -86,6 +87,19 @@ export async function getSettings(): Promise<AppSettings> {
       modelProfiles: DEFAULT_MODEL_PROFILES.map((profile) => ({ ...profile })),
       modelBindings: { ...DEFAULT_MODEL_BINDINGS },
       retrieval: { ...DEFAULT_RETRIEVAL_SETTINGS },
+      aiAnswer: {
+        retrievalTopK: 5,
+        detail: 'standard',
+      },
+      webSearch: {
+        enabled: false,
+        provider: 'tavily',
+        baseUrl: 'http://127.0.0.1:3210',
+        apiKey: '',
+        mode: 'manual',
+        resultLimit: 5,
+        fetchLimit: 3,
+      },
     };
     await db.settings.put(settings);
   }
@@ -124,6 +138,41 @@ export async function getSettings(): Promise<AppSettings> {
     const merged = { ...DEFAULT_RETRIEVAL_SETTINGS, ...settings.retrieval };
     if (JSON.stringify(merged) !== JSON.stringify(settings.retrieval)) backfilled = true;
     settings.retrieval = merged;
+  }
+  if (!settings.aiAnswer) {
+    settings.aiAnswer = { retrievalTopK: 5, detail: 'standard' };
+    backfilled = true;
+  } else {
+    const topK = [3, 5, 8].includes(settings.aiAnswer.retrievalTopK) ? settings.aiAnswer.retrievalTopK : 5;
+    const detail = ['concise', 'standard', 'detailed'].includes(settings.aiAnswer.detail) ? settings.aiAnswer.detail : 'standard';
+    const merged = { retrievalTopK: topK as 3 | 5 | 8, detail: detail as 'concise' | 'standard' | 'detailed' };
+    if (JSON.stringify(merged) !== JSON.stringify(settings.aiAnswer)) backfilled = true;
+    settings.aiAnswer = merged;
+  }
+  if (!settings.webSearch) {
+    settings.webSearch = {
+      enabled: false,
+      provider: 'tavily',
+      baseUrl: 'http://127.0.0.1:3210',
+      apiKey: '',
+      mode: 'manual',
+      resultLimit: 5,
+      fetchLimit: 3,
+    };
+    backfilled = true;
+  } else {
+    const webProvider: WebSearchProvider = ['tavily', 'open-websearch', 'duckduckgo'].includes(settings.webSearch.provider) ? settings.webSearch.provider : 'tavily';
+    const merged = {
+      enabled: settings.webSearch.enabled ?? false,
+      provider: webProvider,
+      baseUrl: settings.webSearch.baseUrl || 'http://127.0.0.1:3210',
+      apiKey: settings.webSearch.apiKey ?? '',
+      mode: settings.webSearch.mode ?? 'manual',
+      resultLimit: Math.max(1, Math.min(10, settings.webSearch.resultLimit ?? 5)),
+      fetchLimit: Math.max(1, Math.min(5, settings.webSearch.fetchLimit ?? 3)),
+    };
+    if (JSON.stringify(merged) !== JSON.stringify(settings.webSearch)) backfilled = true;
+    settings.webSearch = merged;
   }
   if (!settings.providerOrder) settings.providerOrder = ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek', 'local'];
   else if (!settings.providerOrder.includes('local')) { settings.providerOrder = [...settings.providerOrder, 'local']; backfilled = true; }

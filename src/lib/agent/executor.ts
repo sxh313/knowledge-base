@@ -488,7 +488,12 @@ async function previewOp(op: AgentOp): Promise<AgentOpResult> {
 }
 
 /** 真正执行单个操作（写入） */
-async function applyOp(op: AgentOp): Promise<AgentOpResult> {
+interface ExecutionContext {
+  versions: UndoInfo['versions'];
+  createdJournalIds: string[];
+}
+
+async function applyOp(op: AgentOp, execution: ExecutionContext): Promise<AgentOpResult> {
   switch (op.type) {
     case 'create': {
       const entry = await createJournal({
@@ -498,7 +503,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
         subject: op.subject ?? '',
         sourceType: 'manual',
       });
-      runCreatedJournalIds.push(entry.id);
+      execution.createdJournalIds.push(entry.id);
       return { op, ok: true, journalId: entry.id, title: entry.title };
     }
     case 'edit': {
@@ -506,7 +511,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await captureSnapshot(target);
+      await captureSnapshot(target, execution);
       await updateJournal(target.id, { content: normalizeMarkdown(op.content || '') });
       return { op, ok: true, journalId: target.id, title: target.title };
     }
@@ -515,7 +520,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await captureSnapshot(target);
+      await captureSnapshot(target, execution);
       const newContent = target.content.replace(/\s*$/, '\n') + '\n' + (op.content || '');
       await updateJournal(target.id, { content: normalizeMarkdown(newContent) });
       return { op, ok: true, journalId: target.id, title: target.title };
@@ -525,7 +530,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await captureSnapshot(target);
+      await captureSnapshot(target, execution);
       const newContent = (op.content || '') + '\n\n' + target.content;
       await updateJournal(target.id, { content: normalizeMarkdown(newContent) });
       return { op, ok: true, journalId: target.id, title: target.title };
@@ -535,7 +540,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await captureSnapshot(target);
+      await captureSnapshot(target, execution);
       const newContent = insertAfterHeading(target.content, op.afterHeading || '', op.content || '');
       await updateJournal(target.id, { content: normalizeMarkdown(newContent) });
       return { op, ok: true, journalId: target.id, title: target.title };
@@ -545,7 +550,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await captureSnapshot(target);
+      await captureSnapshot(target, execution);
       const newContent = normalizeMarkdown(patchText(target.content, op.findText || '', op.replaceText ?? ''));
       await updateJournal(target.id, { content: newContent });
       return { op, ok: true, journalId: target.id, title: target.title };
@@ -555,7 +560,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await captureSnapshot(target);
+      await captureSnapshot(target, execution);
       const metadata = op.metadata ?? {};
       await updateJournal(target.id, {
         summary: metadata.summary ?? target.summary,
@@ -661,7 +666,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '冲突目标文档不存在' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await captureSnapshot(target);
+      await captureSnapshot(target, execution);
       const draft = op.content ?? report.draft ?? report.local;
       await updateJournal(target.id, { content: normalizeMarkdown(draft) });
       await db.syncConflicts.update(report.conflictId, { resolvedAt: Date.now(), resolution: 'both' });
@@ -672,7 +677,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await captureSnapshot(target);
+      await captureSnapshot(target, execution);
       await updateJournal(target.id, { title: op.newName || target.title });
       return { op, ok: true, journalId: target.id, title: op.newName || target.title };
     }
@@ -681,7 +686,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await captureSnapshot(target);
+      await captureSnapshot(target, execution);
       await deleteJournal(target.id);
       return { op, ok: true, journalId: target.id, title: target.title };
     }
@@ -690,7 +695,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await captureSnapshot(target);
+      await captureSnapshot(target, execution);
       await updateJournal(target.id, { subject: op.newSubject || '' });
       return { op, ok: true, journalId: target.id, title: target.title };
     }
@@ -699,7 +704,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await captureSnapshot(target);
+      await captureSnapshot(target, execution);
       const merged = Array.from(new Set([...(target.tags ?? []), ...(op.tags ?? [])]));
       await updateJournal(target.id, { tags: merged });
       return { op, ok: true, journalId: target.id, title: target.title };
@@ -709,7 +714,7 @@ async function applyOp(op: AgentOp): Promise<AgentOpResult> {
       if (!target) return { op, ok: false, error: '未找到目标文档' };
       const hashErr = await verifyExpectedHash(op, target);
       if (hashErr) return { op, ok: false, error: hashErr };
-      await captureSnapshot(target);
+      await captureSnapshot(target, execution);
       const remove = new Set(op.tags ?? []);
       const remaining = (target.tags ?? []).filter((t) => !remove.has(t));
       await updateJournal(target.id, { tags: remaining });
@@ -774,6 +779,7 @@ export async function applyPlan(
     };
   }
   appliedPlanIds.add(planId);
+  const execution: ExecutionContext = { versions: [], createdJournalIds: [] };
   // 逐项批准：过滤出要执行的操作
   const opsToRun = approvedOpIds
     ? plan.ops.filter((op) => op.opId && approvedOpIds.has(op.opId))
@@ -788,7 +794,7 @@ export async function applyPlan(
       async () => {
         const out: AgentOpResult[] = [];
         for (const op of opsToRun) {
-          const result = await applyOp(op);
+          const result = await applyOp(op, execution);
           if (!result.ok) throw new Error(result.error || `操作 ${op.type} 执行失败`);
           out.push(result);
         }
@@ -798,11 +804,9 @@ export async function applyPlan(
     // 记录本次运行产生的版本快照，供「撤销本次运行」恢复
     const undo: UndoInfo = {
       planId,
-      versions: runVersions.slice(),
-      createdJournalIds: runCreatedJournalIds.slice(),
+      versions: execution.versions,
+      createdJournalIds: execution.createdJournalIds,
     };
-    runVersions.length = 0;
-    runCreatedJournalIds.length = 0;
     const skippedResults: AgentOpResult[] = skipped.map((op) => ({
       op,
       ok: true,
@@ -817,8 +821,6 @@ export async function applyPlan(
   } catch (e) {
     // 事务失败：整体回滚，返回失败结果；允许该计划重试
     appliedPlanIds.delete(planId);
-    runVersions.length = 0;
-    runCreatedJournalIds.length = 0;
     return {
       results: opsToRun.map((op) => ({ op, ok: false, error: `执行失败，已整体回滚：${(e as Error).message}` })),
       hasError: true,
@@ -844,15 +846,10 @@ export interface UndoInfo {
   createdJournalIds: string[];
 }
 
-/** 本次运行保存的版本快照（供撤销） */
-const runVersions: UndoInfo['versions'] = [];
-/** 本次运行新建的文档 id（供撤销） */
-const runCreatedJournalIds: string[] = [];
-
-async function captureSnapshot(target: JournalEntry): Promise<void> {
+async function captureSnapshot(target: JournalEntry, execution: ExecutionContext): Promise<void> {
   await saveVersion(target.id, target.title, target.content);
-  if (runVersions.some((v) => v.journalId === target.id)) return;
-  runVersions.push({
+  if (execution.versions.some((v) => v.journalId === target.id)) return;
+  execution.versions.push({
     journalId: target.id,
     title: target.title,
     content: target.content,
