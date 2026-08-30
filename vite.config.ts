@@ -174,8 +174,8 @@ export default defineConfig(({ mode }) => {
         // Mermaid 渲染器约 3MB，仅在回答真的包含流程图时按需加载，不占用首次离线缓存。
         globIgnores: ['assets/mermaid-renderer-*.js'],
         // 限制预缓存体积，避免首次加载缓存过多非核心资源
-        // zero2agent 的预计算索引约 7MB，需要纳入离线缓存；仍保留上限避免误把大型资源全部缓存。
-        maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
+        // zero2agent 的预计算索引约 13MB，需要纳入离线缓存；仍保留上限避免误把大型资源全部缓存。
+        maximumFileSizeToCacheInBytes: 16 * 1024 * 1024,
         runtimeCaching: [
           {
             urlPattern: /\/zero2agent\/.*\.md$/i,
