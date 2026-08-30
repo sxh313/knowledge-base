@@ -66,14 +66,30 @@ export function shouldUseWebSearch(
   settings?: Partial<WebSearchSettings>,
   manualRequested = false,
 ): boolean {
+  return explainWebSearchDecision(question, chunks, settings, manualRequested).shouldSearch;
+}
+
+export function explainWebSearchDecision(
+  question: string,
+  chunks: RetrievedChunk[],
+  settings?: Partial<WebSearchSettings>,
+  manualRequested = false,
+): { shouldSearch: boolean; reason: string } {
   const web = normalizeWebSearchSettings(settings);
-  if (!web.enabled && !manualRequested) return false;
-  if (web.mode === 'off') return manualRequested;
-  if (manualRequested || web.mode === 'always') return true;
-  if (web.mode !== 'auto') return false;
-  if (chunks.length === 0) return true;
-  if (chunks.every((chunk) => (chunk.confidence ?? 0) < 0.25)) return true;
-  return /(最新|今天|现在|当前|实时|新闻|价格|版本|发布|政策|官网|公告|202[4-9]|latest|today|news|price|release)/i.test(question);
+  // 选择“总是联网”本身就是明确授权；即使旧版本设置遗留 enabled=false，也不能静默跳过。
+  if (!web.enabled && web.mode !== 'always' && !manualRequested) return { shouldSearch: false, reason: '联网搜索未启用' };
+  if (web.mode === 'off') return { shouldSearch: manualRequested, reason: manualRequested ? '本次手动要求联网' : '当前模式为不联网' };
+  if (manualRequested) return { shouldSearch: true, reason: '本次手动要求联网' };
+  if (web.mode === 'always') return { shouldSearch: true, reason: '当前模式为总是联网' };
+  if (web.mode !== 'auto') return { shouldSearch: false, reason: '当前模式仅在手动选择“本次联网”时搜索' };
+  if (chunks.length === 0) return { shouldSearch: true, reason: '知识库没有命中' };
+  // 召回到一个泛相关分块不代表它能回答问题；只有至少一个较强证据才跳过联网。
+  // 提高阈值后，“本地没有对应内容”会自动先查网页，再把网页证据交给模型整合。
+  if (chunks.every((chunk) => (chunk.confidence ?? 0) < 0.45)) return { shouldSearch: true, reason: '知识库没有足够相关的对应内容' };
+  const timeSensitive = /(最新|今天|现在|当前|实时|新闻|价格|版本|发布|政策|官网|公告|202[4-9]|latest|today|news|price|release)/i.test(question);
+  return timeSensitive
+    ? { shouldSearch: true, reason: '问题包含时效性关键词' }
+    : { shouldSearch: false, reason: '知识库已有命中且问题不要求最新信息' };
 }
 
 export async function retrieveWeb(question: string, settings?: Partial<WebSearchSettings>): Promise<RetrievedChunk[]> {

@@ -94,32 +94,42 @@ export interface KnowledgeEdge {
   deletedAt?: number;
 }
 
+export interface PersistedCitation {
+  source: 'personal' | 'zero2agent' | 'web';
+  sourceId: string;
+  chunkId: string;
+  offset?: { start: number; end: number };
+  journalId?: string;
+  knowledgeDocId?: string;
+  title: string;
+  heading?: string;
+  content: string;
+  score: number;
+  confidence?: number;
+  path?: string;
+  module?: string;
+  sourceUrl?: string;
+  localPath?: string;
+  headingPath?: string[];
+  sourceAnchor?: string;
+  localUrl?: string;
+}
+
+export interface AIConversationMessage {
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  /** 每条回答独立保存来源，避免后续轮次覆盖旧回答的引用。 */
+  citations?: PersistedCitation[];
+  grounding?: { grounded: boolean; coverage: number; invalidReferences: string[] };
+}
+
 export interface AIConversation {
   id: string;
   journalId?: string;
   model: string;
-  messages: { role: 'user' | 'assistant' | 'system'; content: string }[];
+  messages: AIConversationMessage[];
   /** 最近一次回答使用的 RAG 来源，便于重新打开对话后继续定位原文 */
-  citations?: {
-    source: 'personal' | 'zero2agent' | 'web';
-    sourceId: string;
-    chunkId: string;
-    offset?: { start: number; end: number };
-    journalId?: string;
-    knowledgeDocId?: string;
-    title: string;
-    heading?: string;
-    content: string;
-    score: number;
-    confidence?: number;
-    path?: string;
-    module?: string;
-    sourceUrl?: string;
-    localPath?: string;
-    headingPath?: string[];
-    sourceAnchor?: string;
-    localUrl?: string;
-  }[];
+  citations?: PersistedCitation[];
   tokensInput: number;
   tokensOutput: number;
   costUsd: number;
@@ -160,7 +170,7 @@ export interface AIModelBindings {
   answerModelId: string;
   /** 向量召回模型；没有配置时自动退回关键词检索。 */
   embeddingModelId?: string;
-  /** 可选的 LLM 重排模型，通常绑定 chat 模型（例如 dsv4）。 */
+  /** 可选的 LLM 重排模型，通常绑定客户配置的本地 chat 模型。 */
   rerankerModelId?: string;
   /** 可选的查询改写模型。默认关闭，避免增加一次网络请求。 */
   queryRewriteModelId?: string;
@@ -185,6 +195,8 @@ export type AnswerDetailLevel = 'concise' | 'standard' | 'detailed';
 export interface AIAnswerSettings {
   retrievalTopK: 3 | 5 | 8;
   detail: AnswerDetailLevel;
+  /** 生成后用同一模型做保守润色；默认关闭，避免额外消耗和改变原意。 */
+  rewriteEnabled?: boolean;
 }
 
 export type WebSearchMode = 'manual' | 'auto' | 'always' | 'off';
@@ -240,7 +252,7 @@ export interface AppSettings {
   modelProfiles?: AIModelProfile[];
   /** 各业务角色实际绑定的模型配置。 */
   modelBindings?: AIModelBindings;
-  /** 向量召回与 dsv4 重排开关。 */
+  /** 向量召回与本地模型重排开关。 */
   retrieval?: RetrievalSettings;
   /** 普通 AI 问答的回答策略。 */
   aiAnswer?: AIAnswerSettings;
@@ -278,6 +290,11 @@ export interface DocumentChunk {
   startOffset: number;
   endOffset: number;
   ordinal: number;
+  /** 个人笔记增量向量索引；模型变化或正文变化时按 hash 自动失效。 */
+  embedding?: number[];
+  embeddingModelId?: string;
+  embeddingContentHash?: string;
+  embeddedAt?: number;
   createdAt: number;
 }
 
@@ -380,11 +397,27 @@ export interface AgentToolCacheEntry {
   expiresAt: number;
 }
 
+/** 细粒度会话权限策略：定义本会话允许修改的数据范围（allowedOperations 使用 tools.ts 中的 AgentOpType 名称，为避免循环依赖此处用 string） */
+export interface AgentPermissionPolicy {
+  /** 允许的操作类型；空数组表示不限制操作类型 */
+  allowedOperations: string[];
+  /** 允许修改的文档 id 白名单；未设置表示不限制文档范围 */
+  allowedJournalIds?: string[];
+  /** 允许修改的分类白名单；未设置表示不限制分类 */
+  allowedSubjects?: string[];
+  /** 是否允许删除操作（默认禁止） */
+  allowDelete: boolean;
+  /** 过期时间（时间戳）；过期后策略失效 */
+  expiresAt?: number;
+}
+
 /** 用户配置的细粒度授权；具体写操作仍必须经过计划预览。 */
 export interface AgentPermissionContext {
   mode: 'default' | 'plan_only';
   allowReadTools: boolean;
   allowWriteTools: boolean;
+  /** 细粒度权限策略；旧数据缺失时按保守默认策略处理 */
+  policy?: AgentPermissionPolicy;
   updatedAt: number;
 }
 
@@ -454,11 +487,20 @@ export interface AgentRun {
   statusReason?: string;
   /** 撤销信息（版本快照 + 新建文档 id），供运行历史一键撤销 */
   undo?: {
-    versions: { journalId: string; title: string; content: string }[];
+    versions: { journalId: string; title: string; content: string; afterHash?: string; tags?: string[]; subject?: string; aliases?: string[]; status?: JournalStatus; deletedAt?: number }[];
     createdJournalIds: string[];
+    createdJournalHashes?: Record<string, string>;
   };
   createdAt: number;
   updatedAt: number;
+  finishedAt?: number;
+}
+
+/** 跨刷新/重启持久化的执行收据；planId 是唯一主键。 */
+export interface AgentExecutionReceipt {
+  planId: string;
+  status: 'running' | 'success';
+  startedAt: number;
   finishedAt?: number;
 }
 
@@ -470,6 +512,20 @@ export interface AgentAuditLog {
   beforeHash?: string;
   afterHash?: string;
   result: 'success' | 'failed' | 'skipped';
+  createdAt: number;
+}
+
+/** Agent 运行时间线事件：记录一次运行中的检索、模型调用、工具、审批与执行节点 */
+export interface AgentRunEvent {
+  id: string;
+  runId: string;
+  type: 'retrieval' | 'model_call' | 'tool_call' | 'plan_created' | 'plan_rejected' | 'approval' | 'execution';
+  status: 'started' | 'success' | 'failed';
+  /** 摘要信息（仅存脱敏内容，禁止包含 API Key / 同步 Token / 完整附件原文） */
+  summary: string;
+  durationMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
   createdAt: number;
 }
 
@@ -614,7 +670,9 @@ export class StudyJournalDB extends Dexie {
   agentMessages!: Table<AgentMessageRecord>;
   agentRuns!: Table<AgentRun>;
   agentAuditLogs!: Table<AgentAuditLog>;
+  agentRunEvents!: Table<AgentRunEvent>;
   agentStates!: Table<AgentStateRecord>;
+  agentExecutionReceipts!: Table<AgentExecutionReceipt>;
   memoryItems!: Table<MemoryItem>;
   userPreferences!: Table<UserPreference>;
   learningGoals!: Table<LearningGoal>;
@@ -741,6 +799,18 @@ export class StudyJournalDB extends Dexie {
     this.version(11).stores({
       agentStates: 'sessionId, updatedAt',
       memoryItems: 'id, sessionId, scope, kind, updatedAt, deletedAt, *keywords',
+    });
+    // version(12): Agent 运行时间线事件（可观测性：检索/模型/工具/审批/执行节点）。
+    this.version(12).stores({
+      agentRunEvents: 'id, runId, type, createdAt, [runId+createdAt]',
+    });
+    // version(13): Agent 执行幂等收据；DocumentChunk 向量字段为非索引字段，无需单独 store。
+    this.version(13).stores({
+      agentExecutionReceipts: 'planId, status, startedAt, finishedAt',
+    }).upgrade(async (tx) => {
+      // 历史成功运行写入收据，防止升级后旧计划被重新执行。
+      const runs = await tx.table<AgentRun, string>('agentRuns').filter((run) => run.status === 'success' || run.status === 'partial' || run.status === 'rolled_back').toArray();
+      if (runs.length) await tx.table<AgentExecutionReceipt, string>('agentExecutionReceipts').bulkPut(runs.map((run) => ({ planId: run.planId, status: 'success', startedAt: run.createdAt, finishedAt: run.finishedAt ?? run.updatedAt })));
     });
   }
 }

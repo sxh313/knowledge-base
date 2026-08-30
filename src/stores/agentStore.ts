@@ -1,5 +1,6 @@
 // ──── Agent 状态管理 ────
-// 编排 Agent 流程：检索相关文档 → 调用 AI 生成操作计划 → 预览 → 应用。
+// 编排 Agent 流程：意图分流 → 检索相关文档（两阶段证据重排）→ 调用 AI 生成操作计划
+// → 校验与权限检查 → 预览 → 应用；全程写入运行时间线事件（agentRunEvents）。
 
 import { create } from 'zustand';
 import type { ChatMessage } from '../lib/ai/client';
@@ -22,8 +23,12 @@ import {
   type AgentPlan,
   type AgentExecutionResult,
   type AgentDocRef,
+  type AgentOp,
+  HIGH_IMPACT_TYPES,
 } from '../lib/agent/tools';
-import type { JournalEntry } from '../lib/db/schema';
+import { AGENT_TOOL_DEFINITIONS, mapToolCallsToOps } from '../lib/agent/toolDefinitions';
+import { db } from '../lib/db/schema';
+import type { JournalEntry, AgentSession, AgentRun, AgentRunEvent } from '../lib/db/schema';
 import { calculateContentHash } from '../lib/indexing/documents';
 import {
   createAgentSession,
@@ -35,18 +40,27 @@ import {
   listAgentMessages,
   createAgentRun,
   addAgentAuditLog,
+  addAgentRunEvent,
+  addAgentRunEvents,
   listAgentRuns,
   deserializeRun,
   transitionAgentRun,
   recoverInterruptedAgentRuns,
 } from '../lib/agent/persistence';
-import type { AgentSession, AgentRun } from '../lib/db/schema';
 import { getAgentPreferences } from '../lib/agent/preferences';
 import { recordAgentMetric } from '../lib/agent/metrics';
 import { getAgentState, updateAgentState } from '../lib/agent/state';
 import { searchMemories } from '../lib/agent/memory';
 import { applyContextBudget } from '../lib/agent/context';
 import { checkPlanPermission } from '../lib/agent/permissions';
+import { classifyAgentIntent, type AgentIntent } from '../lib/agent/intent';
+import {
+  toEvidenceChunks,
+  rerankEvidence,
+  toEvidenceRefs,
+  formatEvidenceRefs,
+  type EvidenceRef,
+} from '../lib/agent/evidence';
 
 async function restoreAgentMessages(sessionId: string, runs: AgentRun[]) {
   const records = await listAgentMessages(sessionId);
@@ -62,6 +76,18 @@ async function restoreAgentMessages(sessionId: string, runs: AgentRun[]) {
 }
 
 let latestRouteMeta: { model: string; provider: string; usage?: { promptTokens: number; completionTokens: number } } | undefined;
+/**
+ * 普通回答、拒绝信息同样属于会话上下文。以前只有带计划的回答会写入
+ * IndexedDB，刷新后模型会失去这些关键结论，导致后续对话前后不一致。
+ */
+async function persistAssistantMessage(sessionId: string | null, content: string): Promise<void> {
+  if (!sessionId) return;
+  try {
+    await addAgentMessage(sessionId, { role: 'assistant', content });
+  } catch {
+    // 持久化失败不阻塞主流程；本次页面内对话仍然可用。
+  }
+}
 
 /**
  * 预览后为每个解析到目标文档的操作绑定 expectedHash。
@@ -88,10 +114,31 @@ async function attachExpectedHashes(
   return { ...plan, ops };
 }
 
+/**
+ * 权限检查用的目标文档解析：先按 journalId 精确匹配，
+ * 再按标题精确匹配（忽略大小写与首尾空白），与 executor 的解析规则保持一致。
+ */
+async function resolveJournalForPermission(op: AgentOp): Promise<JournalEntry | null> {
+  if (op.journalId) {
+    const byId = await getJournal(op.journalId);
+    if (byId && !byId.deletedAt) return byId;
+  }
+  if (op.title) {
+    const all = await db.journals.filter((j) => !j.deletedAt).toArray();
+    const exact = all.find((j) => j.title.trim().toLowerCase() === op.title!.trim().toLowerCase());
+    if (exact) return exact;
+  }
+  return null;
+}
+
 export interface AgentMessage {
   role: 'user' | 'assistant';
   content: string;
   createdAt?: number;
+  /** 本次消息的请求意图（用户消息为分类结果，助手消息为生成计划时的意图） */
+  intent?: AgentIntent;
+  /** 命中的检索证据片段（供计划卡片展示「依据」） */
+  evidence?: EvidenceRef[];
   /** 用户消息附带的操作计划（AI 生成，待确认） */
   plan?: AgentPlan;
   /** 预览结果 */
@@ -141,8 +188,8 @@ interface AgentStore {
   deleteSession: (id: string) => Promise<void>;
 
   clear: () => void;
-  /** 发送用户指令，触发 AI 生成计划并预览 */
-  run: (instruction: string, attachedContent?: string) => Promise<void>;
+  /** 发送用户指令，触发 AI 生成计划并预览（intentOverride 供 UI 手动切换意图） */
+  run: (instruction: string, attachedContent?: string, intentOverride?: AgentIntent) => Promise<void>;
   /** 应用当前待确认的计划（可只应用被批准的 opId） */
   applyPending: (approvedOpIds?: Set<string>) => Promise<void>;
   /** 取消当前待确认的计划 */
@@ -252,7 +299,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   clear: () => set({ messages: [], pendingPlan: null, pendingPreview: null, pendingMsgIndex: null, error: null }),
 
-  run: async (instruction, attachedContent) => {
+  run: async (instruction, attachedContent, intentOverride) => {
     const MAX_ATTACHED_CHARS = 50000;
     const boundedAttachment = attachedContent && attachedContent.length > MAX_ATTACHED_CHARS
       ? `${attachedContent.slice(0, MAX_ATTACHED_CHARS)}\n\n[附件已截断：原文超过 50,000 字符，请分段处理]`
@@ -260,7 +307,9 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     const text = attachedContent
       ? `${instruction}\n\n【用户提供的文件内容】\n${boundedAttachment}`
       : instruction;
-    const userMsg: AgentMessage = { role: 'user', content: text, createdAt: Date.now() };
+    // 意图分流：UI 手动切换优先于关键词规则分类
+    const intent: AgentIntent = intentOverride ?? classifyAgentIntent(instruction);
+    const userMsg: AgentMessage = { role: 'user', content: text, createdAt: Date.now(), intent };
     set((s) => ({ messages: [...s.messages, userMsg], isProcessing: true, error: null }));
 
     // 持久化用户消息
@@ -273,14 +322,157 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       }
     }
 
+    // ── 运行时间线事件缓冲 ──
+    // 运行记录创建前事件暂存内存，创建后批量写入 agentRunEvents。
+    // 摘要仅记录脱敏信息：禁止包含 API Key / 同步 Token / 附件原文 / 完整思维链。
+    type PendingEvent = Omit<AgentRunEvent, 'id' | 'runId' | 'createdAt'>;
+    const pendingEvents: PendingEvent[] = [];
+    const pushEvent = (event: PendingEvent) => { pendingEvents.push(event); };
+    const flushEvents = async (runId: string) => {
+      try {
+        await addAgentRunEvents(runId, pendingEvents);
+      } catch {
+        // 持久化失败不阻塞主流程
+      }
+    };
+    // 校验/权限被拒绝的计划也要留痕：创建 failed 运行记录并写入事件
+    const recordFailedRun = async (plan: AgentPlan, error: string) => {
+      if (!sessionId) return;
+      try {
+        const risk = plan.ops.some((o) => o.risk === 'high')
+          ? 'high'
+          : plan.ops.some((o) => o.risk === 'medium')
+            ? 'medium'
+            : 'low';
+        const run = await createAgentRun({
+          sessionId,
+          plan,
+          risk,
+          model: latestRouteMeta?.model,
+          provider: latestRouteMeta?.provider,
+          status: 'failed',
+          error,
+        });
+        await flushEvents(run.id);
+        set((s) => ({ runs: [run, ...s.runs] }));
+      } catch {
+        // 持久化失败不阻塞主流程
+      }
+    };
+
+    // 两阶段检索：召回 20 个候选 → 本地证据重排保留高分片段（不增加模型调用）
+    const retrieveEvidence = async (): Promise<{ refs: EvidenceRef[]; docIds: string[] }> => {
+      const t0 = Date.now();
+      try {
+        const chunks = await retrieve(instruction, { kind: 'all' }, 20);
+        const evidence = rerankEvidence(instruction, toEvidenceChunks(chunks));
+        pushEvent({
+          type: 'retrieval',
+          status: 'success',
+          summary: `检索召回 ${chunks.length} 个片段，证据重排保留 ${evidence.length} 个`,
+          durationMs: Date.now() - t0,
+        });
+        const refs = toEvidenceRefs(evidence);
+        // 文档定位 ID：证据命中文档优先，不足 8 篇时用原始召回补齐（去重）
+        const docIds: string[] = [];
+        for (const chunk of [...evidence, ...chunks]) {
+          const id = chunk.journalId;
+          if (id && !docIds.includes(id)) docIds.push(id);
+          if (docIds.length >= 8) break;
+        }
+        return { refs, docIds };
+      } catch (e) {
+        pushEvent({
+          type: 'retrieval',
+          status: 'failed',
+          summary: `检索失败：${(e as Error).message}`,
+          durationMs: Date.now() - t0,
+        });
+        return { refs: [], docIds: [] };
+      }
+    };
+
     try {
-      // 1. 检索相关文档作为上下文
+      // ── 搜索意图：直接返回检索结果，不调用模型 ──
+      if (intent === 'search') {
+        const { refs: evidenceRefs } = await retrieveEvidence();
+        const content = evidenceRefs.length
+          ? `找到 ${evidenceRefs.length} 个相关片段：\n\n${evidenceRefs
+              .map((r, i) => `${i + 1}. 《${r.title}》${r.heading ? `「${r.heading}」` : ''}\n   ${r.snippet.replace(/\s+/g, ' ').slice(0, 120)}`)
+              .join('\n\n')}\n\n（搜索模式：结果来自本地检索，未调用模型）`
+          : '未找到与指令相关的笔记片段。可以换个关键词，或切换到「问答」模式提问。';
+        const assistantMsg: AgentMessage = { role: 'assistant', content, createdAt: Date.now(), evidence: evidenceRefs };
+        set((s) => ({ messages: [...s.messages, assistantMsg], isProcessing: false }));
+        await persistAssistantMessage(sessionId, assistantMsg.content);
+        return;
+      }
+
+      // ── 草稿意图：生成 Markdown 草稿，不进入写入闭环 ──
+      if (intent === 'draft') {
+        const { refs: evidenceRefs } = await retrieveEvidence();
+        const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+        const draftSystem = [
+          '你是笔记写作助手。请根据用户指令与参考笔记片段，直接输出一份完整的 Markdown 草稿。',
+          '- 只输出 Markdown 正文，不要输出 JSON 操作计划，不要执行或请求任何写入操作。',
+          '- 引用了参考笔记时，请在文末列出「参考」清单（仅文档标题）。',
+          `当前时间：${timeStr}`,
+          '',
+          '参考笔记片段：',
+          formatEvidenceRefs(evidenceRefs),
+        ].join('\n');
+        const history: ChatMessage[] = get()
+          .messages.slice(0, -1) // 去掉刚加入的当前用户消息
+          .slice(-12) // 草稿模式只取近期上下文，降低延迟
+          .map((m) => ({ role: m.role, content: m.content }));
+        const t0 = Date.now();
+        const result = await routeAI('qa', [
+          { role: 'system', content: draftSystem },
+          ...history,
+          { role: 'user', content: text },
+        ]);
+        latestRouteMeta = { model: result.model, provider: result.provider, usage: result.usage };
+        pushEvent({
+          type: 'model_call',
+          status: 'success',
+          summary: `草稿生成调用：${result.provider}/${result.model}`,
+          durationMs: Date.now() - t0,
+          inputTokens: result.usage?.promptTokens,
+          outputTokens: result.usage?.completionTokens,
+        });
+        const assistantMsg: AgentMessage = {
+          role: 'assistant',
+          content: `${result.content}\n\n---\n（草稿模式：仅生成内容，未修改任何笔记）`,
+          createdAt: Date.now(),
+          evidence: evidenceRefs,
+        };
+        set((s) => ({ messages: [...s.messages, assistantMsg], isProcessing: false }));
+        await persistAssistantMessage(sessionId, assistantMsg.content);
+        return;
+      }
+
+      // ── 执行意图：存在待确认计划时引导用户确认（不自动执行）──
+      if (intent === 'execute') {
+        const pending = get().pendingPlan;
+        if (pending) {
+          const assistantMsg: AgentMessage = {
+            role: 'assistant',
+            content: `当前有一个待确认的操作计划（${pending.ops.length} 个操作）。请在下方计划卡片中点击「确认执行」，或逐项勾选后执行；点击「取消」可放弃本次计划。`,
+            createdAt: Date.now(),
+          };
+          set((s) => ({ messages: [...s.messages, assistantMsg], isProcessing: false }));
+          await persistAssistantMessage(sessionId, assistantMsg.content);
+          return;
+        }
+        // 无待确认计划：按正常问答/计划流程继续
+      }
+
+      // ── chat / plan / batch：完整闭环（检索证据 → 模型 → 校验 → 预览）──
+      // 1. 两阶段检索：召回 + 证据重排
+      const { refs: evidenceRefs, docIds } = await retrieveEvidence();
       let docRefs: AgentDocRef[] = [];
       try {
-        const chunks = await retrieve(instruction, { kind: 'all' }, 8);
-        const ids = Array.from(new Set(chunks.map((c) => c.journalId).filter((id): id is string => !!id)));
         const entries: JournalEntry[] = [];
-        for (const id of ids) {
+        for (const id of docIds) {
           const entry = await getJournal(id);
           if (entry && !entry.deletedAt) entries.push(entry);
         }
@@ -289,7 +481,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         docRefs = [];
       }
 
-      // 2. 构造 system prompt 并调用 AI
+      // 2. 构造 system prompt 并调用 AI（命中证据时注入片段而非整篇文档）
       const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
       const prefs = await getAgentPreferences();
       const agentState = sessionId ? await getAgentState(sessionId) : null;
@@ -297,7 +489,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       const memoryContext = memories.length
         ? `\n\n可用长期记忆（仅在与当前请求相关时使用；每条均可追溯）：\n${memories.map((item) => `- [${item.kind}] ${item.content}`).join('\n')}`
         : '';
-      const sysPrompt = `${buildAgentSystemPrompt(docRefs, timeStr)}\n\n用户工作偏好（仅用于格式，不改变安全规则）：语言=${prefs.language}，详细程度=${prefs.detail}，默认策略=${prefs.defaultPlanOnly ? '只生成计划' : '允许在确认后执行'}，最多生成 ${prefs.maxCards} 张卡片，标签风格=${prefs.tagStyle}。${memoryContext}`;
+      const sysPrompt = `${buildAgentSystemPrompt(docRefs, timeStr, evidenceRefs)}\n\n用户工作偏好（仅用于格式，不改变安全规则）：语言=${prefs.language}，详细程度=${prefs.detail}，默认策略=${prefs.defaultPlanOnly ? '只生成计划' : '允许在确认后执行'}，最多生成 ${prefs.maxCards} 张卡片，标签风格=${prefs.tagStyle}。${memoryContext}`;
       // 上下文按 token 预算构建；已总结的早期消息不会再次直接注入。
       const historyRecords = get()
         .messages.slice(0, -1) // 去掉刚加入的当前用户消息
@@ -322,17 +514,38 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       let toolRounds = 0     // 已执行的只读工具轮数
       let toolLog: string[] = []; // 记录每轮工具结果，供展示
 
-      // 单次「调用 AI + 解析计划」的辅助函数（含一次格式纠正重试）
+      // 优先使用模型原生 Function Calling；不支持工具调用的服务再降级到 JSON 计划。
       const callAndParse = async (): Promise<AgentPlan | null> => {
         let p: AgentPlan | null = null;
         for (let attempt = 0; attempt < 2; attempt++) {
-          const result = await routeAI('qa', baseMessages);
+          const t0 = Date.now();
+          const useNativeTools = attempt === 0;
+          const result = await routeAI(
+            'qa',
+            baseMessages,
+            undefined,
+            undefined,
+            undefined,
+            useNativeTools ? AGENT_TOOL_DEFINITIONS : undefined,
+          );
           latestRouteMeta = { model: result.model, provider: result.provider, usage: result.usage };
+          pushEvent({
+            type: 'model_call',
+            status: 'success',
+            summary: `模型调用：${result.provider}/${result.model}${useNativeTools ? '（Function Calling）' : '（JSON 兼容降级）'}`,
+            durationMs: Date.now() - t0,
+            inputTokens: result.usage?.promptTokens,
+            outputTokens: result.usage?.completionTokens,
+          });
           raw = result.content;
+          if (result.toolCalls?.length) {
+            const ops = mapToolCallsToOps(result.toolCalls);
+            if (ops.length) return { summary: raw || '模型生成了操作计划', ops };
+          }
           p = parseAgentPlan(raw);
           if (p && p.ops.length > 0) return p;
           if (attempt === 0) {
-            // 追加纠正提示，要求只输出 JSON
+            // Provider/模型没有返回有效 tool_calls 时，进入兼容 JSON 降级。
             baseMessages.push(
               { role: 'assistant', content: raw },
               {
@@ -350,11 +563,18 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
       // 多轮工具闭环：只要计划只含只读操作，就执行工具并把结果回传 AI
       while (plan && plan.ops.length > 0 && isReadOnlyPlan(plan) && toolRounds < MAX_TOOL_ROUNDS) {
+        const t0 = Date.now();
         // 执行只读工具（read/search 不写入，直接预览即可拿到结果）
         const toolPreview = await previewPlan(plan);
         const toolResults = formatToolResults(toolPreview);
         toolRounds++;
         toolLog.push(`第 ${toolRounds} 轮工具调用：${plan.ops.map((o) => o.type).join(', ')}`);
+        pushEvent({
+          type: 'tool_call',
+          status: 'success',
+          summary: `第 ${toolRounds} 轮只读工具：${plan.ops.map((o) => o.type).join(', ')}`,
+          durationMs: Date.now() - t0,
+        });
         // 把工具结果重新注入 AI，让它决定下一步
         baseMessages.push(
           { role: 'assistant', content: raw },
@@ -364,34 +584,81 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       }
 
       if (!plan || plan.ops.length === 0) {
-        // AI 没有生成可执行计划，当作普通回答展示
-        const assistantMsg: AgentMessage = { role: 'assistant', content: raw, createdAt: Date.now() };
+        // AI 没有生成可执行计划，当作普通回答展示；问答模式附上参考笔记引用
+        let content = raw;
+        if (intent === 'chat' && evidenceRefs.length) {
+          content += `\n\n---\n参考笔记：\n${evidenceRefs.slice(0, 5).map((r, i) => `${i + 1}. 《${r.title}》${r.heading ? `「${r.heading}」` : ''}`).join('\n')}`;
+        }
+        const assistantMsg: AgentMessage = {
+          role: 'assistant',
+          content,
+          createdAt: Date.now(),
+          evidence: evidenceRefs.length ? evidenceRefs : undefined,
+        };
         set((s) => ({ messages: [...s.messages, assistantMsg], isProcessing: false }));
+        await persistAssistantMessage(sessionId, assistantMsg.content);
         return;
       }
+
+      // 原生工具参数不允许模型直接伪造 evidence；本地仅从实际召回结果补齐高影响操作证据。
+      plan = {
+        ...plan,
+        ops: plan.ops.map((op) => {
+          if (!HIGH_IMPACT_TYPES.has(op.type) || op.evidence?.length) return op;
+          const matched = evidenceRefs.find((ref) =>
+            (op.journalId && ref.journalId === op.journalId) ||
+            (!op.journalId && op.title && ref.title === op.title),
+          );
+          if (!matched) return op;
+          return {
+            ...op,
+            journalId: op.journalId || matched.journalId,
+            evidence: [{
+              journalId: matched.journalId,
+              chunkId: matched.chunkId,
+              reason: `检索命中片段：${matched.heading || matched.title}`,
+            }],
+          };
+        }),
+      };
 
       // 为计划与每个操作生成唯一 id（防重复执行与审计）
       plan = assignPlanIds(plan);
 
-      // 校验计划：非法计划直接拒绝，不进入预览/执行
+      // 校验计划：非法计划直接拒绝，不进入预览/执行（留痕 failed 运行记录）
       const validation = validateAgentPlan(plan);
       if (!validation.ok) {
         recordAgentMetric('plan_rejected');
+        pushEvent({ type: 'plan_rejected', status: 'failed', summary: `计划校验失败：${validation.errors[0] ?? '未知错误'}` });
+        await recordFailedRun(plan, validation.errors.join('; '));
         const assistantMsg: AgentMessage = {
           role: 'assistant',
           content: `⚠️ AI 生成的操作计划未通过安全校验，已拒绝执行：\n\n${validation.errors.join('\n')}`,
+          createdAt: Date.now(),
         };
         set((s) => ({ messages: [...s.messages, assistantMsg], isProcessing: false }));
+        await persistAssistantMessage(sessionId, assistantMsg.content);
         return;
       }
-      const permission = checkPlanPermission(plan, agentState?.permissions);
+      // 权限检查（异步：含目标文档/分类范围解析）
+      const permission = await checkPlanPermission(plan, agentState?.permissions, {
+        resolveJournal: resolveJournalForPermission,
+      });
       if (!permission.allowed) {
         recordAgentMetric('plan_rejected');
+        pushEvent({ type: 'plan_rejected', status: 'failed', summary: `权限拒绝：${permission.reason}` });
+        await recordFailedRun(plan, permission.reason ?? '当前会话权限策略阻止了该计划');
         const assistantMsg: AgentMessage = { role: 'assistant', content: `⚠️ 操作计划被当前会话权限策略阻止：${permission.reason}`, createdAt: Date.now() };
         set((s) => ({ messages: [...s.messages, assistantMsg], isProcessing: false }));
+        await persistAssistantMessage(sessionId, assistantMsg.content);
         return;
       }
       recordAgentMetric('plan_generated');
+      pushEvent({
+        type: 'plan_created',
+        status: 'success',
+        summary: `生成计划：${plan.ops.length} 个操作${evidenceRefs.length ? `，基于 ${new Set(evidenceRefs.map((r) => r.journalId)).size} 篇证据文档` : ''}`,
+      });
 
       // 4. 预览计划（不写入）
       const preview = await previewPlan(plan);
@@ -403,6 +670,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         role: 'assistant',
         content: plan.summary || '我准备执行以下操作，请确认：',
         createdAt: Date.now(),
+        intent,
+        evidence: evidenceRefs.length ? evidenceRefs : undefined,
         plan,
         preview,
         toolLog: toolLog.length ? toolLog : undefined,
@@ -415,7 +684,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         isProcessing: false,
       }));
 
-      // 持久化 assistant 消息 + 创建运行记录（Phase 3）
+      // 持久化 assistant 消息 + 创建运行记录（Phase 3）+ 写入时间线事件
       if (sessionId) {
         try {
           await addAgentMessage(sessionId, {
@@ -435,6 +704,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             model: latestRouteMeta?.model,
             provider: latestRouteMeta?.provider,
           });
+          await flushEvents(run.id);
           set((s) => ({ runs: [run, ...s.runs] }));
         } catch {
           // 持久化失败不阻塞主流程
@@ -456,8 +726,32 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         const approvedRun = await transitionAgentRun(pendingRun.id, 'approved', { expected: 'planned', reason: '用户确认执行计划' });
         const runningRun = await transitionAgentRun(approvedRun.id, 'running', { expected: 'approved', reason: '开始执行已批准的计划' });
         set((s) => ({ runs: s.runs.map((r) => r.id === runningRun.id ? runningRun : r) }));
+        // 审批事件：记录用户确认粒度（全部确认 / 逐项批准）
+        await addAgentRunEvent(pendingRun.id, {
+          type: 'approval',
+          status: 'success',
+          summary: approvedOpIds && approvedOpIds.size < pendingPlan.ops.length
+            ? `用户批准 ${approvedOpIds.size}/${pendingPlan.ops.length} 个操作`
+            : '用户确认执行全部计划',
+        }).catch(() => {});
+        // 执行开始事件
+        await addAgentRunEvent(pendingRun.id, { type: 'execution', status: 'started', summary: '开始执行计划' }).catch(() => {});
       }
       const applied = await applyPlan(pendingPlan, approvedOpIds);
+      // 执行结束事件（成功/失败 + 逐操作统计 + 耗时）
+      if (pendingRun) {
+        const okCount = applied.results.filter((r) => r.ok).length;
+        const skippedCount = applied.results.filter((r) => r.skipped).length;
+        const failedCount = applied.results.filter((r) => !r.ok && !r.skipped).length;
+        await addAgentRunEvent(pendingRun.id, {
+          type: 'execution',
+          status: applied.hasError ? 'failed' : 'success',
+          summary: applied.hasError
+            ? `执行出现错误：成功 ${okCount}，跳过 ${skippedCount}，失败 ${failedCount}`
+            : `执行完成：成功 ${okCount}，跳过 ${skippedCount}，失败 ${failedCount}`,
+          durationMs: Date.now() - startedAt,
+        }).catch(() => {});
+      }
       set((s) => ({
         messages: s.messages.map((m, i) =>
           i === pendingMsgIndex ? { ...m, applied, appliedAt: Date.now(), undo: applied.undo } : m,
@@ -561,6 +855,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     const run = pendingPlan ? get().runs.find((item) => item.planId === pendingPlan.planId) : undefined;
     if (run) {
       const cancelledRun = await transitionAgentRun(run.id, 'cancelled', { expected: 'planned', reason: '用户取消待确认计划' });
+      // 审批事件：记录用户取消
+      await addAgentRunEvent(run.id, { type: 'approval', status: 'failed', summary: '用户取消待确认计划' }).catch(() => {});
       set((s) => ({ runs: s.runs.map((item) => item.id === cancelledRun.id ? cancelledRun : item) }));
     }
     set((s) => ({

@@ -1,4 +1,4 @@
-export type AIStage = 'idle' | 'retrieving' | 'reranking' | 'generating';
+export type AIStage = 'idle' | 'retrieving' | 'reranking' | 'generating' | 'rewriting';
 
 export interface AITimingMetrics {
   retrievalMs?: number;

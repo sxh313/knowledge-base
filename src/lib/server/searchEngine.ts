@@ -8,7 +8,149 @@ export interface SearchResult {
 }
 
 function decodeHtml(value: string): string {
-  return value.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+  return value
+    .replace(/<[^>]*>/g, '')
+    .replace(/&#x([0-9a-f]+);/gi, (_match, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#0*(\d+);/g, (_match, decimal: string) => String.fromCodePoint(Number.parseInt(decimal, 10)))
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function decodeBingUrl(value: string): string {
+  const decoded = decodeHtml(value);
+  try {
+    const url = new URL(decoded);
+    const encoded = url.searchParams.get('u');
+    if (url.hostname.endsWith('bing.com') && encoded?.startsWith('a1')) {
+      const target = Buffer.from(encoded.slice(2), 'base64url').toString('utf8');
+      if (/^https?:\/\//i.test(target)) return target;
+    }
+  } catch { /* 保留原始地址 */ }
+  return decoded;
+}
+
+/** Bing 会频繁调整属性与 class，按结果块解析，避免依赖固定的标签属性顺序。 */
+export function parseBingSearchHtml(html: string, limit = 8): SearchResult[] {
+  const results: SearchResult[] = [];
+  for (const blockMatch of html.matchAll(/<li\s+class="[^"]*\bb_algo\b[^"]*"[^>]*>([\s\S]*?)(?=<li\s+class="[^"]*\bb_algo\b|<\/ol>)/gi)) {
+    const block = blockMatch[1];
+    const heading = block.match(/<h2[^>]*>[\s\S]*?<a[^>]*\shref="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h2>/i);
+    if (!heading) continue;
+    const paragraph = block.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+    const title = decodeHtml(heading[2]);
+    const snippet = decodeHtml(paragraph?.[1] || '');
+    const url = decodeBingUrl(heading[1]);
+    if (title && /^https?:\/\//i.test(url)) results.push({ title, snippet, url });
+    if (results.length >= limit) break;
+  }
+  return results;
+}
+
+/** 解析 Brave Search 服务端 HTML；只读取普通网页结果，不读取广告和 AI 摘要。 */
+export function parseBraveSearchHtml(html: string, limit = 8): SearchResult[] {
+  const results: SearchResult[] = [];
+  for (const blockMatch of html.matchAll(/<div\s+class="[^"]*\bsnippet\b[^"]*"[^>]*data-type="web"[^>]*>([\s\S]*?)(?=<div\s+class="[^"]*\bsnippet\b[^>]*data-type="web"|<\/main>)/gi)) {
+    const block = blockMatch[1];
+    const link = block.match(/<a\s+href="(https?:\/\/[^"]+)"[^>]*class="[^"]*\bl1\b[^"]*"/i);
+    const titleMatch = block.match(/<div\s+class="[^"]*\bsearch-snippet-title\b[^"]*"[^>]*title="([^"]+)"[^>]*>/i);
+    const contentMatch = block.match(/<div\s+class="[^"]*\bcontent\b[^"]*\bdesktop-default-regular\b[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    if (!link || !titleMatch) continue;
+    const title = decodeHtml(titleMatch[1]);
+    const snippet = decodeHtml(contentMatch?.[1] || '');
+    if (title) results.push({ title, snippet, url: decodeHtml(link[1]) });
+    if (results.length >= limit) break;
+  }
+  return results;
+}
+
+function filterRelevantResults(query: string, candidates: SearchResult[]): SearchResult[] {
+  const terms = [...new Set(query.toLowerCase().match(/[\p{Letter}\p{Number}]{2,}/gu) ?? [])];
+  if (terms.length === 0) return candidates;
+  return candidates.filter((result) => {
+    const text = `${result.title} ${result.snippet}`.toLowerCase();
+    const matched = terms.filter((term) => text.includes(term)).length;
+    return matched >= Math.min(2, terms.length);
+  });
+}
+
+async function searchDuckDuckGoHtml(query: string): Promise<SearchResult[]> {
+  try {
+    const res = await fetch('https://html.duckduckgo.com/html/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+      body: `q=${encodeURIComponent(query)}&kl=cn-zh`,
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
+    const titleRe = /class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
+    const snippetRe = /class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+    const titles = [...html.matchAll(titleRe)];
+    const snippets = [...html.matchAll(snippetRe)];
+    const candidates: SearchResult[] = [];
+    for (let i = 0; i < Math.min(titles.length, 8); i++) {
+      const rawUrl = titles[i][1];
+      const title = decodeHtml(titles[i][2]);
+      const snippet = decodeHtml(snippets[i]?.[1] || '');
+      const uddg = rawUrl.match(/uddg=([^&]+)/);
+      const url = uddg ? decodeURIComponent(uddg[1]) : decodeHtml(rawUrl);
+      if (title && /^https?:\/\//i.test(url)) candidates.push({ title, snippet, url });
+    }
+    return filterRelevantResults(query, candidates);
+  } catch { return []; }
+}
+
+async function searchDuckDuckGoInstant(query: string): Promise<SearchResult[]> {
+  try {
+    const res = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const candidates: SearchResult[] = [];
+    if (data.AbstractText) {
+      candidates.push({ title: data.Heading || query, snippet: data.AbstractText, url: data.AbstractURL || 'https://duckduckgo.com/' });
+    }
+    const addTopic = (topic: { Text?: string; FirstURL?: string }) => {
+      if (topic?.Text && topic?.FirstURL) candidates.push({ title: topic.Text.split(' - ')[0] || query, snippet: topic.Text, url: topic.FirstURL });
+    };
+    for (const topic of Array.isArray(data.RelatedTopics) ? data.RelatedTopics : []) {
+      addTopic(topic);
+      for (const nested of Array.isArray(topic?.Topics) ? topic.Topics : []) addTopic(nested);
+    }
+    return filterRelevantResults(query, candidates);
+  } catch { return []; }
+}
+
+async function searchBrave(query: string): Promise<SearchResult[]> {
+  try {
+    const res = await fetch(`https://search.brave.com/search?q=${encodeURIComponent(query)}&source=web`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return [];
+    return filterRelevantResults(query, parseBraveSearchHtml(await res.text(), 8));
+  } catch { return []; }
+}
+
+async function searchBing(query: string): Promise<SearchResult[]> {
+  try {
+    const res = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(query)}&mkt=en-US&setlang=en-US&cc=us&ensearch=1`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return [];
+    return filterRelevantResults(query, parseBingSearchHtml(await res.text(), 8));
+  } catch { return []; }
 }
 
 /** WMO 天气代码 → 中文描述 */
@@ -31,78 +173,15 @@ function wmoDesc(code: number): string {
 export async function doSearch(query: string): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
 
-  // 1. DuckDuckGo HTML 搜索（POST 到 html.duckduckgo.com）
-  try {
-    const res = await fetch('https://html.duckduckgo.com/html/', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-      body: `q=${encodeURIComponent(query)}&kl=cn-zh`,
-    });
-    const html = await res.text();
-    const titleRe = /class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
-    const snippetRe = /class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
-    const titles = [...html.matchAll(titleRe)];
-    const snippets = [...html.matchAll(snippetRe)];
-    for (let i = 0; i < Math.min(titles.length, 8); i++) {
-      const rawUrl = titles[i][1];
-      const title = titles[i][2].replace(/<[^>]*>/g, '').trim();
-      const snippet = (snippets[i]?.[1] || '').replace(/<[^>]*>/g, '').trim();
-      const uddg = rawUrl.match(/uddg=([^&]+)/);
-      const url = uddg ? decodeURIComponent(uddg[1]) : rawUrl;
-      if (title) results.push({ title, snippet, url });
-    }
-  } catch { /* ignore */ }
-
-  // DuckDuckGo HTML 偶尔会返回验证页或调整标记，使用官方 Instant Answer JSON
-  // 作为轻量兜底，至少保证测试和摘要搜索能拿到可用内容。
-  if (results.length === 0) {
-    try {
-      const apiRes = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`);
-      if (apiRes.ok) {
-        const data = await apiRes.json();
-        if (data.AbstractText) {
-          results.push({
-            title: data.Heading || query,
-            snippet: data.AbstractText,
-            url: data.AbstractURL || 'https://duckduckgo.com/',
-          });
-        }
-        const topics = Array.isArray(data.RelatedTopics) ? data.RelatedTopics : [];
-        for (const topic of topics) {
-          if (topic?.Text && topic?.FirstURL) {
-            results.push({ title: topic.Text.split(' - ')[0] || query, snippet: topic.Text, url: topic.FirstURL });
-          }
-          if (Array.isArray(topic?.Topics)) {
-            for (const nested of topic.Topics) {
-              if (nested?.Text && nested?.FirstURL) results.push({ title: nested.Text.split(' - ')[0] || query, snippet: nested.Text, url: nested.FirstURL });
-            }
-          }
-        }
-      }
-    } catch { /* ignore */ }
-  }
-
-  // 某些本地运行环境无法连接 DuckDuckGo，使用 Bing HTML 作为服务端最终兜底。
-  if (results.length === 0) {
-    try {
-      const bingRes = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(query)}`, {
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-      });
-      if (bingRes.ok) {
-        const html = await bingRes.text();
-        const resultRe = /<li class="b_algo"[\s\S]*?<h2><a href="([^"]+)"[^>]*>([\s\S]*?)<\/a><\/h2>[\s\S]*?(?:<p>([\s\S]*?)<\/p>)?/g;
-        for (const match of html.matchAll(resultRe)) {
-          const title = decodeHtml(match[2]);
-          const snippet = decodeHtml(match[3] || '');
-          if (title && match[1]) results.push({ title, snippet, url: match[1] });
-          if (results.length >= 8) break;
-        }
-      }
-    } catch { /* ignore */ }
-  }
+  // 免费搜索源并行执行，避免某个源的验证页或网络超时把总延迟累加。
+  // 结果仍按质量优先级选择；不混合不相关的搜索页作为 RAG 证据。
+  const sourceResults = await Promise.all([
+    searchDuckDuckGoHtml(query),
+    searchDuckDuckGoInstant(query),
+    searchBrave(query),
+    searchBing(query),
+  ]);
+  results.push(...(sourceResults.find((items) => items.length > 0) ?? []));
 
   // 2. 天气查询（Open-Meteo，免费 CORS 友好）
   if (/天气|weather|温度|气温|temperature/i.test(query)) {

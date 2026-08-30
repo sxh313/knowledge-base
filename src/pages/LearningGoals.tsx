@@ -52,20 +52,20 @@ export default function LearningGoals() {
     <div className="content-frame animate-fade-in space-y-5">
       <div className="page-hero">
         <div className="page-hero-copy">
-          <div className="page-kicker">Make progress visible</div>
           <div className="flex items-center gap-2">
             <Target className="h-5 w-5 text-[var(--color-primary)]" />
             <div><h1 className="text-xl font-bold">学习目标</h1><p className="text-xs text-[var(--color-text-secondary)]">把目标拆成每天可调整的学习任务</p></div>
           </div><Link className="btn-ghost inline-flex items-center gap-1 text-xs" to="/zero2-review"><Brain className="h-3.5 w-3.5" />用 zero2Agent 制定计划</Link>
         </div>
       </div>
-      <div className="card p-4 grid gap-2 md:grid-cols-[1fr_120px_150px_auto]">
-        <input className="input-field text-sm" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：两周掌握 RAG 基础" />
-        <label className="flex items-center gap-1 text-xs"><Clock3 className="h-3.5 w-3.5" /><input className="input-field text-sm" type="number" min={10} value={dailyMinutes} onChange={(e) => setDailyMinutes(Number(e.target.value) || 30)} /><span>分钟</span></label>
-        <input className="input-field text-sm" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
-        <button className="btn-primary text-sm flex items-center justify-center gap-1" onClick={addGoal}><Plus className="h-4 w-4" />创建目标</button>
+      <div className="card learning-goal-form p-4">
+        <label className="learning-field learning-title-field"><span>目标</span><input className="input-field text-sm" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：两周掌握 RAG 基础" /></label>
+        <label className="learning-field"><span><Clock3 className="h-3.5 w-3.5" />每日时间</span><div className="flex items-center gap-2"><input className="input-field text-sm" type="number" min={10} value={dailyMinutes} onChange={(e) => setDailyMinutes(Number(e.target.value) || 30)} /><span className="text-xs text-[var(--color-text-secondary)]">分钟</span></div></label>
+        <label className="learning-field"><span>截止日期</span><input className="input-field text-sm" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} /></label>
+        <button className="btn-primary learning-create-button flex items-center justify-center gap-1 whitespace-nowrap text-sm" onClick={addGoal}><Plus className="h-4 w-4" />创建目标</button>
+        <div className="learning-preview rounded-lg bg-[var(--color-surface-2)] px-3 py-2 text-xs text-[var(--color-text-secondary)]">计划预览：{deadline ? `将在 ${Math.max(1, Math.ceil((new Date(`${deadline}T12:00:00`).getTime() - Date.now()) / 86400000))} 天内` : '按每天的节奏'}完成「{title.trim() || '你的学习目标'}」，每天约 {dailyMinutes} 分钟。创建后可以调整日期、暂停或顺延任务。</div>
       </div>
-      {grouped.length === 0 && <div className="card p-8 text-center text-sm text-[var(--color-text-tertiary)]">还没有学习目标</div>}
+      {grouped.length === 0 && <div className="empty-state compact-empty"><Target className="h-5 w-5 text-[var(--color-primary)]" /><p className="text-sm font-medium text-[var(--color-text)]">还没有学习目标</p><p className="text-xs text-[var(--color-text-secondary)]">可以先从每天 30 分钟开始，之后随时调整节奏。</p><button className="btn-secondary mt-2 text-xs" onClick={() => setTitle('每天 30 分钟学习一个主题')}>使用示例目标</button></div>}
       {grouped.map(({ goal, tasks: goalTasks }) => (
         <section key={goal.id} className="space-y-2">
           <div className="flex items-center justify-between"><div><h2 className="font-semibold">{goal.title}</h2><p className="text-xs text-[var(--color-text-secondary)]">每天 {goal.dailyMinutes} 分钟{goal.deadline ? ` · 截止 ${goal.deadline}` : ''}</p></div><button className="btn-ghost text-xs" onClick={async () => { await updateLearningGoal(goal.id, { status: goal.status === 'paused' ? 'active' : 'paused' }); await reload(); }}>{goal.status === 'paused' ? '继续' : '暂停'}</button></div>

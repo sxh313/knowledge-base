@@ -25,6 +25,13 @@ import {
   DEFAULT_RETRIEVAL_SETTINGS,
 } from '../ai/modelProfiles';
 
+const ENV_LOCAL_MODEL = (import.meta.env.VLM_MODEL_NAME || '').trim();
+const ENV_LOCAL_BASE_URL = (import.meta.env.VLM_OPENAI_API_BASE || '').trim().replace(/\/+$/, '');
+const ENV_LOCAL_API_KEY = (import.meta.env.VLM_OPENAI_API_KEY || '').trim();
+const HAS_ENV_LOCAL_MODEL = Boolean(ENV_LOCAL_MODEL && ENV_LOCAL_BASE_URL);
+const ENV_LOCAL_SELECTED_ID = ENV_LOCAL_MODEL ? `local/${ENV_LOCAL_MODEL}` : '';
+const ENV_LOCAL_PROFILE_ID = ENV_LOCAL_MODEL ? `api:local:${ENV_LOCAL_MODEL}` : '';
+
 // ──── Settings ────
 
 export async function getSettings(): Promise<AppSettings> {
@@ -59,19 +66,18 @@ export async function getSettings(): Promise<AppSettings> {
           enabled: false,
         },
         local: {
-          baseUrl: 'http://61.172.167.64:4900/v1',
-          apiKey: '',
-          enabled: true,
+          baseUrl: ENV_LOCAL_BASE_URL,
+          apiKey: ENV_LOCAL_API_KEY,
+          enabled: HAS_ENV_LOCAL_MODEL,
         },
       },
       preferredModels: {
-        // 当前工作区默认走本地 vLLM 的 dsv4；用户可在设置页切换云端模型。
-        highQuality: 'local/dsv4',
-        codeTask: 'local/dsv4',
-        fastTask: 'local/dsv4',
+        highQuality: ENV_LOCAL_SELECTED_ID,
+        codeTask: ENV_LOCAL_SELECTED_ID,
+        fastTask: ENV_LOCAL_SELECTED_ID,
       },
-      availableModels: {},
-      selectedModels: ['local/dsv4'],
+      availableModels: HAS_ENV_LOCAL_MODEL ? { local: [ENV_LOCAL_MODEL] } : {},
+      selectedModels: HAS_ENV_LOCAL_MODEL ? [ENV_LOCAL_SELECTED_ID] : [],
       theme: 'auto',
       reviewDailyGoal: 20,
       sync: {
@@ -84,8 +90,23 @@ export async function getSettings(): Promise<AppSettings> {
         autoSync: true,
         syncZero2ReviewHistory: false,
       },
-      modelProfiles: DEFAULT_MODEL_PROFILES.map((profile) => ({ ...profile })),
-      modelBindings: { ...DEFAULT_MODEL_BINDINGS },
+      modelProfiles: HAS_ENV_LOCAL_MODEL ? [{
+        id: ENV_LOCAL_PROFILE_ID,
+        name: `本地 · ${ENV_LOCAL_MODEL}`,
+        kind: 'chat',
+        baseUrl: ENV_LOCAL_BASE_URL,
+        modelId: ENV_LOCAL_MODEL,
+        apiKey: ENV_LOCAL_API_KEY,
+        enabled: true,
+      }] : DEFAULT_MODEL_PROFILES.map((profile) => ({ ...profile })),
+      modelBindings: HAS_ENV_LOCAL_MODEL ? {
+        ...DEFAULT_MODEL_BINDINGS,
+        answerModelId: ENV_LOCAL_PROFILE_ID,
+        rerankerModelId: ENV_LOCAL_PROFILE_ID,
+        reviewTutorModelId: ENV_LOCAL_PROFILE_ID,
+        evaluatorModelId: ENV_LOCAL_PROFILE_ID,
+        plannerModelId: ENV_LOCAL_PROFILE_ID,
+      } : { ...DEFAULT_MODEL_BINDINGS },
       retrieval: { ...DEFAULT_RETRIEVAL_SETTINGS },
       aiAnswer: {
         retrievalTopK: 5,
@@ -107,10 +128,10 @@ export async function getSettings(): Promise<AppSettings> {
   let backfilled = false;
   if (!settings.availableModels) { settings.availableModels = {}; backfilled = true; }
   if (!settings.preferredModels) {
-    settings.preferredModels = { highQuality: 'local/dsv4', codeTask: 'local/dsv4', fastTask: 'local/dsv4' };
+    settings.preferredModels = { highQuality: '', codeTask: '', fastTask: '' };
     backfilled = true;
   }
-  if (!settings.selectedModels) { settings.selectedModels = ['local/dsv4']; backfilled = true; }
+  if (!settings.selectedModels) { settings.selectedModels = []; backfilled = true; }
   if (!settings.modelProfiles?.length) {
     settings.modelProfiles = DEFAULT_MODEL_PROFILES.map((profile) => ({ ...profile }));
     backfilled = true;
@@ -180,22 +201,57 @@ export async function getSettings(): Promise<AppSettings> {
     settings.aiProviders.shengsuanyun = { baseUrl: 'https://beta-router.shengsuanyun.com/api/v1', apiKey: '', enabled: false };
   }
   if (!settings.aiProviders.local) {
-    settings.aiProviders.local = { baseUrl: 'http://61.172.167.64:4900/v1', apiKey: '', enabled: false };
+    settings.aiProviders.local = { baseUrl: '', apiKey: '', enabled: false };
     backfilled = true;
   }
-  // 将从未启用过的旧 Ollama 默认地址迁移到当前工作区的 DeepSeek-V4-Flash vLLM 地址；
-  // 如果用户已经启用并自定义了本地服务，则保留用户配置不覆盖。
-  if (settings.aiProviders.local.baseUrl === 'http://127.0.0.1:11434/v1' && !settings.aiProviders.local.enabled) {
-    settings.aiProviders.local.baseUrl = 'http://61.172.167.64:4900/v1';
+  // 清理旧版本自动注入的共享远程地址与模型。自定义地址和客户主动选择的其他模型保持不变。
+  const legacyAutoAddresses = new Set(['http://61.172.167.64:4900/v1', 'http://61.172.167.64:4901/v1']);
+  if (legacyAutoAddresses.has(settings.aiProviders.local.baseUrl)) {
+    settings.aiProviders.local = { baseUrl: '', apiKey: '', enabled: false };
+    settings.modelProfiles = (settings.modelProfiles ?? []).filter((profile) => !['local-dsv4', 'local-bge-small-zh'].includes(profile.id));
+    settings.selectedModels = (settings.selectedModels ?? []).filter((id) => id !== 'local/dsv4');
+    settings.preferredModels = {
+      highQuality: settings.preferredModels.highQuality === 'local/dsv4' ? '' : settings.preferredModels.highQuality,
+      codeTask: settings.preferredModels.codeTask === 'local/dsv4' ? '' : settings.preferredModels.codeTask,
+      fastTask: settings.preferredModels.fastTask === 'local/dsv4' ? '' : settings.preferredModels.fastTask,
+    };
+    settings.modelBindings = { ...DEFAULT_MODEL_BINDINGS };
     backfilled = true;
   }
-  // 当前工作区明确提供 dsv4 时，首次迁移将高质量任务指向本地模型；用户仍可在设置页改回云端模型。
-  if (settings.aiProviders.local.baseUrl === 'http://61.172.167.64:4900/v1'
-      && settings.preferredModels?.highQuality === 'deepseek-v4-flash'
-      && !(settings.selectedModels ?? []).includes('local/dsv4')) {
-    settings.preferredModels = { ...settings.preferredModels, highQuality: 'local/dsv4' };
-    settings.selectedModels = [...(settings.selectedModels ?? []), 'local/dsv4'];
-    settings.aiProviders.local.enabled = true;
+  // .env.local 是客户显式提供的本机配置：存在时作为本地模型配置源，并覆盖旧模型名称。
+  if (HAS_ENV_LOCAL_MODEL) {
+    settings.aiProviders.local = { baseUrl: ENV_LOCAL_BASE_URL, apiKey: ENV_LOCAL_API_KEY, enabled: true };
+    settings.availableModels = { ...settings.availableModels, local: [ENV_LOCAL_MODEL] };
+    settings.selectedModels = [
+      ...(settings.selectedModels ?? []).filter((id) => !id.startsWith('local/')),
+      ENV_LOCAL_SELECTED_ID,
+    ];
+    settings.preferredModels = {
+      highQuality: ENV_LOCAL_SELECTED_ID,
+      codeTask: ENV_LOCAL_SELECTED_ID,
+      fastTask: ENV_LOCAL_SELECTED_ID,
+    };
+    const localProfile = {
+      id: ENV_LOCAL_PROFILE_ID,
+      name: `本地 · ${ENV_LOCAL_MODEL}`,
+      kind: 'chat' as const,
+      baseUrl: ENV_LOCAL_BASE_URL,
+      modelId: ENV_LOCAL_MODEL,
+      apiKey: ENV_LOCAL_API_KEY,
+      enabled: true,
+    };
+    settings.modelProfiles = [
+      ...(settings.modelProfiles ?? []).filter((profile) => profile.id !== ENV_LOCAL_PROFILE_ID && profile.baseUrl !== ENV_LOCAL_BASE_URL),
+      localProfile,
+    ];
+    settings.modelBindings = {
+      ...settings.modelBindings,
+      answerModelId: ENV_LOCAL_PROFILE_ID,
+      rerankerModelId: ENV_LOCAL_PROFILE_ID,
+      reviewTutorModelId: ENV_LOCAL_PROFILE_ID,
+      evaluatorModelId: ENV_LOCAL_PROFILE_ID,
+      plannerModelId: ENV_LOCAL_PROFILE_ID,
+    };
     backfilled = true;
   }
   // 兼容旧数据：补全云同步配置
@@ -553,7 +609,25 @@ export async function fetchAvailableModels(
     });
     clearTimeout(timeout);
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const body = await res.json() as { error?: string | { message?: string }; message?: string; detail?: string };
+        detail = typeof body.error === 'string'
+          ? body.error
+          : body.error?.message || body.message || body.detail || '';
+      } catch { /* 服务端不一定返回 JSON */ }
+      const statusHint = res.status === 401
+        ? '鉴权失败，请检查 API Key 是否属于该模型服务'
+        : res.status === 403
+          ? '服务拒绝访问，请检查 API Key 权限'
+          : res.status === 404
+            ? '未找到 /models 接口，请确认地址包含正确的 /v1 路径'
+            : res.status >= 500
+              ? '模型服务内部错误'
+              : res.statusText;
+      throw new Error(`HTTP ${res.status}：${detail || statusHint}`);
+    }
 
     const data = await res.json();
     const models: string[] = (data.data ?? [])

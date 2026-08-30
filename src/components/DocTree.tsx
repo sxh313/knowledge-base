@@ -17,7 +17,7 @@ function SectionHeader({
 }) {
   return (
     <div className="group flex w-full items-center rounded-md hover:bg-[var(--color-surface-2)]" onContextMenu={onContextMenu}>
-      <button className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-[var(--color-text-secondary)]" onClick={onClick}>
+      <button className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-[var(--color-text-secondary)]" onClick={onClick} aria-expanded={expanded}>
         {expanded
           ? <ChevronDown className="h-3 w-3 flex-shrink-0" />
           : <ChevronRight className="h-3 w-3 flex-shrink-0" />}

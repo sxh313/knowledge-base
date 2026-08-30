@@ -491,6 +491,7 @@ async function previewOp(op: AgentOp): Promise<AgentOpResult> {
 interface ExecutionContext {
   versions: UndoInfo['versions'];
   createdJournalIds: string[];
+  createdJournalHashes: Record<string, string>;
 }
 
 async function applyOp(op: AgentOp, execution: ExecutionContext): Promise<AgentOpResult> {
@@ -758,9 +759,74 @@ export async function previewPlan(plan: AgentPlan): Promise<AgentExecutionResult
   return { results, hasError: results.some((r) => !r.ok) };
 }
 
+/** 运行时操作状态（拓扑执行过程中的生命周期） */
+export type OpStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped';
+
+/**
+ * 拓扑排序：按依赖关系重排操作（依赖在前），执行顺序不再完全依赖模型返回数组。
+ * 存在循环依赖时抛出错误。
+ */
+export function topologicalSort(ops: AgentOp[]): AgentOp[] {
+  const keys = ops.map((op, i) => op.opId ?? `__op_${i}`);
+  const idSet = new Set(ops.map((op) => op.opId).filter((id): id is string => !!id));
+  const keyById = new Map<string, string>();
+  ops.forEach((op, i) => {
+    if (op.opId) keyById.set(op.opId, keys[i]);
+  });
+  const indegree = new Map<string, number>(keys.map((k) => [k, 0]));
+  const dependents = new Map<string, string[]>(keys.map((k) => [k, []]));
+  ops.forEach((op, i) => {
+    for (const dep of op.dependsOn ?? []) {
+      if (!idSet.has(dep)) continue; // 未知依赖在 validateAgentPlan 阶段已拦截
+      const depKey = keyById.get(dep)!;
+      indegree.set(keys[i], (indegree.get(keys[i]) ?? 0) + 1);
+      dependents.get(depKey)!.push(keys[i]);
+    }
+  });
+  const result: AgentOp[] = [];
+  let queue = ops.map((op, i) => ({ op, key: keys[i] }));
+  while (queue.length) {
+    const idx = queue.findIndex((e) => (indegree.get(e.key) ?? 0) === 0);
+    if (idx < 0) throw new Error('计划存在循环依赖，无法确定执行顺序');
+    const [entry] = queue.splice(idx, 1);
+    result.push(entry.op);
+    for (const dependent of dependents.get(entry.key) ?? []) {
+      indegree.set(dependent, (indegree.get(dependent) ?? 1) - 1);
+    }
+  }
+  return result;
+}
+
+/** 前置条件校验：不满足返回错误信息，满足返回 null */
+async function checkPreconditions(op: AgentOp): Promise<string | null> {
+  const preconditions = op.preconditions ?? [];
+  if (!preconditions.length) return null;
+  const target = op.journalId || op.title ? await resolveJournal(op) : null;
+  for (const p of preconditions) {
+    if (!p) continue;
+    if (p.journalExists === true && !target) return '前置条件不满足：目标文档不存在';
+    if (p.journalExists === false && target) return '前置条件不满足：目标文档已存在';
+    if (p.expectedHash && target) {
+      const currentHash = await calculateContentHash({ title: target.title, content: target.content });
+      if (currentHash !== p.expectedHash) return '前置条件不满足：文档内容与预期不一致';
+    }
+  }
+  return null;
+}
+
+/** 内部信号：任一写操作失败时携带逐操作结果触发整体回滚（默认保持整批事务回滚语义） */
+class RollbackWithResults extends Error {
+  constructor(readonly opResults: AgentOpResult[]) {
+    super('操作失败，已整体回滚');
+  }
+}
+
+class DuplicatePlanError extends Error {}
+
 /**
  * 执行整个计划（真正写入）。
- * 所有写入操作包裹在单个 Dexie transaction 中：任一操作失败则整体回滚，
+ * 所有写入操作包裹在单个 Dexie transaction 中：按拓扑顺序执行，
+ * 前置依赖失败的操作标记为 skipped 并跳过；任一写操作失败仍整体回滚，
  * 避免数据处于「半完成」状态。同时用 planId 去重，防止重复点击造成重复写入。
  *
  * @param approvedOpIds 可选：仅执行这些 opId 的操作（逐项批准）。缺省执行全部。
@@ -770,16 +836,17 @@ export async function applyPlan(
   plan: AgentPlan,
   approvedOpIds?: Set<string>,
 ): Promise<AgentExecutionResult & { undo?: UndoInfo }> {
-  const planId = plan.planId || 'plan';
+  const planId = plan.planId || crypto.randomUUID();
   // 防重复执行：同一 planId 只允许执行一次（防止重复点击造成重复写入）
-  if (appliedPlanIds.has(planId)) {
+  const persistedReceipt = await db.agentExecutionReceipts.get(planId);
+  if (appliedPlanIds.has(planId) || persistedReceipt) {
     return {
       results: plan.ops.map((op) => ({ op, ok: false, error: '该计划已执行过，请勿重复提交' })),
       hasError: true,
     };
   }
   appliedPlanIds.add(planId);
-  const execution: ExecutionContext = { versions: [], createdJournalIds: [] };
+  const execution: ExecutionContext = { versions: [], createdJournalIds: [], createdJournalHashes: {} };
   // 逐项批准：过滤出要执行的操作
   const opsToRun = approvedOpIds
     ? plan.ops.filter((op) => op.opId && approvedOpIds.has(op.opId))
@@ -787,17 +854,80 @@ export async function applyPlan(
   const skipped = approvedOpIds
     ? plan.ops.filter((op) => !(op.opId && approvedOpIds.has(op.opId)))
     : [];
+  // 拓扑排序：按依赖关系执行；循环依赖直接拒绝
+  let ordered: AgentOp[];
+  try {
+    ordered = topologicalSort(opsToRun);
+  } catch (e) {
+    appliedPlanIds.delete(planId);
+    return {
+      results: opsToRun.map((op) => ({ op, ok: false, error: (e as Error).message })),
+      hasError: true,
+    };
+  }
   try {
       const results = await db.transaction(
         'rw',
-      [db.journals, db.journalVersions, db.cards, db.documentLinks, db.documentChunks, db.attachments, db.syncConflicts],
+      [db.journals, db.journalVersions, db.cards, db.documentLinks, db.documentChunks, db.attachments, db.syncConflicts, db.agentExecutionReceipts],
       async () => {
-        const out: AgentOpResult[] = [];
-        for (const op of opsToRun) {
-          const result = await applyOp(op, execution);
-          if (!result.ok) throw new Error(result.error || `操作 ${op.type} 执行失败`);
-          out.push(result);
+        if (await db.agentExecutionReceipts.get(planId)) {
+          throw new DuplicatePlanError('该计划已执行过，请勿重复提交');
         }
+        await db.agentExecutionReceipts.put({ planId, status: 'running', startedAt: Date.now() });
+        const out: AgentOpResult[] = [];
+        const statusById = new Map<string, OpStatus>();
+        const runnableIds = new Set(ordered.map((op) => op.opId).filter((id): id is string => !!id));
+        for (const op of ordered) {
+          const opKey = op.opId ?? '';
+          // 前置依赖失败或被跳过：该操作自动跳过，不执行写入
+          const deps = (op.dependsOn ?? []).filter((d) => runnableIds.has(d));
+          const blocked = deps.find((d) => statusById.get(d) !== 'success');
+          if (blocked) {
+            statusById.set(opKey, 'skipped');
+            out.push({
+              op,
+              ok: false,
+              skipped: true,
+              opStatus: 'skipped',
+              skippedReason: '前置操作失败，已自动跳过',
+            });
+            continue;
+          }
+          // 前置条件校验（journalExists / expectedHash）
+          const preError = await checkPreconditions(op);
+          if (preError) {
+            statusById.set(opKey, 'failed');
+            out.push({ op, ok: false, opStatus: 'failed', error: preError });
+            continue;
+          }
+          const startedAt = performance.now();
+          const result = await applyOp(op, execution);
+          const durationMs = Math.round(performance.now() - startedAt);
+          statusById.set(opKey, result.ok ? 'success' : 'failed');
+          out.push({ ...result, durationMs, opStatus: result.ok ? 'success' : 'failed' });
+        }
+        // 默认保持整批事务回滚：任一写操作失败则抛出信号回滚全部写入
+        if (out.some((r) => !r.ok && !r.skipped)) {
+          throw new RollbackWithResults(out);
+        }
+        for (const version of execution.versions) {
+          const current = await getJournal(version.journalId);
+          if (current) {
+            version.afterHash = await calculateContentHash({ title: current.title, content: current.content });
+          }
+        }
+        for (const id of execution.createdJournalIds) {
+          const current = await getJournal(id);
+          if (current) {
+            execution.createdJournalHashes[id] = await calculateContentHash({ title: current.title, content: current.content });
+          }
+        }
+        await db.agentExecutionReceipts.put({
+          planId,
+          status: 'success',
+          startedAt: Date.now(),
+          finishedAt: Date.now(),
+        });
         return out;
       },
     );
@@ -806,11 +936,14 @@ export async function applyPlan(
       planId,
       versions: execution.versions,
       createdJournalIds: execution.createdJournalIds,
+      createdJournalHashes: execution.createdJournalHashes,
     };
     const skippedResults: AgentOpResult[] = skipped.map((op) => ({
       op,
       ok: true,
       skipped: true,
+      opStatus: 'skipped' as const,
+      skippedReason: '未批准，已跳过',
       content: '已跳过（未批准）',
     }));
     return {
@@ -821,6 +954,21 @@ export async function applyPlan(
   } catch (e) {
     // 事务失败：整体回滚，返回失败结果；允许该计划重试
     appliedPlanIds.delete(planId);
+    if (e instanceof RollbackWithResults) {
+      // 保留逐操作的失败/跳过信息；已成功的写入标注整体回滚
+      return {
+        results: e.opResults.map((r) =>
+          r.ok && !r.skipped ? { ...r, ok: false, error: '执行失败，已整体回滚' } : r,
+        ),
+        hasError: true,
+      };
+    }
+    if (e instanceof DuplicatePlanError) {
+      return {
+        results: opsToRun.map((op) => ({ op, ok: false, error: e.message })),
+        hasError: true,
+      };
+    }
     return {
       results: opsToRun.map((op) => ({ op, ok: false, error: `执行失败，已整体回滚：${(e as Error).message}` })),
       hasError: true,
@@ -841,9 +989,13 @@ export interface UndoInfo {
     aliases?: string[];
     status?: JournalEntry['status'];
     deletedAt?: number;
+    /** Agent 执行完成后该文档的内容哈希；撤销前必须匹配。 */
+    afterHash?: string;
   }[];
   /** 本次运行新建的文档 id（撤销时删除） */
   createdJournalIds: string[];
+  /** 新建文档执行完成后的内容哈希；撤销前必须匹配。 */
+  createdJournalHashes?: Record<string, string>;
 }
 
 async function captureSnapshot(target: JournalEntry, execution: ExecutionContext): Promise<void> {
@@ -865,10 +1017,50 @@ async function captureSnapshot(target: JournalEntry, execution: ExecutionContext
  * 撤销本次运行：恢复所有被修改文档的版本快照，并删除本次新建的文档。
  * 返回被恢复/删除的文档数量。
  */
+export interface UndoConflict {
+  journalId: string;
+  title?: string;
+  reason: 'missing_after_hash' | 'missing_document' | 'modified_after_run';
+}
+
+export class UndoConflictError extends Error {
+  constructor(readonly conflicts: UndoConflict[]) {
+    super(`无法安全撤销：${conflicts.map((item) => item.title || item.journalId).join('、')} 在执行后已变化或缺少校验信息`);
+    this.name = 'UndoConflictError';
+  }
+}
+
 export async function undoRun(undo: UndoInfo): Promise<{ restored: number; deleted: number }> {
+  const conflicts: UndoConflict[] = [];
+  for (const version of undo.versions) {
+    if (!version.afterHash) {
+      conflicts.push({ journalId: version.journalId, title: version.title, reason: 'missing_after_hash' });
+      continue;
+    }
+    const current = await getJournal(version.journalId);
+    if (!current) {
+      conflicts.push({ journalId: version.journalId, title: version.title, reason: 'missing_document' });
+      continue;
+    }
+    const currentHash = await calculateContentHash({ title: current.title, content: current.content });
+    if (currentHash !== version.afterHash) {
+      conflicts.push({ journalId: version.journalId, title: current.title, reason: 'modified_after_run' });
+    }
+  }
+  for (const id of undo.createdJournalIds) {
+    const current = await getJournal(id);
+    if (!current || current.deletedAt) continue;
+    const expectedHash = undo.createdJournalHashes?.[id];
+    const currentHash = await calculateContentHash({ title: current.title, content: current.content });
+    if (!expectedHash || currentHash !== expectedHash) {
+      conflicts.push({ journalId: id, title: current.title, reason: expectedHash ? 'modified_after_run' : 'missing_after_hash' });
+    }
+  }
+  if (conflicts.length) throw new UndoConflictError(conflicts);
+
   let restored = 0;
   let deleted = 0;
-  await db.transaction('rw', [db.journals, db.journalVersions, db.documentLinks, db.documentChunks, db.attachments], async () => {
+  await db.transaction('rw', [db.journals, db.journalVersions, db.documentLinks, db.documentChunks, db.attachments, db.agentExecutionReceipts], async () => {
     for (const v of undo.versions) {
       const existing = await getJournal(v.journalId);
       if (existing) {
@@ -891,7 +1083,9 @@ export async function undoRun(undo: UndoInfo): Promise<{ restored: number; delet
         deleted++;
       }
     }
+    if (undo.planId) await db.agentExecutionReceipts.delete(undo.planId);
   });
+  if (undo.planId) appliedPlanIds.delete(undo.planId);
   return { restored, deleted };
 }
 

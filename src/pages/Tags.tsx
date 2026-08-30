@@ -46,12 +46,11 @@ export default function Tags() {
     return 0.85 + ratio * 0.9; // rem
   };
 
-  // 颜色调色板（按取模分配，让标签云更缤纷）
+  // 三种语义色提供轻微区分，避免标签云变成无规则彩虹。
   const palette = [
     'var(--color-primary)',
     'var(--color-accent)',
-    'var(--color-success)',
-    '#a855f7', '#ec4899', '#14b8a6', '#f97316',
+    'var(--color-info)',
   ];
   const colorFor = (idx: number) => palette[idx % palette.length];
 
@@ -66,7 +65,6 @@ export default function Tags() {
       {/* Header */}
       <div className="page-hero">
         <div className="page-hero-copy">
-          <div className="page-kicker">Organize your library</div>
           <h1 className="text-2xl font-bold text-gradient flex items-center gap-2">
             <Tag className="h-6 w-6" /> 标签管理
           </h1>
@@ -91,19 +89,18 @@ export default function Tags() {
 
       {/* 标签云 */}
       {allTags.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-state-icon mb-3">
-            <Tag className="h-8 w-8 text-[var(--color-text-tertiary)]" />
-          </div>
+        <div className="empty-state compact-empty">
+          <Tag className="mb-1 h-5 w-5 text-[var(--color-primary)]" />
           <p className="text-[var(--color-text)] font-medium text-sm">还没有任何标签</p>
           <p className="text-xs text-[var(--color-text-secondary)] mt-1">在文档里添加标签后会在这里汇总</p>
+          <button className="btn-secondary mt-3 text-xs" onClick={() => navigate('/edit/new')}>创建第一篇带标签的文档</button>
         </div>
       ) : filtered.length === 0 ? (
         <div className="empty-state"><p className="text-sm text-[var(--color-text-secondary)]">没有匹配的标签</p></div>
       ) : (
         <div className="tags-layout flex-1">
           <div className="card p-5 mb-4">
-            <p className="text-xs font-medium text-[var(--color-text-secondary)] mb-3">🏷️ 标签云（字号代表使用频次，点击进入对应文档）</p>
+            <p className="mb-3 text-xs font-medium text-[var(--color-text-secondary)]">标签云 · 字号代表使用频次，点击查看对应文档</p>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
               {filtered.map((t, i) => (
                 <button
@@ -124,7 +121,7 @@ export default function Tags() {
 
           {/* 列表 */}
           <div className="min-h-0 overflow-y-auto space-y-1.5">
-            <p className="text-xs font-medium text-[var(--color-text-secondary)] mb-2 px-1">📋 按使用频次排序</p>
+            <p className="mb-2 px-1 text-xs font-medium text-[var(--color-text-secondary)]">按使用频次排序</p>
             {filtered.map((t, i) => (
               <button
                 key={t.tag}

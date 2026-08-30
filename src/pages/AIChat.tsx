@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect, useMemo, useCallback, type ReactNode } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAIStore } from '../stores/aiStore';
 import { useJournalStore } from '../stores/journalStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import { MODEL_MAP, type ProviderName } from '../lib/ai/providers';
+import { MODEL_MAP, providerNeedsApiKey, type ProviderName } from '../lib/ai/providers';
 import type { ChatMessage } from '../lib/ai/client';
 import {
   retrieve,
@@ -12,6 +12,7 @@ import {
   type KnowledgeScope,
   type RetrievedChunk,
   type RAGAnswerMode,
+  type QueryRewriteResult,
 } from '../lib/ai/retrieval';
 import { answerGroundedQuestion } from '../lib/ai/groundedAnswer';
 import { getConversations, getConversation, upsertConversation, deleteConversation } from '../lib/db/queries';
@@ -20,15 +21,27 @@ import { useViewModeStore } from '../stores/viewModeStore';
 import type { AIConversation } from '../lib/db/schema';
 import CitationList from '../components/CitationList';
 import MarkdownContent from '../components/MarkdownContent';
-import { Save, Plus, Trash2, PanelLeft, Bot, SlidersHorizontal, Send, Sparkles, Copy, Download, ChevronDown, Check, BookOpen, Compass, FileText, Target, Globe2 } from 'lucide-react';
-import { formatWebContextForPrompt, retrieveWeb, shouldUseWebSearch } from '../lib/ai/webRetrieval';
-import Agent from './Agent';
+import { Save, Plus, Trash2, PanelLeft, Bot, SlidersHorizontal, Send, Copy, Pencil, Download, BookOpen, Compass, FileText, Target, Globe2 } from 'lucide-react';
+import { explainWebSearchDecision, formatWebContextForPrompt, retrieveWeb } from '../lib/ai/webRetrieval';
 import { formatSearchContextForPrompt, readSearchAIContext, searchContextToChunks, type SearchAIContext } from '../lib/ai/searchContext';
 import { IconButton, Textarea } from '../components/ui';
-import { useFocusTrap } from '../lib/ui/useFocusTrap';
 import type { AIStage, AITimingMetrics } from '../lib/ai/performance';
+import { validateRAGAnswer } from '../lib/ai/answerValidation';
+import Select, { type SelectOption } from '../components/ui/Select';
+import Agent from './Agent';
 
-const GREETING: ChatMessage = { role: 'assistant', content: '从你的笔记出发，问一个问题，或把今天的学习整理成下一步。' };
+type UIChatMessage = ChatMessage & {
+  citations?: RetrievedChunk[];
+  grounding?: { grounded: boolean; coverage: number; invalidReferences: string[] };
+};
+
+type RetrievalStatus = {
+  rewrite?: QueryRewriteResult;
+  web?: { status: 'searching' | 'used' | 'skipped' | 'empty' | 'failed'; reason: string };
+  answerRewrite?: { status: 'used' | 'failed'; reason: string };
+};
+
+const GREETING: UIChatMessage = { role: 'assistant', content: '从你的笔记出发，问一个问题，或把今天的学习整理成下一步。' };
 const AI_CHAT_RETRIEVAL_TOP_K = 5;
 
 function answerDetailInstruction(detail: string | undefined): string {
@@ -49,31 +62,8 @@ function parseScope(s: string): KnowledgeScope {
   return { kind: 'all' };
 }
 
-type ScopeMenuOption = { value: string; label: string; icon?: ReactNode; group?: string };
-
-function ScopeMenu({ value, options, onChange }: { value: string; options: ScopeMenuOption[]; onChange: (value: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false); };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [open]);
-  const selected = options.find((option) => option.value === value) ?? options[0];
-  return <div ref={rootRef} className="relative shrink-0">
-    <button type="button" className="scope-menu-trigger input-field flex h-8 w-[120px] items-center gap-1.5 rounded-lg px-2.5 py-0 text-left text-xs" onClick={() => setOpen((current) => !current)} aria-haspopup="listbox" aria-expanded={open}>
-      <span className="flex min-w-0 items-center gap-1.5 truncate">{selected?.icon}{selected?.label}</span><ChevronDown className={`ml-auto h-3.5 w-3.5 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
-    </button>
-    {open && <div className="scope-menu-popover absolute bottom-[calc(100%+0.4rem)] left-0 z-[80] max-h-72 w-64 overflow-y-auto rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1.5 shadow-xl" role="listbox">
-      {options.map((option, index) => <div key={`${option.value}-${index}`}>
-        {option.group && (index === 0 || options[index - 1]?.group !== option.group) && <div className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">{option.group}</div>}
-        <button type="button" role="option" aria-selected={option.value === value} className={`scope-menu-option flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors ${option.value === value ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)]' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]'}`} onClick={() => { onChange(option.value); setOpen(false); }}>
-          <span className="flex w-4 justify-center text-[var(--color-text-tertiary)]">{option.icon}</span><span className="min-w-0 flex-1 truncate">{option.label}</span>{option.value === value && <Check className="h-3.5 w-3.5" />}
-        </button>
-      </div>)}
-    </div>}
-  </div>;
+function ScopeMenu({ value, options, onChange }: { value: string; options: SelectOption[]; onChange: (value: string) => void }) {
+  return <Select value={value} options={options} onChange={onChange} ariaLabel="选择知识范围或模型" size="compact" placement="up" className="scope-menu-trigger w-[120px] shrink-0" />;
 }
 
 export default function AIChat() {
@@ -86,22 +76,25 @@ export default function AIChat() {
   const { doSync } = useSyncStore();
   const [conversations, setConversations] = useState<AIConversation[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
+  const [messages, setMessages] = useState<UIChatMessage[]>([GREETING]);
   const [input, setInput] = useState('');
   const [scopeStr, setScopeStr] = useState<string>(() => localStorage.getItem('ai-knowledge-scope') || 'personal');
-  const [ragMode, setRagMode] = useState<RAGAnswerMode>(() => (localStorage.getItem('ai-rag-mode') as RAGAnswerMode) || 'strict');
+  // 默认允许模型在知识库无命中时补充自身常识；仍保留“仅使用知识库”选项供严格场景切换。
+  const [ragMode, setRagMode] = useState<RAGAnswerMode>(() => (localStorage.getItem('ai-rag-mode') as RAGAnswerMode) || 'hybrid');
   const [modelChoice, setModelChoice] = useState<string>('auto');
   const [citations, setCitations] = useState<RetrievedChunk[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => localStorage.getItem('ai-sidebar') !== '0');
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => { const s = Number(localStorage.getItem('ai-sidebar-width')); return Number.isFinite(s) && s > 0 ? Math.max(200, Math.min(320, s)) : 248; });
   const [manualWebSearch, setManualWebSearch] = useState(false);
   const [isGroundedStreaming, setIsGroundedStreaming] = useState(false);
-  const [agentOpen, setAgentOpen] = useState(false);
-  const agentDialogRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(agentOpen, agentDialogRef);
   const [showAnswerSettings, setShowAnswerSettings] = useState(false);
   const [lastQuestion, setLastQuestion] = useState('');
   const [searchContext, setSearchContext] = useState<SearchAIContext | null>(null);
+  const [retrievalStatus, setRetrievalStatus] = useState<RetrievalStatus>({});
+  const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
+  const [reasoningContent, setReasoningContent] = useState('');
+  const [showReasoning, setShowReasoning] = useState(true);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
@@ -139,6 +132,13 @@ export default function AIChat() {
   }, []);
   useEffect(() => { refreshConversations(); }, [refreshConversations]);
   useEffect(() => () => { if (streamFlushRef.current) clearTimeout(streamFlushRef.current); }, []);
+  useEffect(() => {
+    if (!isProcessing && !isGroundedStreaming) return;
+    const update = () => setElapsedMs(Math.max(0, performance.now() - requestStartedRef.current));
+    update();
+    const timer = window.setInterval(update, 100);
+    return () => window.clearInterval(timer);
+  }, [isProcessing, isGroundedStreaming]);
 
   useEffect(() => {
     if (shouldAutoScrollRef.current) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -159,10 +159,18 @@ export default function AIChat() {
   const toggleSidebar = () => setSidebarOpen((o) => { const n = !o; localStorage.setItem('ai-sidebar', n ? '1' : '0'); return n; });
   const changeScope = (value: string) => { setScopeStr(value); localStorage.setItem('ai-knowledge-scope', value); };
   const changeRagMode = (value: RAGAnswerMode) => { setRagMode(value); localStorage.setItem('ai-rag-mode', value); };
-  const handleNew = () => { setCurrentId(null); setMessages([GREETING]); setCitations([]); setInput(''); setSearchContext(null); };
+  const handleNew = () => { setCurrentId(null); setMessages([GREETING]); setCitations([]); setInput(''); setSearchContext(null); setRetrievalStatus({}); setEditingMessageIndex(null); };
   const handleSelect = async (id: string) => {
     const conv = await getConversation(id);
-    if (conv) { setCurrentId(id); setMessages(conv.messages as ChatMessage[]); setCitations(conv.citations ?? []); }
+    if (conv) {
+      const restored = conv.messages as UIChatMessage[];
+      // 兼容旧会话：把会话级来源只挂到最后一条助手回答，此后按消息独立保存。
+      if (conv.citations?.length && !restored.some((message) => message.citations?.length)) {
+        const lastAssistant = restored.map((message, index) => ({ message, index })).reverse().find((item) => item.message.role === 'assistant');
+        if (lastAssistant) restored[lastAssistant.index] = { ...lastAssistant.message, citations: conv.citations as RetrievedChunk[] };
+      }
+      setCurrentId(id); setMessages(restored); setCitations(restored.slice().reverse().find((message) => message.citations?.length)?.citations ?? []);
+    }
   };
   const handleDeleteConv = async (id: string) => {
     if (!window.confirm('删除此对话？')) return;
@@ -180,6 +188,12 @@ export default function AIChat() {
   };
   const latestAssistant = [...messages].reverse().find((message) => message.role === 'assistant')?.content || '';
   const copyLatest = async () => { if (latestAssistant) await navigator.clipboard.writeText(latestAssistant); };
+  const copyMessage = async (content: string) => { await navigator.clipboard.writeText(content); };
+  const editMessage = (content: string, index: number) => {
+    setEditingMessageIndex(index);
+    setInput(content);
+    window.setTimeout(() => composerInputRef.current?.focus(), 0);
+  };
   const downloadLatest = () => { if (!latestAssistant) return; const blob = new Blob([latestAssistant], { type: 'text/markdown;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'ai-answer.md'; a.click(); URL.revokeObjectURL(url); };
 
   const handleSend = async () => {
@@ -188,16 +202,26 @@ export default function AIChat() {
     groundedCancelledRef.current = false;
     setLastQuestion(userText);
     setInput('');
+    setReasoningContent('');
+    setShowReasoning(true);
+    setElapsedMs(0);
     requestStartedRef.current = performance.now();
     firstTokenAtRef.current = null;
     timingRef.current = {};
+    setRetrievalStatus({});
     useAIStore.setState({ isProcessing: true, error: null, streamingContent: '', stage: 'retrieving', timing: null });
     const userMsg: ChatMessage = { role: 'user', content: userText };
-    const baseMsgs = messages.filter((m) => m.role !== 'system');
+    const visibleMessages = messages.filter((m) => m.role !== 'system');
+    const baseMsgs = (editingMessageIndex === null ? visibleMessages : visibleMessages.slice(0, editingMessageIndex)).filter((m) => m.role !== 'system');
     // 先把用户消息画出来，再执行检索和模型调用，避免点击后长时间无反馈。
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages((prev) => {
+      const visible = prev.filter((m) => m.role !== 'system');
+      return [...(editingMessageIndex === null ? visible : visible.slice(0, editingMessageIndex)), userMsg];
+    });
+    setEditingMessageIndex(null);
     setCitations([]);
     const scope = parseScope(scopeStr);
+    let effectiveSearchQuery = userText;
     let newCitations: RetrievedChunk[] = searchContext ? searchContextToChunks(searchContext) : [];
     let sysPrefix: string | null = null;
     if (searchContext?.items.length) {
@@ -210,20 +234,33 @@ export default function AIChat() {
             timingRef.current = { ...timingRef.current, ...timing };
             useAIStore.setState({ timing: timingRef.current });
           },
+          onQueryRewrite: (rewrite) => {
+            effectiveSearchQuery = rewrite.query || userText;
+            setRetrievalStatus((current) => ({ ...current, rewrite }));
+          },
         });
       } catch { newCitations = []; }
-      sysPrefix = buildRAGSystemPrompt(formatContextForPrompt(newCitations), newCitations.length > 0, ragMode);
+      // 课程入口统一使用混合回答：优先引用课程，课程片段不足时允许模型明确补充自身知识。
+      // 否则只要召回到一条弱相关课程片段，旧 strict 状态就会再次禁止模型回答常识。
+      const promptMode: RAGAnswerMode = scope.kind === 'zero2agent' ? 'hybrid' : ragMode;
+      sysPrefix = buildRAGSystemPrompt(formatContextForPrompt(newCitations), newCitations.length > 0, promptMode);
     }
     const webSettings = settings?.webSearch;
-    const shouldSearchWeb = scope.kind !== 'zero2agent' && shouldUseWebSearch(userText, newCitations, webSettings, manualWebSearch);
+    // 课程知识库也允许联网补充：课程原文作为主证据，网页资料作为带 [W] 引用的补充证据。
+    // “总是联网”或“本次强制联网”必须对所有知识范围生效，避免界面状态与实际行为不一致。
+    const webDecision = explainWebSearchDecision(userText, newCitations, webSettings, manualWebSearch);
+    const shouldSearchWeb = webDecision.shouldSearch;
+    setRetrievalStatus((current) => ({ ...current, web: { status: shouldSearchWeb ? 'searching' : 'skipped', reason: webDecision.reason } }));
     if (shouldSearchWeb) {
       try {
         useAIStore.setState({ stage: 'retrieving' });
         const webStartedAt = performance.now();
-        const webChunks = await retrieveWeb(userText, webSettings);
+        // 对话生成只保留最相关的少量网页片段，避免 6-10 个网页正文拖慢本地模型首 token。
+        const webChunks = (await retrieveWeb(effectiveSearchQuery, webSettings)).slice(0, 3);
         timingRef.current = { ...timingRef.current, webSearchMs: Math.round(performance.now() - webStartedAt) };
         useAIStore.setState({ timing: timingRef.current });
         if (webChunks.length) {
+          setRetrievalStatus((current) => ({ ...current, web: { status: 'used', reason: `已获取 ${webChunks.length} 个网页片段` } }));
           newCitations = [...newCitations, ...webChunks];
           const wf = formatWebContextForPrompt(webChunks);
           sysPrefix = (sysPrefix ? sysPrefix + '\n\n' : '') + [
@@ -232,8 +269,12 @@ export default function AIChat() {
             '联网资料可能过期，涉及医疗、法律、金融、政策、价格、新闻、版本等高时效或高风险信息时，请提醒用户核对官方来源。',
             wf,
           ].join('\n');
+        } else {
+          setRetrievalStatus((current) => ({ ...current, web: { status: 'empty', reason: '已联网，但没有取得可用网页内容' } }));
         }
-      } catch { /* ignore */ }
+      } catch (error) {
+        setRetrievalStatus((current) => ({ ...current, web: { status: 'failed', reason: error instanceof Error ? error.message : '联网搜索失败' } }));
+      }
     }
     const timeSys = `当前时间：${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}（北京时间）。`;
     const detailSys = `回答风格：${answerDetailInstruction(settings?.aiAnswer?.detail)}`;
@@ -252,10 +293,18 @@ export default function AIChat() {
             useAIStore.setState({ streamingContent: useAIStore.getState().streamingContent + streamBufferRef.current });
             streamBufferRef.current = '';
             streamFlushRef.current = null;
-          }, 50);
+          }, 20);
         }
       };
-      if (scope.kind === 'zero2agent') {
+      const onReasoning = (token: string) => {
+        setReasoningContent((current) => current + token);
+      };
+      const enableThinking = userText.length > 80 || /(为什么|如何|比较|区别|分析|方案|推理|多跳|权衡|设计)/.test(userText);
+      const hasCourseSources = newCitations.some((chunk) => chunk.source === 'zero2agent');
+      // 课程库入口也允许模型补充自身知识；课程/网页上下文仍会通过 sysPrefix 提供给模型。
+      // 这样即使课程召回为空或只有弱相关片段，也不会直接返回“无法回答”。
+      const allowStrictCourse = false;
+      if (scope.kind === 'zero2agent' && hasCourseSources && !newCitations.some((chunk) => chunk.source === 'web') && allowStrictCourse) {
         // 课程知识库使用真实 SSE；回答完成后再校验引用白名单。
         setIsGroundedStreaming(true);
         useAIStore.setState({ stage: 'generating', streamingContent: '' });
@@ -279,17 +328,58 @@ export default function AIChat() {
         const isKnownLocalModel = !!settings?.availableModels?.local?.includes(bare);
         const provider = entry?.provider ?? (modelChoice.includes('/') ? (modelChoice.split('/')[0] as ProviderName) : isKnownLocalModel ? 'local' : enabled[0]);
         const model = entry?.model ?? bare;
-        if (provider && model) await callDirect(provider, model, callMsgs, onToken);
+        if (provider && model) await callDirect(provider, model, callMsgs, onToken, onReasoning, enableThinking);
         else await aiChat(callMsgs, onToken);
-      } else { await aiChat(callMsgs, onToken); }
+      } else { await aiChat(callMsgs, onToken, onReasoning); }
       // flush 剩余缓冲的 token
       if (streamFlushRef.current) { clearTimeout(streamFlushRef.current); streamFlushRef.current = null; }
       if (streamBufferRef.current) { useAIStore.setState({ streamingContent: useAIStore.getState().streamingContent + streamBufferRef.current }); streamBufferRef.current = ''; }
-      finalContent = useAIStore.getState().streamingContent || '(空回复)';
+      finalContent = useAIStore.getState().streamingContent || (reasoningContent
+        ? '模型已完成思考，但在生成最终答案前达到输出上限。请重试，或缩短问题/减少检索范围。'
+        : '模型没有返回可显示的回答，请检查模型服务状态后重试。');
       useAIStore.setState({ streamingContent: '' });
       }
-      const assistantMsg: ChatMessage = { role: 'assistant', content: finalContent };
-      const storedMsgs = [...baseMsgs, userMsg, assistantMsg].filter((m) => m.role !== 'system');
+      let grounding: UIChatMessage['grounding'];
+      if (settings?.aiAnswer?.rewriteEnabled && finalContent.trim() && !groundedCancelledRef.current) {
+        setRetrievalStatus((current) => ({ ...current, answerRewrite: { status: 'used', reason: '重写中' } }));
+        useAIStore.setState({ stage: 'rewriting', streamingContent: '' });
+        const rewriteMessages: ChatMessage[] = [
+          {
+            role: 'system',
+            content: '你是答案编辑器。请对用户给出的答案做保守润色：只改善结构、措辞、错别字和 Markdown 排版，不新增事实、不删除事实、不改变结论。必须原样保留所有 [N1]、[W1] 等引用编号、代码块和 Mermaid 代码块；只输出润色后的答案正文，不要解释修改过程。',
+          },
+          { role: 'user', content: `原问题：${userText}\n\n待润色答案：\n${finalContent}` },
+        ];
+        try {
+          let rewritten = '';
+          if (modelChoice !== 'auto') {
+            const bare = modelChoice.includes('/') ? modelChoice.split('/').slice(1).join('/') : modelChoice;
+            const entry = MODEL_MAP[bare] ?? MODEL_MAP[modelChoice];
+            const ap = settings?.aiProviders;
+            const enabled = ap ? (Object.keys(ap) as ProviderName[]).filter((k) => ap[k].enabled && ap[k].apiKey) : [];
+            const isKnownLocalModel = !!settings?.availableModels?.local?.includes(bare);
+            const provider = entry?.provider ?? (modelChoice.includes('/') ? (modelChoice.split('/')[0] as ProviderName) : isKnownLocalModel ? 'local' : enabled[0]);
+            const model = entry?.model ?? bare;
+            rewritten = provider && model ? await callDirect(provider, model, rewriteMessages) : await aiChat(rewriteMessages);
+          } else {
+            rewritten = await aiChat(rewriteMessages);
+          }
+          if (rewritten.trim()) finalContent = rewritten.trim();
+          setRetrievalStatus((current) => ({ ...current, answerRewrite: { status: 'used', reason: '已完成保守润色' } }));
+        } catch (error) {
+          setRetrievalStatus((current) => ({ ...current, answerRewrite: { status: 'failed', reason: error instanceof Error ? error.message : '重写失败，保留原答案' } }));
+        } finally {
+          useAIStore.setState({ streamingContent: '' });
+        }
+      }
+      if (scope.kind !== 'zero2agent' && scope.kind !== 'none') {
+        const validated = validateRAGAnswer(finalContent, newCitations, ragMode);
+        finalContent = validated.answer;
+        newCitations = validated.citations;
+        grounding = { grounded: validated.grounded, coverage: validated.coverage, invalidReferences: validated.invalidReferences };
+      }
+      const assistantMsg: UIChatMessage = { role: 'assistant', content: finalContent, citations: newCitations, grounding };
+      const storedMsgs = [...baseMsgs, userMsg, assistantMsg].filter((m) => m.role !== 'system') as UIChatMessage[];
       setMessages((prev) => [...prev, assistantMsg]);
       setCitations(newCitations);
       if (searchContext) {
@@ -332,7 +422,21 @@ export default function AIChat() {
   };
 
   const selectedModels = settings?.selectedModels ?? [];
-  const modelOptions = useMemo(() => Array.from(new Set(['auto', ...selectedModels])), [selectedModels]);
+  const modelOptions = useMemo(() => {
+    const profiles = settings?.modelProfiles ?? [];
+    const available = settings?.availableModels ?? {};
+    const usable = selectedModels.filter((modelId) => {
+      const profile = profiles.find((item) => item.id === modelId && item.enabled);
+      if (profile) return true;
+      const bare = modelId.startsWith('local/') ? modelId.slice(6) : modelId;
+      if ((available.local ?? []).includes(bare)) return true;
+      const entry = MODEL_MAP[bare] ?? MODEL_MAP[modelId];
+      if (!entry) return false;
+      const provider = settings?.aiProviders?.[entry.provider];
+      return Boolean(provider?.enabled && (!providerNeedsApiKey(entry.provider) || provider.apiKey?.trim()));
+    });
+    return Array.from(new Set(['auto', ...usable]));
+  }, [selectedModels, settings?.modelProfiles, settings?.availableModels, settings?.aiProviders]);
 
   // AI 与 Agent 共用一个入口，模式通过 URL 状态切换，保留各自的安全执行流程。
   if (searchParams.get('mode') === 'agent') return <Agent />;
@@ -350,12 +454,12 @@ export default function AIChat() {
       )}
       {sidebarOpen && (
         <aside
-          className={`relative shrink-0 border-r border-[var(--color-border)] bg-[var(--color-surface)] flex flex-col ${
+          className={`ai-history-sidebar relative shrink-0 bg-[var(--color-surface)] flex flex-col ${
             isMobile ? 'absolute inset-y-0 left-0 z-30 w-[84vw] max-w-[280px] shadow-xl' : ''
           }`}
           style={isMobile ? undefined : { width: sidebarWidth }}
         >
-          <div className="flex items-center justify-between p-3 border-b border-[var(--color-border)]">
+          <div className="ai-history-header soft-divider flex items-center justify-between p-3">
             <span className="text-xs font-medium text-[var(--color-text-secondary)]">对话历史</span>
             <button className="btn-ghost p-1" onClick={toggleSidebar} title="隐藏列表"><PanelLeft className="h-4 w-4" /></button>
           </div>
@@ -387,41 +491,44 @@ export default function AIChat() {
       )}
       {/* 主聊天区 */}
       <div className="ai-doubao-shell flex flex-col flex-1 min-w-0">
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--color-border)]">
+      <div className="ai-workspace-header soft-divider flex items-center gap-2 px-4 py-2">
         {!sidebarOpen && <button className="btn-ghost p-1" onClick={toggleSidebar} title="显示对话列表"><PanelLeft className="h-4 w-4" /></button>}
-        <h1 className="flex items-center gap-2 text-base font-semibold"><span className="ai-brand-mark"><Sparkles className="h-3.5 w-3.5" /></span>知屿 AI</h1>
+        <h1 className="flex items-center gap-2 text-base font-semibold"><span className="ai-brand-mark"><BookOpen className="h-3.5 w-3.5" /></span>AI 问答</h1>
       </div>
 
       {/* Messages */}
       <div ref={scrollContainerRef} onScroll={(event) => { const el = event.currentTarget; shouldAutoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120; }} className="ai-doubao-messages flex-1 overflow-y-auto px-4 py-6 space-y-6">
         {messages.length === 1 && messages[0].role === 'assistant' && !currentId ? (
           <div className="ai-empty-state">
-            <div className="ai-empty-mark"><Compass className="h-5 w-5" /></div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[.14em] text-[var(--color-primary)]">今天从哪里出发</p>
-              <h2 className="mt-1 text-xl font-semibold text-[var(--color-text)]">让知识开始连成航线</h2>
-              <p className="mt-2 text-sm leading-6 text-[var(--color-text-secondary)]">问你的笔记、练一道面试题，或把答案整理成可复习的文档。回答会保留可回看的原文依据。</p>
+              <p className="text-xs font-medium text-[var(--color-text-secondary)]">基于你的课程与笔记</p>
+              <h2 className="mt-1 text-xl font-semibold text-[var(--color-text)]">今天想弄清楚什么？</h2>
+              <p className="mt-2 text-sm leading-6 text-[var(--color-text-secondary)]">AI 问答专门从你的笔记和知识库里找答案，并保留可回看的原文依据。需要批量改文档请去 Agent，需要系统复习请去复习教练。</p>
               <div className="ai-task-grid">
-                <button className="ai-task-card" onClick={() => setInput('总结我最近的学习重点')} type="button"><BookOpen className="mb-2 h-4 w-4 text-[var(--color-primary)]" /><span className="block text-xs font-medium">梳理最近学习</span></button>
-                <button className="ai-task-card" onClick={() => setInput('请出一道面试诊断题')} type="button"><Target className="mb-2 h-4 w-4 text-[var(--color-accent)]" /><span className="block text-xs font-medium">开始一次训练</span></button>
-                <button className="ai-task-card" onClick={() => setInput('把我的笔记整理成复习提纲')} type="button"><FileText className="mb-2 h-4 w-4 text-[var(--color-success)]" /><span className="block text-xs font-medium">整理成文档</span></button>
+                <button className="ai-task-card" onClick={() => setInput('总结我最近的学习重点')} type="button"><BookOpen className="h-4 w-4 text-[var(--color-primary)]" /><span>梳理最近学习</span></button>
+                <button className="ai-task-card" onClick={() => setInput('请总结我最近的学习重点，并引用对应笔记')} type="button"><Target className="h-4 w-4 text-[var(--color-accent)]" /><span>找出学习重点</span></button>
+                <button className="ai-task-card" onClick={() => setInput('把我的笔记整理成复习提纲')} type="button"><FileText className="h-4 w-4 text-[var(--color-info)]" /><span>生成复习提纲</span></button>
               </div>
             </div>
           </div>
         ) : messages.filter((m) => m.role !== 'system').map((msg, i) => (
           <div key={i} className={`ai-message-row mx-auto flex w-full max-w-4xl cv-auto ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`text-sm leading-7 ${
-              msg.role === 'user'
-                ? 'ai-user-bubble max-w-[82%] rounded-2xl px-4 py-2.5 text-[var(--color-text)]'
-                : 'ai-assistant-content max-w-full text-[var(--color-text)]'
-            }`}>
-              <MarkdownContent citationItems={msg.role === 'assistant' ? citations : undefined}>{msg.content}</MarkdownContent>
+            <div className={`group max-w-full text-sm leading-7 ${msg.role === 'user' ? 'flex w-full flex-col items-end' : ''}`}>
+              <div className={msg.role === 'user' ? 'ai-user-bubble w-fit max-w-full rounded-2xl px-4 py-2.5 text-[var(--color-text)]' : 'ai-assistant-content max-w-full text-[var(--color-text)]'}>
+                <MarkdownContent citationItems={msg.role === 'assistant' ? msg.citations : undefined}>{msg.content}</MarkdownContent>
+                {msg.role === 'assistant' && msg.citations?.length ? <div className="mt-3"><CitationList citations={msg.citations} /></div> : null}
+              </div>
+              <div className={`mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 ${msg.role === 'user' ? 'justify-end pr-1' : 'justify-start'}`}>
+                <button type="button" className="btn-ghost h-6 px-1.5 text-[11px]" onClick={() => void copyMessage(msg.content)} title="复制这条消息"><Copy className="h-3 w-3" />复制</button>
+                {msg.role === 'user' && <button type="button" className="btn-ghost h-6 px-1.5 text-[11px]" onClick={() => editMessage(msg.content, i)} title="编辑并覆盖后续回答"><Pencil className="h-3 w-3" />编辑</button>}
+              </div>
             </div>
           </div>
         ))}
         {(isProcessing || isGroundedStreaming) && streamingContent && (
           <div className="flex justify-start">
           <div className="ai-assistant-content mx-auto w-full max-w-4xl rounded-xl px-1 py-2 text-sm leading-7 text-[var(--color-text)]">
+              <div className="mb-2 text-[11px] text-[var(--color-text-tertiary)]">实时生成 · 已用时 {(elapsedMs / 1000).toFixed(1)}s</div>
               <MarkdownContent citationItems={citations}>{streamingContent}</MarkdownContent>
               <span className="inline-block w-2 h-4 bg-indigo-500 animate-pulse ml-1" />
             </div>
@@ -432,7 +539,8 @@ export default function AIChat() {
             <div className="ai-assistant-content mx-auto w-full max-w-4xl rounded-xl px-1 py-2 bg-transparent">
               <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
                 <span className="h-2 w-2 rounded-full bg-[var(--color-primary)] animate-pulse" />
-                <span>{stage === 'retrieving' ? '检索中' : stage === 'reranking' ? '重排中' : '生成中'}</span>
+                <span>{stage === 'retrieving' ? '检索中' : stage === 'reranking' ? '重排中' : stage === 'rewriting' ? '答案重写中' : '生成中'}</span>
+                <span className="text-[var(--color-text-tertiary)]">已用时 {(elapsedMs / 1000).toFixed(1)}s</span>
                 {timing?.retrievalMs !== undefined && <span className="text-[var(--color-text-tertiary)]">检索 {timing.retrievalMs}ms</span>}
                 {timing?.webSearchMs !== undefined && <span className="text-[var(--color-text-tertiary)]">联网 {timing.webSearchMs}ms</span>}
                 {timing?.rerankMs !== undefined && <span className="text-[var(--color-text-tertiary)]">重排 {timing.rerankMs}ms</span>}
@@ -445,7 +553,6 @@ export default function AIChat() {
         {!isProcessing && !isGroundedStreaming && citations.length > 0 && (
           <div className="flex justify-start">
             <div className="mx-auto w-full max-w-4xl">
-              <CitationList citations={citations} />
               {timing && <p className="mt-2 text-[11px] text-[var(--color-text-tertiary)]">耗时：检索 {timing.retrievalMs ?? 0}ms{timing.webSearchMs !== undefined ? ` · 联网 ${timing.webSearchMs}ms` : ''}{timing.rerankMs !== undefined ? ` · 重排 ${timing.rerankMs}ms` : ''} · 生成 {timing.generationMs ?? 0}ms{timing.firstTokenMs !== undefined ? ` · 首 Token ${timing.firstTokenMs}ms` : ''}</p>}
               <div className="mt-2 flex flex-wrap items-center gap-2"><button className="btn-secondary text-xs" onClick={() => void copyLatest()} type="button"><Copy className="h-3 w-3" />复制回答</button><button className="btn-secondary text-xs" onClick={downloadLatest} type="button"><Download className="h-3 w-3" />导出 Markdown</button></div>
               <div className="mt-3 flex flex-wrap gap-2"><button className="btn-ghost text-xs" onClick={() => setInput('请举一个具体例子')}>举一个例子</button><button className="btn-ghost text-xs" onClick={() => setInput('请对比两个方案的区别')}>对比方案</button><button className="btn-ghost text-xs" onClick={() => setInput('请出一道面试诊断题')}>出一道面试题</button></div>
@@ -457,6 +564,28 @@ export default function AIChat() {
                 <Save className="h-3 w-3" /> 保存回答为新文档
               </button>
             </div>
+          </div>
+        )}
+        {(isProcessing || isGroundedStreaming) && reasoningContent && (
+          <div className="mx-auto w-full max-w-4xl px-1">
+            <button type="button" className="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]" onClick={() => setShowReasoning((value) => !value)}>
+              {showReasoning ? '隐藏模型思考' : '显示模型思考'} · {(elapsedMs / 1000).toFixed(1)}s
+            </button>
+            {showReasoning && <div className="mt-1 max-h-48 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 text-xs leading-6 text-[var(--color-text-secondary)] whitespace-pre-wrap">{reasoningContent}</div>}
+          </div>
+        )}
+
+        {!isProcessing && !isGroundedStreaming && (retrievalStatus.rewrite || retrievalStatus.web || retrievalStatus.answerRewrite) && (
+          <div className="mx-auto flex w-full max-w-4xl flex-wrap gap-2 text-[11px] text-[var(--color-text-tertiary)]">
+            {retrievalStatus.rewrite && <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1" title={retrievalStatus.rewrite.query}>
+              查询改写：{retrievalStatus.rewrite.status === 'model' ? '模型已改写' : retrievalStatus.rewrite.status === 'failed' ? '模型失败，已用本地规则' : retrievalStatus.rewrite.status === 'disabled' ? '未启用' : '已用本地规则'}
+            </span>}
+            {retrievalStatus.web && <span className={`rounded-full border px-2 py-1 ${retrievalStatus.web.status === 'failed' ? 'border-[var(--color-danger)]/40 text-[var(--color-danger)]' : 'border-[var(--color-border)] bg-[var(--color-surface-2)]'}`}>
+              联网查询：{retrievalStatus.web.status === 'used' ? '已使用' : retrievalStatus.web.status === 'failed' ? '失败' : retrievalStatus.web.status === 'empty' ? '无结果' : retrievalStatus.web.status === 'searching' ? '进行中' : '未触发'} · {retrievalStatus.web.reason}
+            </span>}
+            {retrievalStatus.answerRewrite && <span className={`rounded-full border px-2 py-1 ${retrievalStatus.answerRewrite.status === 'failed' ? 'border-[var(--color-danger)]/40 text-[var(--color-danger)]' : 'border-[var(--color-border)] bg-[var(--color-surface-2)]'}`}>
+              答案重写：{retrievalStatus.answerRewrite.status === 'used' ? retrievalStatus.answerRewrite.reason : '失败，已保留原答案'}
+            </span>}
           </div>
         )}
 
@@ -490,16 +619,7 @@ export default function AIChat() {
             ]}
           />
           {scopeStr !== 'zero2agent' && scopeStr !== 'zero2agent-interview' && (
-            <select
-              aria-label="选择知识库回答模式"
-              className={`${showAnswerSettings ? 'block' : 'hidden md:block'} input-field h-8 w-[120px] shrink-0 py-0 text-xs`}
-              value={ragMode}
-              onChange={(e) => changeRagMode(e.target.value as RAGAnswerMode)}
-              title="严格模式只使用知识库；混合模式允许补充常识"
-            >
-              <option value="strict">仅使用知识库</option>
-              <option value="hybrid">知识库 + 常识</option>
-            </select>
+            <Select ariaLabel="选择知识库回答模式" className={`${showAnswerSettings ? 'flex' : 'hidden md:flex'} w-[120px] shrink-0`} size="compact" placement="up" value={ragMode} onChange={(value) => changeRagMode(value as RAGAnswerMode)} options={[{ value: 'strict', label: '仅使用知识库', description: '资料不足时明确说明' }, { value: 'hybrid', label: '知识库 + 常识', description: '允许补充通用知识' }]} />
           )}
           </div>
           <div className={`${showAnswerSettings ? 'block' : 'hidden md:block'} shrink-0`}>
@@ -509,35 +629,32 @@ export default function AIChat() {
               options={modelOptions.map((model) => ({ value: model, label: model === 'auto' ? '自动路由' : model, icon: <Bot className="h-3.5 w-3.5" /> }))}
             />
           </div>
-          <select
-            aria-label="选择联网搜索模式"
-            className={`${showAnswerSettings ? 'block' : 'hidden md:block'} input-field h-8 w-[128px] shrink-0 py-0 text-xs`}
+          <Select
+            ariaLabel="选择联网搜索模式"
+            className={`${showAnswerSettings ? 'flex' : 'hidden md:flex'} w-[128px] shrink-0`}
+            size="compact"
+            placement="up"
             value={manualWebSearch ? 'manual-on' : settings?.webSearch?.mode ?? 'manual'}
-            onChange={(event) => {
-              if (event.target.value === 'manual-on') setManualWebSearch(true);
+            onChange={(value) => {
+              if (value === 'manual-on') setManualWebSearch(true);
               else {
                 setManualWebSearch(false);
-                void useSettingsStore.getState().update({ webSearch: { ...(settings?.webSearch ?? { enabled: false, provider: 'tavily', baseUrl: 'http://127.0.0.1:3210', apiKey: '', mode: 'manual', resultLimit: 5, fetchLimit: 3 }), mode: event.target.value as 'off' | 'manual' | 'auto' | 'always' } });
+                void useSettingsStore.getState().update({ webSearch: { ...(settings?.webSearch ?? { enabled: false, provider: 'tavily', baseUrl: 'http://127.0.0.1:3210', apiKey: '', mode: 'manual', resultLimit: 5, fetchLimit: 3 }), mode: value as 'off' | 'manual' | 'auto' | 'always' } });
               }
             }}
-            title="自动模式会在知识库不足或问题需要最新信息时联网"
-          >
-            <option value="off">不联网</option>
-            <option value="manual">按需联网</option>
-            <option value="manual-on">本次联网</option>
-            <option value="auto">不足时联网</option>
-            <option value="always">总是联网</option>
-          </select>
+            options={[{ value: 'off', label: '不联网' }, { value: 'manual', label: '仅手动联网' }, { value: 'manual-on', label: '本次强制联网' }, { value: 'auto', label: '不足时联网' }, { value: 'always', label: '总是联网' }]}
+          />
           <button
             className={`${showAnswerSettings ? 'flex' : 'hidden md:flex'} h-8 w-[120px] shrink-0 items-center justify-center gap-1 rounded-md border border-[var(--color-border)] px-2 text-xs text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-light)] hover:text-[var(--color-primary)]`}
-            onClick={() => setAgentOpen(true)}
-            title="切换到 Agent 模式：可新建、编辑或追加文档"
+            onClick={() => navigate('/agent')}
+            title="打开 Agent 模式"
             type="button"
           >
             <Bot className="h-3.5 w-3.5" /> Agent 模式
           </button>
         </div>
         </div>
+        {editingMessageIndex !== null && <div className="flex items-center justify-between px-3 pb-1 text-[11px] text-[var(--color-primary)]"><span>正在编辑第 {editingMessageIndex + 1} 条问题，重新发送将覆盖后续回答</span><button type="button" className="btn-ghost h-6 px-1.5 text-[11px]" onClick={() => { setEditingMessageIndex(null); setInput(''); }}>取消编辑</button></div>}
         <div className="flex items-center gap-2 px-3 pb-2">
           <Textarea
             ref={composerInputRef}
@@ -553,17 +670,6 @@ export default function AIChat() {
         </div>
         </div>
       </div>
-      {agentOpen && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/35 p-3 backdrop-blur-[2px] animate-fade-in">
-          <div ref={agentDialogRef} className="flex h-full w-full flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-2xl animate-scale-in" role="dialog" aria-modal="true" aria-label="Agent 工作区">
-          <div className="flex h-10 shrink-0 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface-2)] px-3">
-            <span className="flex items-center gap-1.5 text-sm font-semibold"><Bot className="h-4 w-4 text-[var(--color-primary)]" /> Agent 工作区</span>
-            <button className="btn-ghost px-2 py-1 text-xs" onClick={() => setAgentOpen(false)} type="button">返回对话</button>
-          </div>
-          <div className="min-h-0 flex-1"><Agent /></div>
-          </div>
-        </div>
-      )}
       </div>
     </div>
   );

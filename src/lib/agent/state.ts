@@ -5,11 +5,13 @@ import type {
   AgentTask,
   AgentToolCacheEntry,
 } from '../db/schema';
+import { DEFAULT_AGENT_PERMISSION_POLICY } from './permissions';
 
 export const DEFAULT_AGENT_PERMISSIONS: AgentPermissionContext = {
   mode: 'default',
   allowReadTools: true,
   allowWriteTools: true,
+  policy: { ...DEFAULT_AGENT_PERMISSION_POLICY },
   updatedAt: 0,
 };
 
@@ -19,7 +21,7 @@ function defaultState(sessionId: string): AgentStateRecord {
     summary: '',
     tasks: [],
     toolCache: [],
-    permissions: { ...DEFAULT_AGENT_PERMISSIONS, updatedAt: Date.now() },
+    permissions: { ...DEFAULT_AGENT_PERMISSIONS, policy: { ...DEFAULT_AGENT_PERMISSION_POLICY }, updatedAt: Date.now() },
     updatedAt: Date.now(),
   };
 }
@@ -56,4 +58,3 @@ export async function setToolCache(sessionId: string, entries: AgentToolCacheEnt
   const now = Date.now();
   return updateAgentState(sessionId, { toolCache: entries.filter((entry) => entry.expiresAt > now).slice(-100) });
 }
-

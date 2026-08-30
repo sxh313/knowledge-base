@@ -36,6 +36,16 @@ export type AgentOpType =
   | 'prepareConflictMerge' // 同步冲突合并草案（只读）
   | 'applyConflictMerge'; // 用户确认后写入合并草案
 
+/** 全部合法操作类型（供校验与权限策略复用） */
+export const ALL_AGENT_OP_TYPES: readonly AgentOpType[] = [
+  'create', 'edit', 'append', 'prepend', 'insertAfter', 'patchJournal', 'updateMetadata', 'read', 'search',
+  'rename', 'delete', 'move', 'addTags', 'removeTags', 'generateCards',
+  'findDuplicates', 'reviewQuality', 'createStudyPlan',
+  'suggestQualityFixes', 'analyzeJournalImpact', 'repairDocumentLinks',
+  'analyzeKnowledgeGaps', 'suggestJournalMetadata', 'findRelatedJournals',
+  'explainSyncConflict', 'prepareConflictMerge', 'applyConflictMerge',
+];
+
 /** 单个操作 */
 export interface AgentOp {
   /** 操作唯一 id（由本地生成，用于防重复执行与审计） */
@@ -80,12 +90,41 @@ export interface AgentOp {
   newSubject?: string;
   /** 操作说明（供预览展示） */
   note?: string;
+  /** 修改依据：指向检索命中的笔记片段；高影响写操作必须携带 */
+  evidence?: {
+    journalId: string;
+    chunkId?: string;
+    reason: string;
+  }[];
+  /** 依赖的前置操作 opId 列表（执行时按拓扑排序，前置失败则跳过） */
+  dependsOn?: string[];
+  /** 前置条件（执行前校验，不满足则该操作失败） */
+  preconditions?: {
+    journalExists?: boolean;
+    expectedHash?: string;
+  }[];
   /** 风险等级（由本地根据操作类型与影响范围计算） */
   risk?: 'low' | 'medium' | 'high';
 }
 
 /** 操作风险等级 */
 export type AgentRisk = 'low' | 'medium' | 'high';
+
+/** 单条证据 reason 中声明跨文档关系的关键字（用于高影响操作的目标一致性校验） */
+export const CROSS_DOC_KEYWORD = '跨文档';
+
+/** 高影响写操作：必须携带 evidence（修改依据） */
+export const HIGH_IMPACT_TYPES: ReadonlySet<AgentOpType> = new Set<AgentOpType>([
+  'edit',
+  'delete',
+  'patchJournal',
+  'rename',
+  'move',
+  'addTags',
+  'removeTags',
+  'updateMetadata',
+  'applyConflictMerge',
+]);
 
 /** 根据操作类型与内容计算风险等级 */
 export function classifyRisk(op: AgentOp): AgentRisk {
@@ -141,12 +180,16 @@ export interface AgentPlan {
 // ──── 计划校验常量 ────
 /** 单次计划允许的最大操作数 */
 export const MAX_OPS_PER_PLAN = 20;
+/** 批量任务允许的最大操作数（更保守，需额外确认） */
+export const MAX_BATCH_OPS = 10;
 /** 单个操作允许的最大内容长度（字符） */
 export const MAX_CONTENT_LENGTH = 50000;
 /** 单个操作允许的最大标签数 */
 export const MAX_TAGS_PER_OP = 30;
 /** 搜索关键词最小长度（禁止空查询全库搜索） */
 export const MIN_QUERY_LENGTH = 1;
+/** 单个操作允许携带的最大证据条数 */
+export const MAX_EVIDENCE_PER_OP = 5;
 
 /** 计划校验结果 */
 export interface PlanValidationResult {
@@ -200,15 +243,7 @@ export function validateAgentOp(op: AgentOp, index: number): { errors: string[];
   }
 
   // 操作类型
-  const validTypes: AgentOpType[] = [
-    'create', 'edit', 'append', 'prepend', 'insertAfter', 'patchJournal', 'updateMetadata', 'read', 'search',
-    'rename', 'delete', 'move', 'addTags', 'removeTags', 'generateCards',
-    'findDuplicates', 'reviewQuality', 'createStudyPlan',
-    'suggestQualityFixes', 'analyzeJournalImpact', 'repairDocumentLinks',
-    'analyzeKnowledgeGaps', 'suggestJournalMetadata', 'findRelatedJournals',
-    'explainSyncConflict', 'prepareConflictMerge', 'applyConflictMerge',
-  ];
-  if (!op.type || !validTypes.includes(op.type)) {
+  if (!op.type || !ALL_AGENT_OP_TYPES.includes(op.type)) {
     errors.push(`${label}: 未知操作类型「${String(op.type)}」`);
     return { errors, warnings };
   }
@@ -292,7 +327,71 @@ export function validateAgentOp(op: AgentOp, index: number): { errors: string[];
     warnings.push(`${label}(${op.type}): 缺少 expectedHash，无法校验目标文档是否被修改`);
   }
 
+  // 证据（evidence）校验：高影响写操作必须携带修改依据
+  if (op.evidence) {
+    if (op.evidence.length > MAX_EVIDENCE_PER_OP) {
+      errors.push(`${label}(${op.type}): 证据数量过多（${op.evidence.length} 条，上限 ${MAX_EVIDENCE_PER_OP}）`);
+    }
+    op.evidence.forEach((ev, k) => {
+      if (!ev || !ev.journalId) {
+        errors.push(`${label}(${op.type}): 第 ${k + 1} 条证据缺少 journalId`);
+      } else if (!ev.reason || !ev.reason.trim()) {
+        errors.push(`${label}(${op.type}): 第 ${k + 1} 条证据缺少 reason（修改依据说明）`);
+      }
+    });
+  }
+  if (HIGH_IMPACT_TYPES.has(op.type)) {
+    if (!op.evidence || op.evidence.length === 0) {
+      errors.push(`${label}(${op.type}): 高影响写操作缺少修改依据（evidence）；请先检索相关笔记并在 evidence 中引用命中片段`);
+    } else if (op.journalId) {
+      // 目标文档必须与证据文档一致，或在 reason 中明确说明跨文档关系
+      const matched = op.evidence.some((ev) => ev && ev.journalId === op.journalId);
+      const crossDoc = op.evidence.some((ev) => ev?.reason?.includes(CROSS_DOC_KEYWORD));
+      if (!matched && !crossDoc) {
+        errors.push(`${label}(${op.type}): 目标文档与证据文档不一致；如确需跨文档操作，请在证据 reason 中说明「${CROSS_DOC_KEYWORD}」关系`);
+      }
+    }
+  }
+
   return { errors, warnings };
+}
+
+/** 检测操作依赖是否存在循环；存在时返回错误信息，否则返回 null */
+export function detectDependencyCycle(ops: AgentOp[]): string | null {
+  // DFS 三色标记：0=未访问 1=访问中 2=已完成
+  const color = new Map<string, number>();
+  const byId = new Map<string, AgentOp>();
+  for (const op of ops) {
+    if (op.opId) byId.set(op.opId, op);
+  }
+  const stack: string[] = [];
+  const visit = (op: AgentOp): boolean => {
+    const key = op.opId ?? '';
+    if (!key) return false;
+    const state = color.get(key) ?? 0;
+    if (state === 1) {
+      stack.push(key);
+      return true;
+    }
+    if (state === 2) return false;
+    color.set(key, 1);
+    for (const dep of op.dependsOn ?? []) {
+      const depOp = byId.get(dep);
+      if (depOp && visit(depOp)) {
+        stack.push(key);
+        return true;
+      }
+    }
+    color.set(key, 2);
+    return false;
+  };
+  for (const op of ops) {
+    if (visit(op)) {
+      return `计划存在循环依赖：${stack.reverse().join(' → ')}`;
+    }
+    stack.length = 0;
+  }
+  return null;
 }
 
 /** 校验整个操作计划 */
@@ -319,6 +418,25 @@ export function validateAgentPlan(plan: AgentPlan | null | undefined): PlanValid
     warnings.push(...r.warnings);
   });
 
+  // 依赖关系校验：依赖 ID 存在、不允许自依赖、不允许循环依赖
+  const opIds = new Set(plan.ops.map((op) => op.opId).filter((id): id is string => !!id));
+  const typeById = new Map(plan.ops.map((op) => [op.opId ?? '', op.type]));
+  plan.ops.forEach((op, i) => {
+    for (const dep of op.dependsOn ?? []) {
+      if (!dep) continue;
+      if (!opIds.has(dep)) {
+        errors.push(`操作 #${i + 1}: 依赖的操作 opId「${dep}」不存在`);
+      } else if (op.opId === dep) {
+        errors.push(`操作 #${i + 1}: 不允许依赖自己`);
+      } else if (typeById.get(dep) === 'delete') {
+        // 删除操作不能被后续写操作作为可用前置条件
+        errors.push(`操作 #${i + 1}: 删除操作不能作为前置条件`);
+      }
+    }
+  });
+  const cycleError = detectDependencyCycle(plan.ops);
+  if (cycleError) errors.push(cycleError);
+
   return { ok: errors.length === 0, errors, warnings };
 }
 
@@ -326,8 +444,14 @@ export function validateAgentPlan(plan: AgentPlan | null | undefined): PlanValid
 export interface AgentOpResult {
   op: AgentOp;
   ok: boolean;
-  /** 该操作被跳过（逐项批准时未勾选） */
+  /** 该操作被跳过（逐项批准时未勾选，或前置依赖失败） */
   skipped?: boolean;
+  /** 跳过的具体原因（供 UI 展示） */
+  skippedReason?: string;
+  /** 运行时状态（拓扑执行过程中的生命周期） */
+  opStatus?: 'pending' | 'running' | 'success' | 'failed' | 'skipped';
+  /** 单个操作耗时（ms） */
+  durationMs?: number;
   /** 成功：新建/编辑后的文档 id */
   journalId?: string;
   /** 成功：文档标题 */

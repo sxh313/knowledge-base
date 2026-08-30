@@ -447,15 +447,18 @@ export default function JournalEditor() {
             onClick={() => setShowExportMenu(s => !s)}
             disabled={!content.trim()}
             title="导出为 HTML / PDF"
+            aria-haspopup="menu"
+            aria-expanded={showExportMenu}
+            aria-controls="editor-export-menu"
           >
             <Download className="h-3.5 w-3.5" /> 导出 <ChevronDown className="h-3 w-3" />
           </button>
           {showExportMenu && (
-            <div className="absolute right-0 top-full mt-1 w-40 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl z-50 py-1 animate-slide-down">
-              <button onClick={handleExportHTML} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-[var(--color-text)] hover:bg-[var(--color-surface-2)]">
+            <div id="editor-export-menu" className="absolute right-0 top-full z-50 mt-1 w-40 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-xl animate-slide-down" role="menu">
+              <button role="menuitem" onClick={handleExportHTML} className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs text-[var(--color-text)] hover:bg-[var(--color-surface-2)]">
                 <FileCode className="h-3.5 w-3.5" /> 导出 HTML
               </button>
-              <button onClick={handleExportPDF} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-[var(--color-text)] hover:bg-[var(--color-surface-2)]">
+              <button role="menuitem" onClick={handleExportPDF} className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs text-[var(--color-text)] hover:bg-[var(--color-surface-2)]">
                 <FileCode className="h-3.5 w-3.5" /> 导出 PDF
               </button>
             </div>
@@ -511,7 +514,7 @@ export default function JournalEditor() {
       {/* 工具栏隐藏时的展开按钮 */}
       {!showToolbar && (
         <div className="flex items-center px-2 py-1 border-b border-[var(--color-border)]">
-          <button className="btn-ghost p-1.5" onClick={toggleToolbar} title="显示工具栏">
+          <button className="btn-ghost p-1.5" onClick={toggleToolbar} title="显示工具栏" aria-label="显示编辑器工具栏">
             <ChevronDown className="h-4 w-4" />
           </button>
         </div>

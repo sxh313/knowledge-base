@@ -16,6 +16,7 @@ import DesktopUpdater from '../components/DesktopUpdater';
 import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck, ArrowUp, ArrowDown, GripVertical, Bot } from 'lucide-react';
 import { describeConnectionError } from '../lib/ai/connectionError';
 import { searchAndFetchWeb } from '../lib/ai/webSearch';
+import { resolveAIBaseUrl } from '../lib/ai/localProxy';
 
 const isAndroidApp = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
 const isElectronApp = !!window.electronAPI?.isElectron;
@@ -27,7 +28,7 @@ const PROVIDER_INFO: { key: ProviderName; label: string; desc: string; icon: str
   { key: 'siliconflow', label: '硅基流动', desc: 'SiliconFlow 丰富模型', icon: '🔬' },
   { key: 'zhipu', label: '智谱 GLM', desc: '中文理解 & 图片分析', icon: '🧠' },
   { key: 'deepseek', label: 'DeepSeek', desc: '代码专用', icon: '💻' },
-  { key: 'local', label: '本地模型', desc: 'Ollama / LM Studio / vLLM / LocalAI（OpenAI 兼容，需开启 CORS）', icon: '🖥️' },
+  { key: 'local', label: '本地模型', desc: 'Ollama / LM Studio / vLLM / LocalAI（OpenAI 兼容；开发环境可使用同源代理）', icon: '🖥️' },
 ];
 
 const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
@@ -82,6 +83,7 @@ export default function SettingsPage() {
   const { needRefresh, checking, lastCheckAt, markChecked, setChecking } = useUpdateStore();
   const [checkMsg, setCheckMsg] = useState<string | null>(null);
   const [draggingProvider, setDraggingProvider] = useState<ProviderName | null>(null);
+  const [advancedSettings, setAdvancedSettings] = useState(() => localStorage.getItem('settings-advanced') === '1');
 
   const handleCheckUpdate = async () => {
     setChecking(true); setCheckMsg(null);
@@ -133,7 +135,7 @@ export default function SettingsPage() {
   };
 
   const webSearchSettings = { ...DEFAULT_WEB_SEARCH_SETTINGS, ...(settings.webSearch ?? {}) };
-  const answerSettings = { retrievalTopK: 5 as const, detail: 'standard' as const, ...(settings.aiAnswer ?? {}) };
+  const answerSettings = { retrievalTopK: 5 as const, detail: 'standard' as const, rewriteEnabled: false, ...(settings.aiAnswer ?? {}) };
 
   const updateWebSearch = (patch: Partial<WebSearchSettings>) => {
     void update({ webSearch: { ...webSearchSettings, ...patch } });
@@ -151,7 +153,7 @@ export default function SettingsPage() {
       const timeout = setTimeout(() => controller.abort(), 10000);
       const headers: Record<string, string> = {};
       if (prov.apiKey.trim()) headers.Authorization = `Bearer ${prov.apiKey.trim()}`;
-      const res = await fetch(`${(prov.baseUrl || DEFAULT_BASE_URLS[key]).replace(/\/+$/, '')}/models`, {
+      const res = await fetch(`${resolveAIBaseUrl(prov.baseUrl || DEFAULT_BASE_URLS[key])}/models`, {
         headers,
         signal: controller.signal,
       });
@@ -227,7 +229,8 @@ export default function SettingsPage() {
     setRefreshMsg(prev => ({ ...prev, [key]: '' }));
     try {
       const baseUrl = prov.baseUrl || DEFAULT_BASE_URLS[key];
-      const models = await fetchAvailableModels(key, baseUrl, prov.apiKey);
+      // 开发环境中的局域网模型必须走 Vite 同源代理，否则浏览器只会得到模糊的 CORS/Failed to fetch。
+      const models = await fetchAvailableModels(key, resolveAIBaseUrl(baseUrl), prov.apiKey);
       setRefreshMsg(prev => ({ ...prev, [key]: `发现 ${models.length} 个模型` }));
       await load();
     } catch (err) {
@@ -252,9 +255,16 @@ export default function SettingsPage() {
     const name = key === 'local' && rawName && !rawName.includes('/') ? `local/${rawName}` : rawName;
     if (!name) return;
     const current = settings.selectedModels ?? [];
-    if (!current.includes(name)) {
-      update({ selectedModels: [...current, name] });
-    }
+    const available = settings.availableModels ?? {};
+    const providerModels = available[key] ?? [];
+    const nextAvailableModels = providerModels.includes(rawName)
+      ? providerModels
+      : [...providerModels, rawName];
+    const nextSelectedModels = current.includes(name) ? current : [...current, name];
+    update({
+      availableModels: { ...available, [key]: nextAvailableModels },
+      selectedModels: nextSelectedModels,
+    });
     setManualModel(prev => ({ ...prev, [key]: '' }));
   };
   const removeModel = (model: string) => {
@@ -283,6 +293,16 @@ export default function SettingsPage() {
     order.splice(to, 0, draggingProvider);
     update({ providerOrder: order });
     setDraggingProvider(null);
+  };
+
+  // 隐藏浏览器原生拖动副本，排序只由卡片在纵向列表中的位置决定。
+  const startProviderDrag = (event: React.DragEvent<HTMLDivElement>, key: ProviderName) => {
+    event.dataTransfer.effectAllowed = 'move';
+    const transparentPreview = document.createElement('canvas');
+    transparentPreview.width = 1;
+    transparentPreview.height = 1;
+    event.dataTransfer.setDragImage(transparentPreview, 0, 0);
+    setDraggingProvider(key);
   };
 
   const updateSync = (patch: Partial<SyncConfig>) => {
@@ -358,8 +378,11 @@ export default function SettingsPage() {
     <div className="settings-layout w-full p-1 sm:p-3">
       <main className="min-w-0 space-y-5 sm:space-y-7">
       <header className="page-hero !items-start !flex-col !gap-0">
-        <div className="page-kicker">Workspace preferences</div>
         <h1 className="text-2xl font-bold">设置</h1>
+        <div className="mt-3 flex w-full flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5">
+          <div><p className="text-sm font-medium">配置模式：{advancedSettings ? '高级' : '基础'}</p><p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">基础模式只保留最常用的模型与同步设置；需要模型路由、联网和重排时再打开高级设置。</p></div>
+          <button className="btn-secondary text-xs" type="button" onClick={() => setAdvancedSettings((value) => { const next = !value; localStorage.setItem('settings-advanced', next ? '1' : '0'); return next; })}>{advancedSettings ? '切换为基础模式' : '打开高级设置'}</button>
+        </div>
       </header>
 
       {/* API 服务配置 */}
@@ -373,7 +396,7 @@ export default function SettingsPage() {
             <h2 className="flex items-center gap-2 text-lg font-semibold">🔀 来源顺序</h2>
             <p className="mt-1 text-xs text-gray-400">列表顺序就是服务优先级，可拖动调整；点击“配置服务”展开详细设置。</p>
           </div>
-          <button className="btn-ghost shrink-0 px-2 py-1 text-[10px]" onClick={() => void handleTestAllProviders()} type="button">测试全部模型</button>
+          <button className="btn-ghost shrink-0 px-2 py-1 text-[11px]" onClick={() => void handleTestAllProviders()} type="button">测试全部模型</button>
         </div>
         {orderedProviders.map(({ key, label, desc }) => {
           const prov = localProviders[key];
@@ -389,26 +412,29 @@ export default function SettingsPage() {
 
           return (
             <div key={key}
-              draggable
-              onDragStart={() => setDraggingProvider(key)}
               onDragEnd={() => setDraggingProvider(null)}
               onDragOver={(event) => event.preventDefault()}
               onDrop={() => dropProvider(key)}
               className={`card order-1 space-y-3 ${draggingProvider === key ? 'provider-order-row-dragging' : ''}`}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
+              <div className="provider-card-header">
+                <div
+                  className="flex min-w-0 cursor-grab items-center gap-3"
+                  draggable
+                  onDragStart={(event) => startProviderDrag(event, key)}
+                  title="拖动此处调整服务优先级"
+                >
                   <div>
                     <h3 className="font-medium">{label}</h3>
                     <p className="text-xs text-gray-400">{desc}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="provider-card-actions">
                   {(() => {
                     const result = apiTestResults[key] ?? { status: 'waiting' as const, msg: '未测试' };
-                    return <span className={`flex min-w-0 items-center gap-1 text-[10px] ${statusTextClass(result.status)}`}><StatusMark status={result.status} /><span className="hidden max-w-24 truncate sm:inline">{result.msg}</span></span>;
+                    return <span className={`flex min-w-0 items-center gap-1 text-[11px] ${statusTextClass(result.status)}`}><StatusMark status={result.status} /><span className="hidden max-w-24 truncate sm:inline">{result.msg}</span></span>;
                   })()}
                   {prov.enabled && (
-                    <button className="btn-ghost h-8 px-2.5 text-xs" onClick={() => setOpenProvider(isProviderOpen ? null : key)} type="button" aria-expanded={isProviderOpen}>
+                    <button className="btn-ghost h-8 whitespace-nowrap px-2.5 text-xs" onClick={() => setOpenProvider(isProviderOpen ? null : key)} type="button" aria-expanded={isProviderOpen}>
                       {isProviderOpen ? '收起配置' : '配置服务'}
                       <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isProviderOpen ? 'rotate-180' : ''}`} />
                     </button>
@@ -555,7 +581,7 @@ export default function SettingsPage() {
               return (
                 <div key={key}
                   draggable
-                  onDragStart={() => setDraggingProvider(key)}
+                  onDragStart={(event) => startProviderDrag(event, key)}
                   onDragEnd={() => setDraggingProvider(null)}
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={() => dropProvider(key)}
@@ -603,7 +629,7 @@ export default function SettingsPage() {
 
       </section>
 
-      <AIModelCenter settings={settings} onUpdate={update} />
+      {advancedSettings && <AIModelCenter settings={settings} onUpdate={update} />}
 
       {/* 普通 AI 回答 */}
       <section id="model-answer" className="scroll-mt-6 space-y-3">
@@ -620,10 +646,18 @@ export default function SettingsPage() {
               <SettingsSelect className="mt-1" value={answerSettings.detail} ariaLabel="回答长度" onChange={(value) => void update({ aiAnswer: { ...answerSettings, detail: value as 'concise' | 'standard' | 'detailed' } })} options={[{ value: 'concise', label: '简洁' }, { value: 'standard', label: '标准' }, { value: 'detailed', label: '详细' }]} />
             </label>
           </div>
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3">
+            <input type="checkbox" className="mt-0.5 h-4 w-4 accent-indigo-600" checked={Boolean(answerSettings.rewriteEnabled)} onChange={(event) => void update({ aiAnswer: { ...answerSettings, rewriteEnabled: event.target.checked } })} />
+            <span>
+              <span className="block text-sm text-[var(--color-text)]">生成后重写答案</span>
+              <span className="mt-0.5 block text-xs text-gray-400">用同一模型进行保守润色，保留引用、代码和 Mermaid；会增加一次模型调用，默认关闭。</span>
+            </span>
+          </label>
         </div>
       </section>
 
       {/* 联网搜索 */}
+      {advancedSettings && <>
       <section id="web-search" className="scroll-mt-6 space-y-3">
         <h2 className="text-lg font-semibold">🌐 联网搜索</h2>
         <div className="card space-y-3">
@@ -644,7 +678,7 @@ export default function SettingsPage() {
             {webSearchSettings.provider === 'tavily' && <label className="text-xs text-gray-400">Tavily API Key<input type="password" className="input-field mt-1 text-xs font-mono" value={webSearchSettings.apiKey ?? ''} onChange={(event) => updateWebSearch({ apiKey: event.target.value })} placeholder="tvly-..." /></label>}
             {webSearchSettings.provider === 'open-websearch' && <label className="text-xs text-gray-400">open-webSearch 地址<input className="input-field mt-1 text-xs font-mono" value={webSearchSettings.baseUrl} onChange={(event) => updateWebSearch({ baseUrl: event.target.value })} placeholder="http://127.0.0.1:3210" /></label>}
             <label className="text-xs text-gray-400">聊天默认联网模式
-              <SettingsSelect className="mt-1" value={webSearchSettings.mode} ariaLabel="聊天默认联网模式" onChange={(value) => updateWebSearch({ mode: value as WebSearchSettings['mode'] })} options={[{ value: 'off', label: '不联网' }, { value: 'manual', label: '按需联网' }, { value: 'auto', label: '知识库不足时联网' }, { value: 'always', label: '总是联网补充' }]} />
+              <SettingsSelect className="mt-1" value={webSearchSettings.mode} ariaLabel="聊天默认联网模式" onChange={(value) => updateWebSearch({ mode: value as WebSearchSettings['mode'] })} options={[{ value: 'off', label: '不联网' }, { value: 'manual', label: '仅手动联网' }, { value: 'auto', label: '知识库不足时联网' }, { value: 'always', label: '总是联网补充' }]} />
             </label>
             <label className="text-xs text-gray-400">搜索结果数<input type="number" min={1} max={10} className="input-field mt-1 text-xs" value={webSearchSettings.resultLimit} onChange={(event) => updateWebSearch({ resultLimit: Math.max(1, Math.min(10, Number(event.target.value) || 5)) })} /></label>
             <label className="text-xs text-gray-400">抓取网页数<input type="number" min={1} max={5} className="input-field mt-1 text-xs" value={webSearchSettings.fetchLimit} onChange={(event) => updateWebSearch({ fetchLimit: Math.max(1, Math.min(5, Number(event.target.value) || 3)) })} /></label>
@@ -655,7 +689,7 @@ export default function SettingsPage() {
           </div>
           <p className="text-xs leading-5 text-[var(--color-text-tertiary)]">推荐启用「知识库不足时联网」，它会在本地知识库没有命中或问题包含“最新/今天/价格/版本/政策”等时效词时自动抓取网页正文。</p>
         </div>
-      </section>
+      </section></>}
 
       <SyncSettingsSection config={settings.sync!} status={syncStatus} errorMessage={syncErrorMessage} testing={syncTesting} testMessage={syncMsg} onUpdate={updateSync} onTest={handleTestConn} onPull={pullOnly} onSync={doSync} />
 

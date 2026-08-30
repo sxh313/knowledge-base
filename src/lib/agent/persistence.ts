@@ -8,6 +8,7 @@ import type {
   AgentMessageRecord,
   AgentRun,
   AgentAuditLog,
+  AgentRunEvent,
   AgentRunStatus,
 } from '../db/schema';
 import { getAgentState } from './state';
@@ -92,25 +93,29 @@ export async function listAgentMessages(sessionId: string): Promise<AgentMessage
 
 // ──── 运行记录 ────
 
-/** 创建运行记录 */
+/** 创建运行记录；校验/权限阶段被拒绝的计划可用 status:'failed' + error 记录失败原因 */
 export async function createAgentRun(input: {
   sessionId: string;
   plan: AgentPlan;
   risk: AgentRun['risk'];
   model?: string;
   provider?: string;
+  status?: AgentRunStatus;
+  error?: string;
 }): Promise<AgentRun> {
   const now = Date.now();
   const run: AgentRun = {
     id: crypto.randomUUID(),
     sessionId: input.sessionId,
     planId: input.plan.planId ?? crypto.randomUUID(),
-    status: 'planned',
+    status: input.status ?? 'planned',
     risk: input.risk,
     summary: input.plan.summary,
     operations: input.plan.ops as unknown[],
     model: input.model,
     provider: input.provider,
+    error: input.error,
+    finishedAt: input.status && input.status !== 'planned' ? now : undefined,
     createdAt: now,
     updatedAt: now,
   };
@@ -229,6 +234,58 @@ export async function addAgentAuditLog(
 /** 获取某次运行的审计日志 */
 export async function listAgentAuditLogs(runId: string): Promise<AgentAuditLog[]> {
   return db.agentAuditLogs.where('runId').equals(runId).sortBy('createdAt');
+}
+
+// ──── 运行时间线事件（Phase 1 可观测性）────
+
+/** 事件摘要最大长度：超长截断，防止误存附件原文或完整思维链 */
+const MAX_EVENT_SUMMARY_LENGTH = 200;
+
+/** 对事件摘要脱敏：截断超长内容，避免持久化大段原文 */
+function sanitizeEventSummary(summary: string): string {
+  const trimmed = (summary || '').replace(/\s+/g, ' ').trim();
+  return trimmed.length > MAX_EVENT_SUMMARY_LENGTH
+    ? `${trimmed.slice(0, MAX_EVENT_SUMMARY_LENGTH)}…`
+    : trimmed;
+}
+
+/** 追加单条运行时间线事件 */
+export async function addAgentRunEvent(
+  runId: string,
+  event: Omit<AgentRunEvent, 'id' | 'runId' | 'createdAt'>,
+): Promise<AgentRunEvent> {
+  const record: AgentRunEvent = {
+    ...event,
+    summary: sanitizeEventSummary(event.summary),
+    id: crypto.randomUUID(),
+    runId,
+    createdAt: Date.now(),
+  };
+  await db.agentRunEvents.add(record);
+  return record;
+}
+
+/** 批量写入运行时间线事件（运行记录创建前暂存在内存中的事件） */
+export async function addAgentRunEvents(
+  runId: string,
+  events: Array<Omit<AgentRunEvent, 'id' | 'runId' | 'createdAt'>>,
+): Promise<void> {
+  if (!events.length) return;
+  const now = Date.now();
+  await db.agentRunEvents.bulkAdd(
+    events.map((event, i) => ({
+      ...event,
+      summary: sanitizeEventSummary(event.summary),
+      id: crypto.randomUUID(),
+      runId,
+      createdAt: now + i,
+    })),
+  );
+}
+
+/** 获取某次运行的时间线事件（按时间正序） */
+export async function listAgentRunEvents(runId: string): Promise<AgentRunEvent[]> {
+  return db.agentRunEvents.where('runId').equals(runId).sortBy('createdAt');
 }
 
 // ──── 序列化辅助（供 UI 恢复待确认计划）────
