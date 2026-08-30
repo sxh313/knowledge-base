@@ -631,8 +631,8 @@ export default function Agent() {
           type="button"
         />
       )}
-      <aside className={`${isMobile ? 'absolute inset-y-0 left-0 z-30 w-[84vw] max-w-[280px] shadow-xl' : 'w-64'} shrink-0 border-r border-[var(--color-border)] flex flex-col ${showSessions ? '' : 'hidden'}`}>
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] p-3">
+      <aside className={`${isMobile ? 'absolute inset-y-0 left-0 z-30 w-[84vw] max-w-[280px] shadow-xl' : 'w-64'} shrink-0 flex flex-col ${showSessions ? '' : 'hidden'} agent-workspace-sidebar`}>
+        <div className="soft-divider flex items-center justify-between p-3">
           <span className="text-xs font-medium text-[var(--color-text-secondary)]">对话历史</span>
           <button className="btn-ghost p-1" onClick={toggleSessions} title="隐藏会话列表" aria-label="隐藏会话列表" type="button">
             <PanelLeft className="h-4 w-4" />
@@ -694,7 +694,7 @@ export default function Agent() {
             <div className="text-xs text-[var(--color-text-tertiary)] text-center py-6">暂无会话</div>
           )}
         </div>
-        <div className="p-2 border-t border-[var(--color-border)]">
+        <div className="soft-divider p-2">
           <button
             className="w-full btn-ghost text-xs flex items-center justify-center gap-1 py-1.5 rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-2)]"
             onClick={() => setShowRuns((v) => !v)}
@@ -707,7 +707,7 @@ export default function Agent() {
       {/* 主聊天区 */}
       <div className="flex-1 flex flex-col min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between gap-2 px-4 py-2 border-b border-[var(--color-border)]">
+      <div className="soft-divider flex items-center justify-between gap-2 px-4 py-2">
         <div className="flex items-center gap-2">
           {!showSessions && <button className="btn-ghost p-1" onClick={toggleSessions} title="显示会话列表" aria-label="显示会话列表" type="button"><PanelLeft className="h-4 w-4" /></button>}
           <h1 className="flex items-center" title="Agent 工作区" aria-label="Agent 工作区"><Bot className="h-5 w-5 text-[var(--color-primary)]" /></h1>
@@ -715,7 +715,7 @@ export default function Agent() {
       </div>
 
       {showSkills && (
-        <div className="border-b border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-2">
+        <div className="soft-divider bg-[var(--color-surface-2)] px-4 py-2">
           <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-1.5">
             {skillState.skills.map((skill) => (
               <span key={skill.id} className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[11px] text-[var(--color-text-secondary)]" title={skill.description}>
@@ -725,7 +725,7 @@ export default function Agent() {
             ))}
             <span className="ml-auto text-[11px] text-[var(--color-text-tertiary)]" title={skillState.guard}>{skillState.checkpoint}</span>
           </div>
-          <div className="mx-auto mt-2 flex max-w-4xl flex-wrap items-center gap-2 border-t border-[var(--color-border)] pt-2 text-[11px] text-[var(--color-text-secondary)]">
+          <div className="soft-divider mx-auto mt-2 flex max-w-4xl flex-wrap items-center gap-2 pt-2 text-[11px] text-[var(--color-text-secondary)]">
             <span>工作偏好</span>
             <Select className="w-24" size="compact" value={preferences.detail} onChange={(value) => updatePreference({ detail: value as AgentPreferences['detail'] })} ariaLabel="回答详细程度" options={[{ value: 'concise', label: '简洁' }, { value: 'balanced', label: '平衡' }, { value: 'detailed', label: '详细' }]} />
             <label className="flex items-center gap-1"><input type="checkbox" checked={preferences.defaultPlanOnly} onChange={(e) => updatePreference({ defaultPlanOnly: e.target.checked })} />默认只生成计划</label>
@@ -881,7 +881,7 @@ export default function Agent() {
       </div>
 
       {/* Input */}
-      <div className="px-4 pb-4 pt-3 border-t border-[var(--color-border)] bg-[var(--color-bg)]">
+      <div className="soft-divider px-4 pb-4 pt-3 bg-[var(--color-bg)]">
         <div className="mx-auto mb-2 flex max-w-4xl justify-end">
           <button className="btn-ghost agent-settings-toggle h-7 gap-1 px-2 text-xs" onClick={() => setShowComposerSettings(value => !value)} type="button" aria-expanded={showComposerSettings}>
             <SlidersHorizontal className="h-3.5 w-3.5" />更多设置
@@ -953,8 +953,8 @@ export default function Agent() {
 
       {/* 运行历史面板 */}
       {showRuns && (
-        <aside className="w-80 shrink-0 border-l border-[var(--color-border)] flex flex-col">
-          <div className="p-2 border-b border-[var(--color-border)] flex items-center justify-between">
+        <aside className="w-80 shrink-0 flex flex-col agent-workspace-runs">
+          <div className="soft-divider p-2 flex items-center justify-between">
             <span className="text-xs font-semibold text-[var(--color-text-secondary)]">运行历史</span>
             <button className="btn-ghost text-xs p-1 rounded hover:bg-[var(--color-surface-2)]" onClick={() => setShowRuns(false)}>
               <X className="h-3.5 w-3.5" />
