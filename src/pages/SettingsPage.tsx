@@ -68,6 +68,8 @@ export default function SettingsPage() {
   const [apiTestResults, setApiTestResults] = useState<Record<string, ApiTestResult>>({});
   const [webSearchTest, setWebSearchTest] = useState<ApiTestResult>({ status: 'waiting', msg: '' });
   const [manualModel, setManualModel] = useState<Record<string, string>>({});
+  const [localModelDraft, setLocalModelDraft] = useState({ name: '', modelId: '' });
+  const [showLocalModelDraft, setShowLocalModelDraft] = useState(false);
   const { doSync, status: syncStatus, pullOnly, message: syncErrorMessage } = useSyncStore();
   const [openProvider, setOpenProvider] = useState<ProviderName | null>(null);
   const providerOpenInitialized = useRef(false);
@@ -266,6 +268,22 @@ export default function SettingsPage() {
       selectedModels: nextSelectedModels,
     });
     setManualModel(prev => ({ ...prev, [key]: '' }));
+  };
+  const addLocalModel = () => {
+    const modelId = localModelDraft.modelId.trim();
+    const label = localModelDraft.name.trim() || modelId;
+    if (!modelId) return;
+    const key = `local/${modelId}`;
+    const current = settings.selectedModels ?? [];
+    const available = settings.availableModels ?? {};
+    const providerModels = available.local ?? [];
+    void update({
+      availableModels: { ...available, local: providerModels.includes(modelId) ? providerModels : [...providerModels, modelId] },
+      selectedModels: current.includes(key) ? current : [...current, key],
+      modelLabels: { ...(settings.modelLabels ?? {}), [key]: label },
+    });
+    setLocalModelDraft({ name: '', modelId: '' });
+    setShowLocalModelDraft(false);
   };
   const removeModel = (model: string) => {
     const current = settings.selectedModels ?? [];
@@ -482,7 +500,23 @@ export default function SettingsPage() {
                     {models.length > 0 && (
                       <span className="text-xs text-gray-400">共 {models.length} 个模型</span>
                     )}
+                    {key === 'local' && (
+                      <button className="btn-ghost ml-auto text-xs" type="button" onClick={() => setShowLocalModelDraft((value) => !value)}>
+                        <Plus className="h-3 w-3" /> 新建本地模型
+                      </button>
+                    )}
                   </div>
+                  {key === 'local' && showLocalModelDraft && (
+                    <div className="grid grid-cols-1 gap-2 rounded-lg bg-[var(--color-surface-2)]/55 p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                      <label className="text-xs text-[var(--color-text-secondary)]">显示名称
+                        <input className="input-field mt-1 text-xs" value={localModelDraft.name} onChange={(e) => setLocalModelDraft((draft) => ({ ...draft, name: e.target.value }))} placeholder="例如：我的 DeepSeek" />
+                      </label>
+                      <label className="text-xs text-[var(--color-text-secondary)]">模型 ID
+                        <input className="input-field mt-1 text-xs font-mono" value={localModelDraft.modelId} onChange={(e) => setLocalModelDraft((draft) => ({ ...draft, modelId: e.target.value }))} placeholder="例如：llama3.2" />
+                      </label>
+                      <button className="btn-primary text-xs" type="button" onClick={addLocalModel} disabled={!localModelDraft.modelId.trim()}><Plus className="h-3 w-3" /> 添加</button>
+                    </div>
+                  )}
                   {msg && (
                     <p className={`text-xs ${msg.startsWith('发现') ? 'text-green-500' : 'text-red-500'}`}>{msg}</p>
                   )}
@@ -493,12 +527,14 @@ export default function SettingsPage() {
                     const providerModels = models.filter(m => selected.includes(key === 'local' ? `local/${m}` : m));
                     return providerModels.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
-                        {providerModels.map(m => (
-                          <span key={m} className="tag-brand text-xs flex items-center gap-1">
-                            {m}
-                            <button onClick={() => removeModel(key === 'local' ? `local/${m}` : m)} className="hover:text-red-500"><X className="w-3 h-3" /></button>
+                        {providerModels.map(m => {
+                          const modelKey = key === 'local' ? `local/${m}` : m;
+                          const displayName = key === 'local' ? (settings.modelLabels?.[modelKey] || m) : m;
+                          return <span key={m} className="tag-brand text-xs flex items-center gap-1" title={key === 'local' && displayName !== m ? m : undefined}>
+                            {displayName}
+                            <button onClick={() => removeModel(modelKey)} className="hover:text-red-500"><X className="w-3 h-3" /></button>
                           </span>
-                        ))}
+                        })}
                       </div>
                     ) : null;
                   })()}

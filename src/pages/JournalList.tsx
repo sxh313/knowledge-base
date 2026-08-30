@@ -214,7 +214,7 @@ export default function JournalList() {
           className="relative shrink-0 hidden lg:block"
           style={{ width: docTreeWidth }}
         >
-          <aside className="h-full border-r border-[var(--color-border)] overflow-y-auto p-2">
+          <aside className="journal-tree-sidebar h-full overflow-y-auto p-2">
             <DocTree />
           </aside>
           {/* 可拖拽调整宽度的把手（放在外层，避免被 aside 滚动条遮挡） */}
