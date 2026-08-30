@@ -1445,6 +1445,9 @@ button:active:not(:disabled), [role="button"]:active:not([aria-disabled="true"])
 .soft-divider { position: relative; border: 0 !important; }
 .soft-divider::after { content: ''; position: absolute; right: .8rem; bottom: 0; left: .8rem; height: 1px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-border) 68%, transparent) 14%, color-mix(in srgb, var(--color-border) 68%, transparent) 86%, transparent); pointer-events: none; }
 .app-sidebar, .ai-history-sidebar { border-right: 0 !important; box-shadow: 12px 0 24px -25px color-mix(in srgb, var(--color-text) 42%, transparent); }
+.journal-tree-sidebar { box-shadow: 10px 0 22px -26px color-mix(in srgb, var(--color-text) 34%, transparent); }
+.tree-nested { position: relative; }
+.tree-divider { height: 1px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-border) 55%, transparent) 22%, color-mix(in srgb, var(--color-border) 55%, transparent) 78%, transparent); }
 .app-topbar { box-shadow: 0 10px 20px -22px color-mix(in srgb, var(--color-text) 46%, transparent); }
 .agent-workspace-sidebar { box-shadow: 12px 0 24px -25px color-mix(in srgb, var(--color-text) 38%, transparent); }
 .agent-workspace-runs { box-shadow: -12px 0 24px -25px color-mix(in srgb, var(--color-text) 32%, transparent); }

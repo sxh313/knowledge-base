@@ -242,6 +242,8 @@ export interface AppSettings {
   availableModels: Record<string, string[]>;
   /** 用户从可用模型中勾选的模型（全局，用于模型偏好下拉） */
   selectedModels: string[];
+  /** 本地模型的用户自定义显示名称，键为 local/<modelId>。 */
+  modelLabels?: Record<string, string>;
   theme: 'light' | 'dark' | 'auto';
   reviewDailyGoal: number;   // cards per day
   /** 云同步配置（GitHub） */

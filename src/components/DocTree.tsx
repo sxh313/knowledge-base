@@ -189,7 +189,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
         onClick={() => setShowAllDocs(v => !v)}
       />
       {showAllDocs && (
-        <div className="ml-5 border-l border-[var(--color-border)] pl-1 space-y-0.5">
+        <div className="tree-nested ml-5 pl-1 space-y-0.5">
           {entries.length === 0 ? (
             <p className="px-2 py-1 text-[10px] text-[var(--color-text-tertiary)]">暂无文档</p>
           ) : (
@@ -198,7 +198,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
         </div>
       )}
 
-      <div className="h-px bg-[var(--color-border)] my-2" />
+      <div className="tree-divider my-2" />
 
       {/* 置顶收藏 */}
       {favorites.length > 0 && (
@@ -211,7 +211,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
             onClick={() => setShowFavorites(v => !v)}
           />
           {showFavorites && (
-            <div className="ml-5 border-l border-[var(--color-border)] pl-1 space-y-0.5">
+            <div className="tree-nested ml-5 pl-1 space-y-0.5">
               {favorites.map(doc => renderDocRow(doc))}
             </div>
           )}
@@ -229,7 +229,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
             onClick={() => setShowRecent(v => !v)}
           />
           {showRecent && (
-            <div className="ml-5 border-l border-[var(--color-border)] pl-1 space-y-0.5">
+            <div className="tree-nested ml-5 pl-1 space-y-0.5">
               {recent.map(doc => renderDocRow(doc))}
             </div>
           )}
@@ -269,7 +269,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
               } : undefined}
             />
             {expanded && (
-              <div className="ml-5 border-l border-[var(--color-border)] pl-1 space-y-0.5">
+              <div className="tree-nested ml-5 pl-1 space-y-0.5">
                 {docs.map(doc => renderDocRow(doc))}
               </div>
             )}
@@ -280,7 +280,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
       {/* 标签区 */}
       {allTags.length > 0 && (
         <>
-          <div className="h-px bg-[var(--color-border)] my-2" />
+          <div className="tree-divider my-2" />
           <SectionHeader
             icon={<Hash className="h-3.5 w-3.5 flex-shrink-0 text-blue-400" />}
             label="标签"
@@ -289,7 +289,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
             onClick={() => setExpandedTags(v => !v)}
           />
           {expandedTags && (
-            <div className="ml-5 border-l border-[var(--color-border)] pl-1 space-y-0.5">
+            <div className="tree-nested ml-5 pl-1 space-y-0.5">
               {allTags.map(([tag, count]) => (
                 <div key={tag} className="flex items-center gap-1.5 px-2 py-1 text-xs text-[var(--color-text-secondary)]">
                   <span className="truncate">#{tag}</span>
