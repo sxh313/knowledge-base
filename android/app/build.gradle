@@ -3,12 +3,16 @@ apply plugin: 'com.android.application'
 android {
     namespace = "com.sxh313.knowledgebase"
     compileSdk = rootProject.ext.compileSdkVersion
+    def packageJson = new groovy.json.JsonSlurper().parse(rootProject.file('../package.json'))
+    def appVersion = packageJson.version.toString()
+    def versionParts = appVersion.tokenize('.')*.toInteger()
+    def appVersionCode = (versionParts[0] * 10000) + (versionParts[1] * 100) + versionParts[2]
     defaultConfig {
         applicationId "com.sxh313.knowledgebase"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 29
-        versionName "1.6.6"
+        versionCode appVersionCode
+        versionName appVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
