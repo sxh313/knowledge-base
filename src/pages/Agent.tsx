@@ -715,17 +715,17 @@ export default function Agent() {
       </div>
 
       {showSkills && (
-        <div className="soft-divider bg-[var(--color-surface-2)] px-4 py-2">
+        <div className="soft-divider agent-skills-strip px-4 py-2">
           <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-1.5">
             {skillState.skills.map((skill) => (
-              <span key={skill.id} className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[11px] text-[var(--color-text-secondary)]" title={skill.description}>
+              <span key={skill.id} className="agent-skill-chip inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--color-text-secondary)]" title={skill.description}>
                 <span className={`h-1.5 w-1.5 rounded-full ${skill.status === 'ready' ? 'bg-emerald-500' : skill.status === 'guarded' ? 'bg-amber-500' : 'bg-sky-500'}`} />
                 {skill.name}
               </span>
             ))}
             <span className="ml-auto text-[11px] text-[var(--color-text-tertiary)]" title={skillState.guard}>{skillState.checkpoint}</span>
           </div>
-          <div className="soft-divider mx-auto mt-2 flex max-w-4xl flex-wrap items-center gap-2 pt-2 text-[11px] text-[var(--color-text-secondary)]">
+          <div className="soft-divider agent-skills-preferences mx-auto mt-2 flex max-w-4xl flex-wrap items-center gap-2 pt-2 text-[11px] text-[var(--color-text-secondary)]">
             <span>工作偏好</span>
             <Select className="w-24" size="compact" value={preferences.detail} onChange={(value) => updatePreference({ detail: value as AgentPreferences['detail'] })} ariaLabel="回答详细程度" options={[{ value: 'concise', label: '简洁' }, { value: 'balanced', label: '平衡' }, { value: 'detailed', label: '详细' }]} />
             <label className="flex items-center gap-1"><input type="checkbox" checked={preferences.defaultPlanOnly} onChange={(e) => updatePreference({ defaultPlanOnly: e.target.checked })} />默认只生成计划</label>
@@ -968,7 +968,7 @@ export default function Agent() {
               const meta = RUN_STATUS_META[r.status] ?? RUN_STATUS_META.planned;
               const opCount = (r.operations ?? []).length;
               return (
-                <div key={r.id} className="rounded-md border border-[var(--color-border)] p-2 text-xs">
+                <div key={r.id} className="agent-run-card rounded-md p-2 text-xs">
                   <div className="flex items-center justify-between gap-1">
                     <span className={`font-medium ${meta.color}`}>{meta.label}</span>
                     <span className="text-[var(--color-text-tertiary)]">
@@ -982,7 +982,7 @@ export default function Agent() {
                     {r.error && <span className="text-red-500">· {r.error}</span>}
                   </div>
                   <button
-                    className="mt-1.5 w-full btn-ghost text-xs flex items-center justify-center gap-1 rounded-md border border-[var(--color-border)] py-1 hover:bg-[var(--color-surface-2)]"
+                    className="agent-run-action mt-1.5 w-full btn-ghost text-xs flex items-center justify-center gap-1 rounded-md py-1"
                     onClick={() => setDetailRun(r)}
                     type="button"
                   >
@@ -990,7 +990,7 @@ export default function Agent() {
                   </button>
                   {r.undo && (r.status === 'success' || r.status === 'partial') && (
                     <button
-                      className="mt-2 w-full btn-ghost text-xs flex items-center justify-center gap-1 rounded-md border border-[var(--color-border)] py-1 hover:bg-[var(--color-surface-2)]"
+                      className="agent-run-action mt-2 w-full btn-ghost text-xs flex items-center justify-center gap-1 rounded-md py-1"
                       onClick={() => undoRunById(r.id)}
                       disabled={isProcessing}
                     >
