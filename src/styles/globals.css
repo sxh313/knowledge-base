@@ -1448,6 +1448,16 @@ button:active:not(:disabled), [role="button"]:active:not([aria-disabled="true"])
 .app-topbar { box-shadow: 0 10px 20px -22px color-mix(in srgb, var(--color-text) 46%, transparent); }
 .agent-workspace-sidebar { box-shadow: 12px 0 24px -25px color-mix(in srgb, var(--color-text) 38%, transparent); }
 .agent-workspace-runs { box-shadow: -12px 0 24px -25px color-mix(in srgb, var(--color-text) 32%, transparent); }
+.agent-skills-strip { background: color-mix(in srgb, var(--color-surface-2) 42%, transparent); }
+.agent-skill-chip { background: color-mix(in srgb, var(--color-primary-light) 42%, var(--color-surface)); }
+.agent-skills-preferences { color: var(--color-text-tertiary); }
+.agent-run-card { background: color-mix(in srgb, var(--color-surface) 72%, transparent); box-shadow: 0 1px 0 color-mix(in srgb, var(--color-border) 32%, transparent); }
+.agent-run-action { color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-surface-2) 42%, transparent); }
+.agent-run-action:hover { color: var(--color-primary); background: color-mix(in srgb, var(--color-primary-light) 48%, transparent); }
+.dark .agent-skills-strip { background: color-mix(in srgb, var(--color-surface-2) 34%, transparent); }
+.dark .agent-skill-chip { background: color-mix(in srgb, var(--color-primary-light) 34%, var(--color-surface)); }
+.dark .agent-run-card { background: color-mix(in srgb, var(--color-surface) 62%, transparent); }
+.dark .agent-run-action { background: color-mix(in srgb, var(--color-surface-2) 38%, transparent); }
 .nav-item { position: relative; }
 .nav-item-active { background: color-mix(in srgb, var(--color-primary-light) 62%, var(--color-surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 9%, transparent); }
 .nav-item-active::before { content: ''; position: absolute; left: .32rem; top: .55rem; bottom: .55rem; width: 2px; border-radius: 999px; background: var(--color-primary); opacity: .9; }
