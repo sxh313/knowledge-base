@@ -716,7 +716,7 @@ export default function Agent() {
 
       {showSkills && (
         <div className="soft-divider agent-skills-strip px-4 py-2">
-          <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-1.5">
+          <div className="mx-auto flex max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] flex-wrap items-center gap-1.5">
             {skillState.skills.map((skill) => (
               <span key={skill.id} className="agent-skill-chip inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--color-text-secondary)]" title={skill.description}>
                 <span className={`h-1.5 w-1.5 rounded-full ${skill.status === 'ready' ? 'bg-emerald-500' : skill.status === 'guarded' ? 'bg-amber-500' : 'bg-sky-500'}`} />
@@ -725,7 +725,7 @@ export default function Agent() {
             ))}
             <span className="ml-auto text-[11px] text-[var(--color-text-tertiary)]" title={skillState.guard}>{skillState.checkpoint}</span>
           </div>
-          <div className="soft-divider agent-skills-preferences mx-auto mt-2 flex max-w-4xl flex-wrap items-center gap-2 pt-2 text-[11px] text-[var(--color-text-secondary)]">
+          <div className="soft-divider agent-skills-preferences mx-auto mt-2 flex max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] flex-wrap items-center gap-2 pt-2 text-[11px] text-[var(--color-text-secondary)]">
             <span>工作偏好</span>
             <Select className="w-24" size="compact" value={preferences.detail} onChange={(value) => updatePreference({ detail: value as AgentPreferences['detail'] })} ariaLabel="回答详细程度" options={[{ value: 'concise', label: '简洁' }, { value: 'balanced', label: '平衡' }, { value: 'detailed', label: '详细' }]} />
             <label className="flex items-center gap-1"><input type="checkbox" checked={preferences.defaultPlanOnly} onChange={(e) => updatePreference({ defaultPlanOnly: e.target.checked })} />默认只生成计划</label>
@@ -751,7 +751,7 @@ export default function Agent() {
         )}
 
         {messages.map((msg, i) => (
-          <div key={i} className={`agent-message-row mx-auto flex w-full max-w-4xl cv-auto ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={i} className={`agent-message-row mx-auto flex w-full max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] cv-auto ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[85%] px-4 py-3 text-sm leading-7 ${
               msg.role === 'user'
                 ? 'agent-user-bubble rounded-2xl'
@@ -867,7 +867,7 @@ export default function Agent() {
 
         {isProcessing && (
           <div className="flex justify-start">
-            <div className="agent-assistant-content mx-auto w-full max-w-4xl px-1 py-2 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+            <div className="agent-assistant-content mx-auto w-full max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] px-1 py-2 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
               <Loader2 className="h-4 w-4 animate-spin" />
               <span>AI 正在分析并生成操作计划…</span>
             </div>
@@ -882,13 +882,13 @@ export default function Agent() {
 
       {/* Input */}
       <div className="soft-divider px-4 pb-4 pt-3 bg-[var(--color-bg)]">
-        <div className="mx-auto mb-2 flex max-w-4xl justify-end">
+        <div className="mx-auto mb-2 flex max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] justify-end">
           <button className="btn-ghost agent-settings-toggle h-7 gap-1 px-2 text-xs" onClick={() => setShowComposerSettings(value => !value)} type="button" aria-expanded={showComposerSettings}>
             <SlidersHorizontal className="h-3.5 w-3.5" />更多设置
           </button>
         </div>
         {showComposerSettings && (
-          <div className="agent-composer-settings mx-auto mb-2 flex max-w-4xl flex-wrap items-center gap-2">
+          <div className="agent-composer-settings mx-auto mb-2 flex max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] flex-wrap items-center gap-2">
             <Select
               className="w-32"
               size="compact"

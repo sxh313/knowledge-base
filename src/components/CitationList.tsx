@@ -36,14 +36,14 @@ export default function CitationList({ citations }: CitationListProps) {
             <div className="flex items-start gap-1.5 text-left text-xs">
             <span className="citation-index shrink-0">{i + 1}</span>
             <button className="citation-source-link min-w-0 flex-1 text-left" onClick={() => setPreview(c)} title="查看原文依据" type="button">
-              <span className="flex items-center gap-1 text-[var(--color-primary)] truncate">
+              <span className="flex items-start gap-1 text-[var(--color-primary)]">
                 {c.source === 'zero2agent' || c.source === 'web' ? <Globe2 className="h-3 w-3 shrink-0" /> : <FileText className="h-3 w-3 shrink-0" />}
-                <span className="truncate">{c.source === 'zero2agent' ? 'zero2Agent · ' : c.source === 'web' ? `联网来源${domain ? ` · ${domain}` : ''} · ` : '个人文档 · '}《{c.title}》
+                <span className="break-words leading-5">{c.source === 'zero2agent' ? 'zero2Agent · ' : c.source === 'web' ? `联网来源${domain ? ` · ${domain}` : ''} · ` : '个人文档 · '}《{c.title}》
                 {c.heading && <span className="text-[var(--color-text-tertiary)]">#{c.heading}</span>}
                 </span>
                 <LocateFixed className="h-3 w-3 shrink-0 opacity-70" />
               </span>
-              <span className="block mt-0.5 text-[10px] leading-4 text-[var(--color-text-tertiary)] line-clamp-2">
+              <span className="block mt-0.5 text-[10px] leading-4 text-[var(--color-text-tertiary)] line-clamp-3">
                 {c.path ? `${c.path} · ` : ''}{c.confidence != null ? `匹配度 ${Math.round(c.confidence * 100)}% · ` : ''}{c.content.replace(/\s+/g, ' ').slice(0, 180)}
               </span>
             </button>

@@ -512,7 +512,7 @@ export default function AIChat() {
             </div>
           </div>
         ) : messages.filter((m) => m.role !== 'system').map((msg, i) => (
-          <div key={i} className={`ai-message-row mx-auto flex w-full max-w-4xl cv-auto ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={i} className={`ai-message-row mx-auto flex w-full max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] cv-auto ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`group max-w-full text-sm leading-7 ${msg.role === 'user' ? 'flex w-full flex-col items-end' : ''}`}>
               <div className={msg.role === 'user' ? 'ai-user-bubble w-fit max-w-full rounded-2xl px-4 py-2.5 text-[var(--color-text)]' : 'ai-assistant-content max-w-full text-[var(--color-text)]'}>
                 <MarkdownContent citationItems={msg.role === 'assistant' ? msg.citations : undefined}>{msg.content}</MarkdownContent>
@@ -527,7 +527,7 @@ export default function AIChat() {
         ))}
         {(isProcessing || isGroundedStreaming) && streamingContent && (
           <div className="flex justify-start">
-          <div className="ai-assistant-content mx-auto w-full max-w-4xl rounded-xl px-1 py-2 text-sm leading-7 text-[var(--color-text)]">
+          <div className="ai-assistant-content mx-auto w-full max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] rounded-xl px-1 py-2 text-sm leading-7 text-[var(--color-text)]">
               <div className="mb-2 text-[11px] text-[var(--color-text-tertiary)]">实时生成 · 已用时 {(elapsedMs / 1000).toFixed(1)}s</div>
               <MarkdownContent citationItems={citations}>{streamingContent}</MarkdownContent>
               <span className="inline-block w-2 h-4 bg-indigo-500 animate-pulse ml-1" />
@@ -536,7 +536,7 @@ export default function AIChat() {
         )}
         {(isProcessing || isGroundedStreaming) && !streamingContent && (
           <div className="flex justify-start">
-            <div className="ai-assistant-content mx-auto w-full max-w-4xl rounded-xl px-1 py-2 bg-transparent">
+            <div className="ai-assistant-content mx-auto w-full max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] rounded-xl px-1 py-2 bg-transparent">
               <div className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
                 <span className="h-2 w-2 rounded-full bg-[var(--color-primary)] animate-pulse" />
                 <span>{stage === 'retrieving' ? '检索中' : stage === 'reranking' ? '重排中' : stage === 'rewriting' ? '答案重写中' : '生成中'}</span>
@@ -552,7 +552,7 @@ export default function AIChat() {
         {/* 本次回答的参考来源 + 保存为新文档 */}
         {!isProcessing && !isGroundedStreaming && citations.length > 0 && (
           <div className="flex justify-start">
-            <div className="mx-auto w-full max-w-4xl">
+            <div className="mx-auto w-full max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem]">
               {timing && <p className="mt-2 text-[11px] text-[var(--color-text-tertiary)]">耗时：检索 {timing.retrievalMs ?? 0}ms{timing.webSearchMs !== undefined ? ` · 联网 ${timing.webSearchMs}ms` : ''}{timing.rerankMs !== undefined ? ` · 重排 ${timing.rerankMs}ms` : ''} · 生成 {timing.generationMs ?? 0}ms{timing.firstTokenMs !== undefined ? ` · 首 Token ${timing.firstTokenMs}ms` : ''}</p>}
               <div className="mt-2 flex flex-wrap items-center gap-2"><button className="btn-secondary text-xs" onClick={() => void copyLatest()} type="button"><Copy className="h-3 w-3" />复制回答</button><button className="btn-secondary text-xs" onClick={downloadLatest} type="button"><Download className="h-3 w-3" />导出 Markdown</button></div>
               <div className="mt-3 flex flex-wrap gap-2"><button className="btn-ghost text-xs" onClick={() => setInput('请举一个具体例子')}>举一个例子</button><button className="btn-ghost text-xs" onClick={() => setInput('请对比两个方案的区别')}>对比方案</button><button className="btn-ghost text-xs" onClick={() => setInput('请出一道面试诊断题')}>出一道面试题</button></div>
@@ -567,7 +567,7 @@ export default function AIChat() {
           </div>
         )}
         {(isProcessing || isGroundedStreaming) && reasoningContent && (
-          <div className="mx-auto w-full max-w-4xl px-1">
+          <div className="mx-auto w-full max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] px-1">
             <button type="button" className="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]" onClick={() => setShowReasoning((value) => !value)}>
               {showReasoning ? '隐藏模型思考' : '显示模型思考'} · {(elapsedMs / 1000).toFixed(1)}s
             </button>
@@ -576,7 +576,7 @@ export default function AIChat() {
         )}
 
         {!isProcessing && !isGroundedStreaming && (retrievalStatus.rewrite || retrievalStatus.web || retrievalStatus.answerRewrite) && (
-          <div className="mx-auto flex w-full max-w-4xl flex-wrap gap-2 text-[11px] text-[var(--color-text-tertiary)]">
+          <div className="mx-auto flex w-full max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] flex-wrap gap-2 text-[11px] text-[var(--color-text-tertiary)]">
             {retrievalStatus.rewrite && <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1" title={retrievalStatus.rewrite.query}>
               查询改写：{retrievalStatus.rewrite.status === 'model' ? '模型已改写' : retrievalStatus.rewrite.status === 'failed' ? '模型失败，已用本地规则' : retrievalStatus.rewrite.status === 'disabled' ? '未启用' : '已用本地规则'}
             </span>}
@@ -597,7 +597,7 @@ export default function AIChat() {
 
       {/* Input + controls */}
       <div className="ai-composer-wrap px-4 pb-4 pt-3">
-        <div className={`ai-composer mx-auto w-full max-w-4xl ${showAnswerSettings ? 'ai-composer-settings-open' : ''}`}>
+        <div className={`ai-composer mx-auto w-full max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] ${showAnswerSettings ? 'ai-composer-settings-open' : ''}`}>
         <div className="flex items-center gap-2 overflow-visible px-3 pt-2.5 pb-1.5">
           <button className="ai-setting-trigger btn-ghost p-1.5 md:hidden" onClick={() => setShowAnswerSettings((v) => !v)} title="回答设置" aria-label="回答设置" type="button">
             <SlidersHorizontal className="h-4 w-4" />
