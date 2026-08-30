@@ -7,6 +7,7 @@ import {
   classifyRisk,
   MAX_OPS_PER_PLAN,
   MAX_CONTENT_LENGTH,
+  MAX_EVIDENCE_PER_OP,
 } from './tools';
 
 describe('parseAgentPlan', () => {
@@ -110,7 +111,7 @@ describe('validateAgentPlan', () => {
   });
 
   it('编辑类操作缺少 expectedHash 产生警告但不阻断', () => {
-    const r = validateAgentPlan({ ops: [{ type: 'edit', journalId: '1', content: 'x' }] });
+    const r = validateAgentPlan({ ops: [{ type: 'edit', journalId: '1', content: 'x', evidence: [{ journalId: '1', reason: '用户指定修改该文档' }] }] });
     expect(r.ok).toBe(true);
     expect(r.warnings.some((w) => w.includes('expectedHash'))).toBe(true);
   });
@@ -119,7 +120,7 @@ describe('validateAgentPlan', () => {
     const r = validateAgentPlan({
       ops: [
         { type: 'create', newTitle: 't', content: 'x' },
-        { type: 'edit', journalId: '1', content: 'y', expectedHash: 'abc' },
+        { type: 'edit', journalId: '1', content: 'y', expectedHash: 'abc', evidence: [{ journalId: '1', reason: '用户指定修改该文档' }] },
         { type: 'search', query: '关键词' },
       ],
     });
@@ -128,7 +129,7 @@ describe('validateAgentPlan', () => {
 
   it('精确补丁和元数据更新需要明确字段', () => {
     expect(validateAgentPlan({ ops: [{ type: 'patchJournal', journalId: '1' }] }).ok).toBe(false);
-    expect(validateAgentPlan({ ops: [{ type: 'updateMetadata', journalId: '1', metadata: { summary: '摘要' }, expectedHash: 'h' }] }).ok).toBe(true);
+    expect(validateAgentPlan({ ops: [{ type: 'updateMetadata', journalId: '1', metadata: { summary: '摘要' }, expectedHash: 'h', evidence: [{ journalId: '1', reason: '更新元数据' }] }] }).ok).toBe(true);
   });
 });
 
@@ -170,5 +171,102 @@ describe('classifyRisk 风险等级', () => {
   it('冲突合并为 high，精确补丁为 medium', () => {
     expect(classifyRisk({ type: 'applyConflictMerge', conflictId: 'c' })).toBe('high');
     expect(classifyRisk({ type: 'patchJournal' })).toBe('medium');
+  });
+});
+
+describe('证据（evidence）校验', () => {
+  it('高影响写操作缺少 evidence 校验失败', () => {
+    const r = validateAgentPlan({ ops: [{ type: 'edit', journalId: '1', content: 'x' }] });
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.includes('缺少修改依据'))).toBe(true);
+  });
+
+  it('证据缺少 journalId 或 reason 校验失败', () => {
+    const r = validateAgentPlan({ ops: [{ type: 'edit', journalId: '1', content: 'x', evidence: [{ reason: '修改说明' }] as never }] });
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.includes('证据缺少 journalId'))).toBe(true);
+
+    const r2 = validateAgentPlan({ ops: [{ type: 'edit', journalId: '1', content: 'x', evidence: [{ journalId: '1' }] as never }] });
+    expect(r2.ok).toBe(false);
+    expect(r2.errors.some((e) => e.includes('缺少 reason'))).toBe(true);
+  });
+
+  it('目标与证据文档不一致且未声明跨文档时校验失败', () => {
+    const r = validateAgentPlan({
+      ops: [{ type: 'edit', journalId: '1', content: 'x', evidence: [{ journalId: '2', reason: '参考另一篇笔记' }] }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.includes('不一致'))).toBe(true);
+  });
+
+  it('reason 声明跨文档关系时通过', () => {
+    const r = validateAgentPlan({
+      ops: [{ type: 'edit', journalId: '1', content: 'x', evidence: [{ journalId: '2', reason: '跨文档整理：合并两篇笔记内容' }] }],
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  it('证据数量超过上限校验失败', () => {
+    const evidence = Array.from({ length: MAX_EVIDENCE_PER_OP + 1 }, () => ({ journalId: '1', reason: '修改说明' }));
+    const r = validateAgentPlan({ ops: [{ type: 'edit', journalId: '1', content: 'x', evidence }] });
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.includes('证据数量过多'))).toBe(true);
+  });
+});
+
+describe('依赖（dependsOn）校验', () => {
+  it('依赖不存在的 opId 校验失败', () => {
+    const r = validateAgentPlan({
+      ops: [{ type: 'edit', journalId: '1', content: 'x', evidence: [{ journalId: '1', reason: '修改说明' }], dependsOn: ['ghost'] }],
+    });
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.includes('不存在'))).toBe(true);
+  });
+
+  it('不允许自依赖', () => {
+    const withIds = assignPlanIds({ ops: [{ type: 'edit', journalId: '1', content: 'x', evidence: [{ journalId: '1', reason: '修改说明' }] }] });
+    withIds.ops[0].dependsOn = [withIds.ops[0].opId!];
+    const r = validateAgentPlan(withIds);
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.includes('不允许依赖自己'))).toBe(true);
+  });
+
+  it('删除操作不能作为前置条件', () => {
+    const withIds = assignPlanIds({
+      ops: [
+        { type: 'delete', journalId: '1', evidence: [{ journalId: '1', reason: '删除重复笔记' }] },
+        { type: 'create', newTitle: 't', content: 'x' },
+      ],
+    });
+    withIds.ops[1].dependsOn = [withIds.ops[0].opId!];
+    const r = validateAgentPlan(withIds);
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.includes('删除操作不能作为前置条件'))).toBe(true);
+  });
+
+  it('循环依赖校验失败', () => {
+    const withIds = assignPlanIds({
+      ops: [
+        { type: 'edit', journalId: '1', content: 'x', evidence: [{ journalId: '1', reason: '修改说明' }] },
+        { type: 'edit', journalId: '1', content: 'y', evidence: [{ journalId: '1', reason: '修改说明' }] },
+      ],
+    });
+    withIds.ops[0].dependsOn = [withIds.ops[1].opId!];
+    withIds.ops[1].dependsOn = [withIds.ops[0].opId!];
+    const r = validateAgentPlan(withIds);
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.includes('循环依赖'))).toBe(true);
+  });
+
+  it('合法依赖校验通过', () => {
+    const withIds = assignPlanIds({
+      ops: [
+        { type: 'create', newTitle: 't', content: 'x' },
+        { type: 'edit', journalId: '1', content: 'y', evidence: [{ journalId: '1', reason: '修改说明' }] },
+      ],
+    });
+    withIds.ops[1].dependsOn = [withIds.ops[0].opId!];
+    const r = validateAgentPlan(withIds);
+    expect(r.ok).toBe(true);
   });
 });

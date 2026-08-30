@@ -5,19 +5,19 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Primary palette — Feishu-style blue
+        // Primary palette — pairs with the light/dark indigo tokens
         brand: {
-          50: '#eaf1ff',
-          100: '#d6e5ff',
-          200: '#adc9ff',
-          300: '#84aaff',
-          400: '#5b8cff',
-          500: '#3370ff',
-          600: '#2468f6',
-          700: '#1b52d6',
-          800: '#163f9e',
-          900: '#122f6e',
-          950: '#0b1f4a',
+          50: '#f3f0ff',
+          100: '#e9e4ff',
+          200: '#d4cbff',
+          300: '#b9abff',
+          400: '#9b89f4',
+          500: '#7d68df',
+          600: '#6f5bd3',
+          700: '#5945bd',
+          800: '#49399a',
+          900: '#3d327d',
+          950: '#251e50',
         },
         // Warm accent — amber gold
         accent: {
@@ -33,16 +33,24 @@ export default {
           900: '#78350f',
         },
         surface: {
-          dark: '#0f0f1a',
-          card: '#1a1a2e',
-          cardHover: '#222240',
-          border: '#2a2a45',
+          dark: '#0d1020',
+          card: '#191d31',
+          cardHover: '#222741',
+          border: '#303752',
         },
       },
       fontFamily: {
         display: ['"Noto Sans SC"', 'system-ui', 'sans-serif'],
         body: ['"Noto Sans SC"', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono"', '"Fira Code"', 'monospace'],
+      },
+      borderRadius: {
+        DEFAULT: 'var(--radius-sm)',
+        sm: 'var(--radius-sm)',
+        md: 'var(--radius-md)',
+        lg: 'var(--radius-lg)',
+        xl: 'var(--radius-xl)',
+        '2xl': 'var(--radius-xl)',
       },
       animation: {
         'fade-in': 'fadeIn 0.3s ease-out',

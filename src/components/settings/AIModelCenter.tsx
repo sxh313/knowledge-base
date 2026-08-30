@@ -43,7 +43,7 @@ function RoleModelSelect({
   const rootRef = useRef<HTMLDivElement>(null);
   const selected = options.find((profile) => profile.id === value);
   // 角色绑定只展示模型 ID；API、供应商和内部 profile ID 不属于用户需要做的选择。
-  const label = selected ? selected.modelId : '不绑定（使用旧配置/自动降级）';
+  const label = selected ? selected.modelId : '未绑定';
 
   useEffect(() => {
     const close = (event: MouseEvent) => {
@@ -74,7 +74,7 @@ function RoleModelSelect({
       {open && (
         <div className="role-binding-menu absolute left-0 right-0 z-30 mt-2 max-h-64 overflow-y-auto rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1.5 shadow-lg" role="listbox" aria-label="模型选项">
           <button type="button" role="option" aria-selected={!value} className={`role-binding-option ${!value ? 'role-binding-option-selected' : ''}`} onClick={() => choose('')}>
-            <span>不绑定（使用旧配置/自动降级）</span>
+            <span>未绑定</span>
             {!value && <Check className="h-4 w-4 flex-shrink-0" />}
           </button>
           {options.map((profile) => {
@@ -120,6 +120,7 @@ export default function AIModelCenter({ settings, onUpdate }: Props) {
     }
     return result;
   }, [settings.availableModels, settings.aiProviders, settings.selectedModels]);
+  const rerankerProfile = serviceProfiles.find((profile) => profile.id === bindings.rerankerModelId && profile.kind === 'chat');
   const updateBinding = (key: keyof AIModelBindings, value: string) => {
     const selected = serviceProfiles.find((profile) => profile.id === value);
     const nextProfiles = selected && !profiles.some((profile) => profile.id === selected.id)
@@ -151,6 +152,10 @@ export default function AIModelCenter({ settings, onUpdate }: Props) {
         <p className="mt-1 text-xs text-gray-400">模型只在上方「API 服务配置」中维护；这里直接选择已启用且已勾选的模型绑定到回答、召回、重排和复习角色，不再重复填写模型信息。Embedding 是可选增强，不配置也能正常使用关键词检索。</p>
       </div>
 
+      <div className="rounded-xl border border-amber-300/60 bg-amber-50/70 px-4 py-3 text-xs leading-5 text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-200">
+        隐私提示：调用回答、Embedding、重排或复习模型时，问题及命中的笔记片段会发送到你选择的服务地址。系统默认不配置模型、不发送数据；请先确认服务方的数据处理政策，再主动启用并绑定角色。
+      </div>
+
       <div className="card role-binding-card space-y-4">
         <div className="role-binding-header">
           <div>
@@ -177,11 +182,15 @@ export default function AIModelCenter({ settings, onUpdate }: Props) {
       <div className="card space-y-3">
         <div>
           <h3 className="font-medium">检索策略</h3>
-          <p className="mt-1 text-xs text-gray-400">关键词检索始终可用。只有开启向量召回、绑定并启用 Embedding 模型且存在向量索引时，才会执行关键词 + 向量双路召回；任一条件不满足就只走关键词。dsv4 重排失败不会阻塞回答。</p>
+          <p className="mt-1 text-xs text-gray-400">关键词检索始终可用。只有开启向量召回、绑定并启用 Embedding 模型且存在向量索引时，才会执行关键词 + 向量双路召回；任一条件不满足就只走关键词。模型重排失败不会阻塞回答。</p>
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <label className="flex items-center gap-2 text-xs text-gray-500"><input type="checkbox" checked={retrieval.vectorEnabled} onChange={(event) => void onUpdate({ retrieval: { ...retrieval, vectorEnabled: event.target.checked } })} />启用向量召回</label>
-          <label className="flex items-center gap-2 text-xs text-gray-500"><input type="checkbox" checked={retrieval.rerankEnabled} onChange={(event) => void onUpdate({ retrieval: { ...retrieval, rerankEnabled: event.target.checked } })} />启用 dsv4 重排</label>
+          <label className={`flex items-center gap-2 text-xs ${rerankerProfile ? 'text-gray-500' : 'text-gray-400'}`}>
+            <input type="checkbox" disabled={!rerankerProfile} checked={retrieval.rerankEnabled && Boolean(rerankerProfile)} onChange={(event) => void onUpdate({ retrieval: { ...retrieval, rerankEnabled: event.target.checked } })} />
+            <span>启用模型重排</span>
+            <span className="truncate text-[var(--color-text-tertiary)]">· {rerankerProfile?.modelId ?? '未绑定模型'}</span>
+          </label>
           <label className="flex items-center gap-2 text-xs text-gray-500"><input type="checkbox" checked={retrieval.queryRewriteEnabled} onChange={(event) => void onUpdate({ retrieval: { ...retrieval, queryRewriteEnabled: event.target.checked } })} />启用查询改写</label>
           <label className="text-xs text-gray-400">候选数量<input type="number" min={8} max={50} className="input-field mt-1 text-xs" value={retrieval.candidateTopK} onChange={(event) => void onUpdate({ retrieval: { ...retrieval, candidateTopK: Math.max(8, Math.min(50, Number(event.target.value) || 30)) } })} /></label>
         </div>

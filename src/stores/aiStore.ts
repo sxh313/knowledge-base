@@ -54,13 +54,13 @@ interface AIStore {
   /** 智能总结（传入文档内容，返回总结文字） */
   summarize: (content: string, title?: string, onToken?: (token: string) => void) => Promise<string>;
   /** AI 对话（流式问答） */
-  chat: (messages: ChatMessage[], onToken?: (token: string) => void) => Promise<string>;
+  chat: (messages: ChatMessage[], onToken?: (token: string) => void, onReasoning?: (token: string) => void) => Promise<string>;
 
   // ─── 底层 AI 操作（供高级用户直接调用模型） ───
   /** 按任务类型自动选择模型 + 故障转移 */
   callAI: (taskType: TaskType, messages: ChatMessage[], onToken?: (token: string) => void) => Promise<string>;
   /** 直接调用指定模型 */
-  callDirect: (providerName: ProviderName, modelName: string, messages: ChatMessage[], onToken?: (token: string) => void) => Promise<string>;
+  callDirect: (providerName: ProviderName, modelName: string, messages: ChatMessage[], onToken?: (token: string) => void, onReasoning?: (token: string) => void, enableThinking?: boolean) => Promise<string>;
   stop: () => void;
   setStage: (stage: AIStage) => void;
   setTiming: (timing: AITimingMetrics | null) => void;
@@ -102,13 +102,13 @@ export const useAIStore = create<AIStore>((set) => ({
     }
   },
 
-  chat: async (messages, onToken) => {
+  chat: async (messages, onToken, onReasoning) => {
     activeController?.abort(); activeController = new AbortController();
     set({ isProcessing: true, error: null, streamingContent: '', stage: 'generating', timing: null });
     // 查找或创建 'qa' 任务类型的 AI 调用
     try {
       const streamToken = onToken ?? ((token: string) => set((state) => ({ streamingContent: state.streamingContent + token })));
-      const result = await routeAI('qa', messages, streamToken, undefined, activeController.signal);
+      const result = await routeAI('qa', messages, streamToken, undefined, activeController.signal, undefined, onReasoning);
       const fullContent = result.content;
       set({ isProcessing: false, streamingContent: fullContent, stage: 'idle' });
       return fullContent;
@@ -147,7 +147,7 @@ export const useAIStore = create<AIStore>((set) => ({
     }
   },
 
-  callDirect: async (providerName, modelName, messages, onToken) => {
+  callDirect: async (providerName, modelName, messages, onToken, onReasoning, enableThinking) => {
     activeController?.abort(); activeController = new AbortController();
     const settings = await getSettings();
     const provider = settings.aiProviders[providerName];
@@ -163,7 +163,7 @@ export const useAIStore = create<AIStore>((set) => ({
         { name: providerName, baseUrl: provider.baseUrl, apiKey: provider.apiKey, enabled: true },
         modelName,
         messages,
-        { stream: true, onToken: onToken ?? ((token: string) => set((state) => ({ streamingContent: state.streamingContent + token }))), signal: activeController.signal },
+        { stream: true, maxTokens: 1536, enableThinking, onToken: onToken ?? ((token: string) => set((state) => ({ streamingContent: state.streamingContent + token }))), onReasoning, signal: activeController.signal },
       );
       set({ isProcessing: false, streamingContent: result.content, stage: 'idle' });
       return result.content;

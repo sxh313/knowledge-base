@@ -92,6 +92,7 @@ function DocOutline({ content, onJump, embedded }: DocOutlineProps) {
           <button
             type="button"
             aria-label={collapsed.has(h.id) ? `展开${h.text}` : `折叠${h.text}`}
+            aria-expanded={!collapsed.has(h.id)}
             className="mt-1 rounded p-0.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)]"
             onClick={() => setCollapsed((previous) => {
               const next = new Set(previous);

@@ -8,7 +8,7 @@ export default function Manual() {
   return (
     <div className="content-frame-reading animate-fade-in space-y-7">
       <div className="page-hero !items-start !flex-col !gap-0">
-        <div className="page-kicker">Learn the workflow</div>
+        <div className="page-kicker">使用路径</div>
         <h1 className="text-2xl font-bold text-gradient flex items-center gap-2">
           <HelpCircle className="h-6 w-6" />
           使用手册
@@ -155,7 +155,7 @@ export default function Manual() {
           <li><b>Agent 模式</b> — 切换到 Agent 后可让 AI 规划知识库操作；写入前会展示风险、影响和 diff，必须由你确认，并支持撤销</li>
           <li><b>本地模型</b> — 「设置 → API 服务配置 → 本地模型」可连接 Ollama、LM Studio、vLLM、LocalAI 等 OpenAI 兼容服务；API 地址填写本地 <code className="font-mono">/v1</code> 入口，API Key 可留空，并确保本地服务允许浏览器 CORS。</li>
           <li><b>角色绑定</b> — 模型统一在「API 服务配置」中填写、启用并勾选；「设置 → 角色绑定」直接选择这些模型绑定到回答、向量召回、重排、复习辅导和评分角色，不再重复填写端点。</li>
-          <li><b>混合检索</b> — 默认使用关键词检索；开启并配置 Embedding、生成向量索引后，才启用关键词 + 向量双路召回，随后可由 dsv4 对候选片段重排。</li>
+          <li><b>混合检索</b> — 默认使用关键词检索；开启并配置 Embedding、生成向量索引后，才启用关键词 + 向量双路召回，随后可由已绑定的本地对话模型对候选片段重排。</li>
           <li><b>多模型路由</b> — 支持胜算云、中转站、硅基流动、智谱、DeepSeek 和本地服务，已启用模型之间可故障转移</li>
         </ul>
       </Section>

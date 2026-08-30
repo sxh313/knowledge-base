@@ -50,7 +50,7 @@ export const MODEL_MAP: Record<string, ModelEntry> = {
   'glm-4v':             { provider: 'zhipu', model: 'glm-4v' },
   // DeepSeek 官方
   'deepseek-official':  { provider: 'deepseek', model: 'deepseek-chat' },
-  // 本地 vLLM 暴露的 DeepSeek-V4-Flash，真实 /v1/models id 为 dsv4
+  // 旧版本地 dsv4 映射仅保留兼容；当前模型从客户的本机配置动态读取。
   'local-dsv4':         { provider: 'local', model: 'dsv4' },
 };
 
@@ -80,7 +80,7 @@ export type TaskType =
   | 'sentiment'
   | 'imageAnalysis';
 
-// 任务 fallback 保留云端模型；当前工作区通过 settings.preferredModels 优先使用 local/dsv4。
+// 任务 fallback 保留云端模型；客户配置本地模型后由 settings.preferredModels 优先路由。
 export const TASK_MODEL_MAP: Record<TaskType, string[]> = {
   summarize:     ['deepseek-v4-flash', 'deepseek-v4'],
   explain:       ['deepseek-v4-flash', 'deepseek-v4'],

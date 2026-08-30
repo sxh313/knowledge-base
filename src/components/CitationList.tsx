@@ -1,5 +1,5 @@
 import { BookOpen, FileText, Globe2, ChevronDown, ChevronUp, LocateFixed } from 'lucide-react';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { RetrievedChunk } from '../lib/ai/retrieval';
 import SourcePreviewModal from './SourcePreviewModal';
 import MarkdownContent from './MarkdownContent';
@@ -18,6 +18,7 @@ function hostOf(url?: string): string {
 export default function CitationList({ citations }: CitationListProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [preview, setPreview] = useState<RetrievedChunk | null>(null);
+  const panelBaseId = useId();
   if (citations.length === 0) return null;
   return <>
     <div className="citation-card mt-3 rounded-lg border p-2.5">
@@ -28,6 +29,7 @@ export default function CitationList({ citations }: CitationListProps) {
         {citations.map((c, i) => {
           // 兼容早期未保存 sourceId/chunkId 的历史对话引用。
           const citationKey = c.chunkId || `${c.source}-${c.sourceId || c.journalId || c.knowledgeDocId || 'legacy'}-${c.offset?.start ?? i}`;
+          const panelId = `${panelBaseId}-${i}`;
           const domain = c.source === 'web' ? hostOf(c.sourceUrl) : '';
           return (
           <div key={citationKey} className="rounded px-1.5 py-1.5 hover:bg-[var(--color-surface-2)] transition-colors">
@@ -45,11 +47,11 @@ export default function CitationList({ citations }: CitationListProps) {
                 {c.path ? `${c.path} · ` : ''}{c.confidence != null ? `匹配度 ${Math.round(c.confidence * 100)}% · ` : ''}{c.content.replace(/\s+/g, ' ').slice(0, 180)}
               </span>
             </button>
-            <button className="btn-ghost shrink-0 p-1" onClick={() => setExpanded((prev) => { const next = new Set(prev); if (next.has(citationKey)) next.delete(citationKey); else next.add(citationKey); return next; })} title={expanded.has(citationKey) ? '收起原文片段' : '查看原文片段'} aria-label={expanded.has(citationKey) ? '收起原文片段' : '查看原文片段'} type="button">
+            <button className="btn-ghost shrink-0 p-1" onClick={() => setExpanded((prev) => { const next = new Set(prev); if (next.has(citationKey)) next.delete(citationKey); else next.add(citationKey); return next; })} title={expanded.has(citationKey) ? '收起原文片段' : '查看原文片段'} aria-label={expanded.has(citationKey) ? '收起原文片段' : '查看原文片段'} aria-expanded={expanded.has(citationKey)} aria-controls={panelId} type="button">
               {expanded.has(citationKey) ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
             </button>
             </div>
-            {expanded.has(citationKey) && <div className="citation-markdown mt-1.5 max-h-40 overflow-auto rounded border border-[var(--color-border)] bg-[var(--color-surface-2)] p-2 text-[11px] leading-5 text-[var(--color-text-secondary)]"><MarkdownContent>{c.content}</MarkdownContent></div>}
+            {expanded.has(citationKey) && <div id={panelId} className="citation-markdown mt-1.5 max-h-40 overflow-auto rounded border border-[var(--color-border)] bg-[var(--color-surface-2)] p-2 text-[11px] leading-5 text-[var(--color-text-secondary)]"><MarkdownContent>{c.content}</MarkdownContent></div>}
           </div>
           );
         })}

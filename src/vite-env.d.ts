@@ -11,6 +11,10 @@ interface ImportMetaEnv {
   readonly VITE_APP_TITLE: string;
   /** 远程搜索 API，例如 https://your-project.vercel.app；为空时使用当前站点 /api/search */
   readonly VITE_SEARCH_API_URL?: string;
+  /** 本机私有的 OpenAI-compatible 模型配置（来自被 git 忽略的 .env.local）。 */
+  readonly VLM_MODEL_NAME?: string;
+  readonly VLM_OPENAI_API_BASE?: string;
+  readonly VLM_OPENAI_API_KEY?: string;
 }
 
 interface ImportMeta {

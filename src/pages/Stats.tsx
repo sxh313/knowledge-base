@@ -50,7 +50,7 @@ export default function Stats() {
       const s = j.subject || '未分类';
       subjCounts[s] = (subjCounts[s] || 0) + 1;
     }
-    const sorted = Object.entries(subjCounts)
+  const sorted = Object.entries(subjCounts)
       .map(([subject, count]) => ({ subject, count }))
       .sort((a, b) => b.count - a.count);
     setSubjectStats(sorted);
@@ -65,6 +65,12 @@ export default function Stats() {
     setLoading(false);
   }
 
+  const weekCount = dailyData.slice(-7).reduce((sum, item) => sum + item.count, 0);
+  const streak = dailyData.slice().reverse().reduce((count, item, index) => {
+    if (index === 0 && item.count === 0) return 0;
+    return item.count > 0 && count === index ? count + 1 : count;
+  }, 0);
+
   if (loading) {
     return (
       <div className="content-frame space-y-5"><div className="page-hero"><div className="page-hero-copy"><div className="h-3 w-28 rounded shimmer" /><div className="mt-3 h-8 w-20 rounded shimmer" /></div></div><div className="stat-grid"><div className="card h-24 shimmer" /><div className="card h-24 shimmer" /><div className="card h-24 shimmer" /></div><div className="card h-64 shimmer" />
@@ -76,7 +82,6 @@ export default function Stats() {
     <div className="content-frame animate-fade-in space-y-5">
       <div className="page-hero">
         <div className="page-hero-copy">
-        <div className="page-kicker">Your learning pulse</div>
         <h1 className="text-2xl font-bold text-[var(--color-text)]">统计</h1>
         <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
           你的学习数据概览
@@ -85,12 +90,13 @@ export default function Stats() {
       </div>
 
       {/* Summary cards */}
-      <div className="stat-grid">
-        <div className="card stat-card">
-          <BookOpen className="mx-auto h-6 w-6 text-brand-500 mb-2" />
-          <p className="text-2xl font-bold text-[var(--color-text)]">{totalJournals}</p>
-          <p className="text-xs text-[var(--color-text-secondary)]">文档</p>
+      <div className="stat-grid stats-strip">
+        <div className="stat-card">
+          <BookOpen className="h-5 w-5 text-[var(--color-info)]" />
+          <div><p className="text-xl font-bold text-[var(--color-text)]">{totalJournals}</p><p className="text-xs text-[var(--color-text-secondary)]">文档</p></div>
         </div>
+        <div className="stat-card"><BookOpen className="h-5 w-5 text-[var(--color-primary)]" /><div><p className="text-xl font-bold text-[var(--color-text)]">{weekCount}</p><p className="text-xs text-[var(--color-text-secondary)]">本周记录</p></div></div>
+        <div className="stat-card"><CalendarDays className="h-5 w-5 text-[var(--color-accent)]" /><div><p className="text-xl font-bold text-[var(--color-text)]">{streak}</p><p className="text-xs text-[var(--color-text-secondary)]">连续学习天</p></div></div>
       </div>
 
       <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.55fr)]">

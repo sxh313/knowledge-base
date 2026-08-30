@@ -10,6 +10,8 @@ import CategoryDialog from '../components/CategoryDialog';
 import type { JournalEntry } from '../lib/db/schema';
 import TemplatePicker from '../components/TemplatePicker';
 import { showToast } from '../lib/ui/toast';
+import TodayActionPanel from '../components/TodayActionPanel';
+import Select from '../components/ui/Select';
 
 export default function JournalList() {
   const navigate = useNavigate();
@@ -242,7 +244,7 @@ export default function JournalList() {
       {/* 右侧：文档列表 */}
       <div className="flex flex-col flex-1 min-w-0 px-2 py-2 sm:px-4 sm:py-3">
         {/* Header */}
-        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="journal-list-header mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2 min-w-0">
             {isMobile && (
               <button className="btn-ghost h-8 w-8 p-0" onClick={() => setShowTreeDrawer(true)} title="目录">
@@ -256,7 +258,7 @@ export default function JournalList() {
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-1.5 sm:flex sm:items-center sm:gap-2">
+          <div className="journal-list-actions grid grid-cols-2 gap-1.5 sm:flex sm:items-center sm:gap-2">
             {selectMode ? (
               <>
                 <button className="btn-ghost h-8 px-2 text-xs flex items-center justify-center gap-1.5 sm:h-auto sm:text-sm" onClick={toggleSelectAll} title="全选/取消全选">
@@ -275,27 +277,22 @@ export default function JournalList() {
               </>
             ) : (
               <>
-                <button className="btn-ghost h-8 px-2 text-xs flex items-center justify-center gap-1 sm:h-auto sm:text-sm sm:gap-1.5" onClick={() => setSelectMode(true)} title="进入多选模式，可批量删除">
+                <button className="btn-ghost h-8 whitespace-nowrap px-2 text-xs flex items-center justify-center gap-1 sm:h-auto sm:text-sm sm:gap-1.5" onClick={() => setSelectMode(true)} title="进入多选模式，可批量删除">
                   <Trash2 className="h-4 w-4" />
                   多选
                 </button>
-                {!isMobile && <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={handleToday} title="一键创建/打开今天的每日总结">
+                {!isMobile && <button className="btn-ghost whitespace-nowrap text-sm flex items-center gap-1.5" onClick={handleToday} title="一键创建/打开今天的每日总结">
                   <CalendarDays className="h-4 w-4" />
                   今日笔记
                 </button>}
-                {!isMobile && <button className="btn-ghost text-sm flex items-center gap-1.5" onClick={() => setShowTemplates(true)} title="从模板新建文档">
+                {!isMobile && <button className="btn-ghost whitespace-nowrap text-sm flex items-center gap-1.5" onClick={() => setShowTemplates(true)} title="从模板新建文档">
                   <LayoutTemplate className="h-4 w-4" />
                   模板
                 </button>}
-                <select value={sortBy} onChange={e => setSortBy(e.target.value as 'created' | 'updated' | 'title' | 'manual')} className="input-field h-8 w-full px-2 py-0 text-xs sm:h-auto sm:w-auto" title="排序方式">
-                  <option value="created">创建时间</option>
-                  <option value="updated">修改时间</option>
-                  <option value="title">标题</option>
-                  <option value="manual">↕ 手动排序</option>
-                </select>
+                <Select value={sortBy} onChange={(value) => setSortBy(value as 'created' | 'updated' | 'title' | 'manual')} ariaLabel="排序方式" size="compact" className="w-full sm:w-32" options={[{ value: 'created', label: '创建时间' }, { value: 'updated', label: '修改时间' }, { value: 'title', label: '标题' }, { value: 'manual', label: '手动排序' }]} />
                 {!isMobile && (
                   <button
-                    className="btn-primary text-sm flex items-center justify-center gap-1"
+                    className="btn-primary whitespace-nowrap text-sm flex items-center justify-center gap-1"
                     onClick={handleBlankNew}
                     title="新建文档"
                     aria-label="新建文档"
@@ -308,6 +305,8 @@ export default function JournalList() {
             )}
           </div>
         </div>
+
+        <TodayActionPanel entries={entries} />
 
         {/* 首次引导 */}
         {showOnboarding && (

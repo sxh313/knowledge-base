@@ -188,6 +188,18 @@ export async function persistJournalWithIndexes(entry: JournalEntry): Promise<Jo
     JSON.stringify(existing.aliases ?? []) !== JSON.stringify(prepared.aliases ?? []);
 
   const chunks = buildDocumentChunks(prepared);
+  const previousChunks = existing ? await db.documentChunks.where('journalId').equals(prepared.id).toArray() : [];
+  const previousByOrdinal = new Map(previousChunks.map((chunk) => [chunk.ordinal, chunk]));
+  for (const chunk of chunks) {
+    const previous = previousByOrdinal.get(chunk.ordinal);
+    // 标题、章节和正文均未变化时沿用已有向量，避免每次自动保存重复调用 Embedding。
+    if (previous && previous.title === chunk.title && previous.heading === chunk.heading && previous.contentPlain === chunk.contentPlain) {
+      chunk.embedding = previous.embedding;
+      chunk.embeddingModelId = previous.embeddingModelId;
+      chunk.embeddingContentHash = previous.embeddingContentHash;
+      chunk.embeddedAt = previous.embeddedAt;
+    }
+  }
 
   await db.transaction('rw', db.journals, db.documentChunks, async () => {
     await db.journals.put(prepared);
@@ -208,6 +220,8 @@ export async function persistJournalWithIndexes(entry: JournalEntry): Promise<Jo
   }
   // 搜索索引增量更新（仅更新当前文档，避免每次自动保存都全表 rebuild 的开销）
   updateSearchEntry(prepared);
+  // 向量索引是可重建派生数据；保存先返回，后台仅为当前文档增量更新。
+  void import('../ai/personalEmbeddings').then(({ syncPersonalChunkEmbeddings }) => syncPersonalChunkEmbeddings([prepared.id])).catch((error) => console.warn('Personal embedding index update skipped:', (error as Error).message));
   return prepared;
 }
 

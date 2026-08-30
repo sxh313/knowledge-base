@@ -1,6 +1,7 @@
 import type { AIModelProfile } from '../db/schema';
 import { getSettings } from '../db/queries';
 import { getEmbeddingProfile } from './modelProfiles';
+import { resolveAIBaseUrl } from './localProxy';
 
 export interface EmbeddingOptions {
   signal?: AbortSignal;
@@ -51,7 +52,7 @@ export async function embedTexts(
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (profile.apiKey.trim()) headers.Authorization = `Bearer ${profile.apiKey.trim()}`;
-    const response = await fetch(`${profile.baseUrl.replace(/\/+$/, '')}/embeddings`, {
+    const response = await fetch(`${resolveAIBaseUrl(profile.baseUrl)}/embeddings`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ model: profile.modelId, input: texts }),
@@ -91,4 +92,3 @@ export async function testEmbeddingProfile(profile: AIModelProfile): Promise<{ d
   const result = await embedTexts(['连接测试'], profile, { timeoutMs: 10000 });
   return { dimension: result.dimension, model: result.model };
 }
-

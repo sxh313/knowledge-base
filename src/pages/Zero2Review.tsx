@@ -30,10 +30,10 @@ export default function Zero2Review() {
   const rejected = state?.stage === 'rejected';
   return <div className="content-frame-reading review-page space-y-4">
     <ReviewHeader stage={state?.stage} dailyMinutes={dailyMinutes} />
-    <div className="review-question card grid gap-3 p-4 md:grid-cols-[1fr_auto_auto]">
-      <div className="min-w-0"><textarea aria-label="复习问题" rows={1} className="input-field min-h-12 w-full resize-y" value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); void submit(); } }} placeholder="例如：ReAct 和 Plan-and-Execute 如何选择？" /></div>
-      <label className="flex items-center gap-1 text-xs text-[var(--color-text-secondary)]"><span>每日</span><input className="input-field w-20 text-sm" type="number" min={10} max={240} value={dailyMinutes} onChange={(event) => setDailyMinutes(Number(event.target.value) || 30)} /><span>分钟</span></label>
-      <div className="flex items-center justify-end gap-2"><button className="btn-ghost" onClick={reset}>新会话</button><button className="btn-primary" disabled={!input.trim()} onClick={() => void submit()}>开始提问</button></div>
+    <div className="review-question card grid gap-3 p-4 md:grid-cols-[minmax(0,1fr)_10rem]">
+      <label className="learning-field min-w-0"><span>复习问题</span><textarea aria-label="复习问题" rows={2} className="input-field min-h-20 w-full resize-y" value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); void submit(); } }} placeholder="例如：ReAct 和 Plan-and-Execute 如何选择？" /></label>
+      <label className="learning-field"><span>每日学习时间</span><div className="flex items-center gap-2"><input className="input-field text-sm" type="number" min={10} max={240} value={dailyMinutes} onChange={(event) => setDailyMinutes(Number(event.target.value) || 30)} /><span className="text-xs text-[var(--color-text-secondary)]">分钟</span></div></label>
+      <div className="flex items-center justify-end gap-2 md:col-span-2"><button className="btn-ghost" onClick={reset}>开始新会话</button><button className="btn-primary" disabled={!input.trim()} onClick={() => void submit()}>开始提问</button></div>
     </div>
     {state?.clarification && !rejected && <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">{state.clarification}</div>}
     {rejected && <OutOfScopeNotice message={state.clarification || '该问题不属于 zero2Agent 复习范围。'} />}

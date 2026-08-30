@@ -50,6 +50,17 @@ function slugifyHeading(value) {
     .replace(/^-|-$/g, '');
 }
 
+function searchTerms(text) {
+  const terms = new Set();
+  const lower = String(text || '').toLowerCase();
+  for (const term of lower.match(/[a-z0-9]+/g) || []) if (term.length >= 2) terms.add(term);
+  for (const run of String(text || '').match(/[\u4e00-\u9fff]+/g) || []) {
+    if (run.length === 1) terms.add(run);
+    for (let i = 0; i < run.length - 1; i++) terms.add(run.slice(i, i + 2));
+  }
+  return [...terms];
+}
+
 function splitSection(content, startOffset, maxLength = 900, overlap = 120) {
   const clean = content.trim();
   if (!clean) return [];
@@ -108,7 +119,7 @@ function sectionsOf(markdown) {
       const unitType = question ? 'qa' : headingPath.length ? 'section' : 'root';
       // 章节内按段落/句号切分，不制造重复上下文；标题路径会在每个片段中保留语义。
       for (const part of splitSection(content, bodyStart, 900, 0)) {
-        sections.push({ heading, headingPath, anchor, question, unitType, content: part.content, startOffset: part.startOffset });
+        sections.push({ heading, headingPath, anchor, question, unitType, content: part.content, startOffset: part.startOffset, searchTerms: searchTerms(`${heading || ''} ${question || ''} ${part.content}`) });
       }
     }
     body = [];
@@ -191,6 +202,21 @@ function visit(id, chain = []) {
 }
 for (const doc of docs) visit(doc.id);
 
+// 构建倒排索引：查询词 -> 可命中的 chunkId。运行时先用它缩小候选集，
+// 再对候选分块做完整打分，避免每次遍历全部课程正文。
+const searchIndex = Object.create(null);
+let chunkIndex = 0;
+for (const doc of docs) {
+  for (const section of doc.sections || []) {
+    const chunkId = `${doc.id}:${section.startOffset}`;
+    section.chunkIndex = chunkIndex++;
+    const terms = searchTerms(`${doc.title} ${doc.module} ${(section.headingPath || []).join(' ')} ${section.question || ''} ${section.content}`);
+    for (const term of terms) {
+      (searchIndex[term] ||= []).push(section.chunkIndex);
+    }
+  }
+}
+
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 // 将参与 RAG 的原文一起复制到 public，确保离线/无网络时仍能定位来源。
 fs.rmSync(copyRoot, { recursive: true, force: true });
@@ -205,6 +231,7 @@ fs.writeFileSync(outputPath, JSON.stringify({
   source: 'zero2Agent',
   generatedAt: new Date().toISOString(),
   documentCount: docs.length,
+  searchIndex,
   documents: docs,
 }, null, 0));
 console.log(`Generated ${docs.length} documents -> ${outputPath}; copied source -> ${copyRoot}`);
