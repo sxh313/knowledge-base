@@ -61,6 +61,9 @@ async function resolveAttachmentImages(root: HTMLElement) {
 interface RichTextEditorProps {
   value: string;          // Markdown
   onChange: (value: string) => void;  // 返回 Markdown
+  /** 可选的 TipTap JSON 快照，用于恢复合并单元格和列宽等高级结构。 */
+  editorState?: Record<string, unknown>;
+  onEditorStateChange?: (state: Record<string, unknown>) => void;
   placeholder?: string;
   autoFocus?: boolean;
   /** 选中→AI 操作：翻译/解释/润色 */
@@ -101,7 +104,7 @@ function whenEditorDomReady(editor: any, callback: (dom: HTMLElement) => void): 
   };
 }
 
-function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, onWikilinkClick, journalId }: RichTextEditorProps) {
+function RichTextEditor({ value, onChange, editorState, onEditorStateChange, placeholder, autoFocus, onAIAction, onWikilinkClick, journalId }: RichTextEditorProps) {
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
@@ -169,7 +172,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
       Callout,
       Wikilink,
     ],
-    content: markdownToHtml(value),
+    content: editorState ?? markdownToHtml(value),
     autofocus: autoFocus ? 'end' : false,
     editorProps: {
       attributes: {
@@ -264,6 +267,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
         rafRef.current = 0;
         if (editor.isDestroyed || !editor.isInitialized) return;
         const md = htmlToMarkdown(editor.getHTML());
+        onEditorStateChange?.(editor.getJSON() as Record<string, unknown>);
         // 标记本次变化由编辑器自身产生：下方 effect 据此跳过 setContent，保留撤销/重做历史栈
         lastEmittedRef.current = md;
         onChange(md);
@@ -287,6 +291,18 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
       lastEmittedRef.current = value;
     }
   }, [value, editor]);
+
+  // 文档切换时优先恢复 TipTap JSON；仅当快照与当前文档不同才写入，避免每次输入都清空撤销历史。
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !editor.isInitialized || !editorState) return;
+    try {
+      if (JSON.stringify(editor.getJSON()) !== JSON.stringify(editorState)) {
+        editor.commands.setContent(editorState, { emitUpdate: false });
+      }
+    } catch {
+      // 旧版本或损坏快照无法恢复时，保留 Markdown 内容作为兼容回退。
+    }
+  }, [editor, editorState]);
 
   // 附件图片：把图片以附件形式存储，正文用 attachment://<id> 引用（渲染时解析回 dataUrl）
   const insertImageFromDataUrl = useCallback(async (dataUrl: string, name: string, mimeType: string) => {
@@ -813,6 +829,15 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
             </div>
           </div>}
         </div>
+        {isActive('table') && <div className="editor-table-tools flex items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] p-1" role="group" aria-label="表格编辑">
+          <button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => editor.chain().focus().addRowAfter().run()}>加行</button>
+          <button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => editor.chain().focus().addColumnAfter().run()}>加列</button>
+          <button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => editor.chain().focus().deleteRow().run()} disabled={!editor.can().deleteRow()}>删行</button>
+          <button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => editor.chain().focus().deleteColumn().run()} disabled={!editor.can().deleteColumn()}>删列</button>
+          <button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => editor.chain().focus().mergeCells().run()} disabled={!editor.can().mergeCells()}>合并</button>
+          <button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => editor.chain().focus().splitCell().run()} disabled={!editor.can().splitCell()}>拆分</button>
+          <button type="button" className="btn-ghost h-7 px-2 text-[11px] text-[var(--color-danger)]" onClick={() => editor.chain().focus().deleteTable().run()}>删表</button>
+        </div>}
         <ToolbarBtn onClick={openSvgDialog} title="SVG 代码转 PNG 图片"><ImageDown className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="分隔线"><Minus className="w-4 h-4" /></ToolbarBtn>
         <label className="p-1.5 rounded-md transition-colors text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] cursor-pointer" title="插入图片（选文件）">

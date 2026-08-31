@@ -156,6 +156,7 @@ export interface AgentMessage {
 interface AgentStore {
   isProcessing: boolean;
   error: string | null;
+  executionProgress: { index: number; total: number; label: string; status: 'started' | 'success' | 'failed' | 'skipped' } | null;
   messages: AgentMessage[];
   /** 当前待确认的计划 */
   pendingPlan: AgentPlan | null;
@@ -205,6 +206,7 @@ interface AgentStore {
 export const useAgentStore = create<AgentStore>((set, get) => ({
   isProcessing: false,
   error: null,
+  executionProgress: null,
   messages: [],
   pendingPlan: null,
   pendingPreview: null,
@@ -727,7 +729,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   applyPending: async (approvedOpIds) => {
     const { pendingPlan, pendingMsgIndex } = get();
     if (!pendingPlan) return;
-    set({ isProcessing: true, error: null });
+    set({ isProcessing: true, error: null, executionProgress: null });
     const startedAt = Date.now();
     try {
       const pendingRun = get().runs.find((r) => r.planId === pendingPlan.planId);
@@ -746,7 +748,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         // 执行开始事件
         await addAgentRunEvent(pendingRun.id, { type: 'execution', status: 'started', summary: '开始执行计划' }).catch(() => {});
       }
-      const applied = await applyPlan(pendingPlan, approvedOpIds);
+      const applied = await applyPlan(pendingPlan, approvedOpIds, ({ index, total, op, status }) => {
+        const label = op.newTitle || op.title || op.newName || op.type;
+        set({ executionProgress: { index, total, label, status } });
+      });
       // 执行结束事件（成功/失败 + 逐操作统计 + 耗时）
       if (pendingRun) {
         const okCount = applied.results.filter((r) => r.ok).length;
@@ -769,6 +774,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         pendingPreview: null,
         pendingMsgIndex: null,
         isProcessing: false,
+        executionProgress: null,
       }));
 
       // 更新运行记录状态（Phase 3）
@@ -820,7 +826,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         }
       }
       } catch (e) {
-      set({ isProcessing: false, error: (e as Error).message });
+      set({ isProcessing: false, error: (e as Error).message, executionProgress: null });
     }
   },
 

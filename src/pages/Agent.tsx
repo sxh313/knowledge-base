@@ -10,7 +10,7 @@ import {
   Tag, FolderInput, Layers, Undo2, ShieldAlert, ShieldCheck, Shield, Wrench, Network, Link2, PanelLeft, Bot,
   Activity, GitBranch, BookOpen, SlidersHorizontal,
 } from 'lucide-react';
-import type { AgentOp, AgentOpResult } from '../lib/agent/tools';
+import type { AgentOp, AgentOpResult, AgentPlan } from '../lib/agent/tools';
 import { INTENT_META, type AgentIntent } from '../lib/agent/intent';
 import type { EvidenceRef } from '../lib/agent/evidence';
 import { listAgentRunEvents } from '../lib/agent/persistence';
@@ -18,6 +18,7 @@ import { getAgentState, updateAgentState } from '../lib/agent/state';
 import { DEFAULT_AGENT_PERMISSION_POLICY } from '../lib/agent/permissions';
 import type { AgentRun, AgentRunEvent, AgentPermissionPolicy } from '../lib/db/schema';
 import { diffLines } from '../lib/agent/diff';
+import { classifyAgentFailure } from '../lib/agent/recovery';
 import { getSkillRegistryState } from '../lib/agent/skills';
 import { DEFAULT_AGENT_PREFERENCES, getAgentPreferences, resetAgentPreferences, saveAgentPreferences, type AgentPreferences } from '../lib/agent/preferences';
 import Select from '../components/ui/Select';
@@ -83,6 +84,52 @@ function RiskBadge({ risk }: { risk?: AgentOp['risk'] }) {
     <span className={`risk-badge-${risk ?? 'low'} inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium border ${meta.badge}`}>
       <Icon className="h-3 w-3" /> {meta.label}
     </span>
+  );
+}
+
+type PlanRiskFilter = 'all' | 'low' | 'medium' | 'high' | 'failed';
+
+function groupedPlanOps(plan: AgentPlan, filter: PlanRiskFilter, results?: AgentOpResult[]) {
+  const groups = new Map<string, { title: string; items: { op: AgentOp; index: number }[] }>();
+  plan.ops.forEach((op, index) => {
+    const failed = results?.[index] ? !results[index].ok && !results[index].skipped : op.note?.toLowerCase().includes('失败') || op.note?.toLowerCase().includes('error');
+    if (filter !== 'all' && (filter === 'failed' ? !failed : op.risk !== filter)) return;
+    const title = op.newTitle || op.title || (op.journalId ? `文档 #${op.journalId.slice(0, 8)}` : '其他操作');
+    const key = op.journalId || `new:${title}`;
+    const group = groups.get(key) ?? { title, items: [] };
+    group.items.push({ op, index });
+    groups.set(key, group);
+  });
+  return Array.from(groups.values());
+}
+
+function ProgressTimeline({ events, isProcessing, currentOperation }: { events: AgentRunEvent[]; isProcessing: boolean; currentOperation?: { index: number; total: number; label: string; status: string } | null }) {
+  const stages = [
+    { key: 'retrieval', label: '检索相关文档' },
+    { key: 'model_call', label: '分析与生成计划' },
+    { key: 'plan_created', label: '生成整理计划' },
+    { key: 'approval', label: '等待用户确认' },
+    { key: 'execution', label: '执行文档变更' },
+  ];
+  const latest = events.at(-1);
+  return (
+    <div className="agent-progress rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-xs">
+      <div className="mb-2 flex items-center justify-between font-medium">
+        <span className="flex items-center gap-1.5"><Activity className="h-3.5 w-3.5 text-[var(--color-primary)]" />任务进度</span>
+        {latest && <span className="text-[var(--color-text-tertiary)]">{latest.summary}</span>}
+      </div>
+      {currentOperation && <div className="mb-2 rounded-md bg-[var(--color-bg)] px-2 py-1.5 text-[var(--color-text-secondary)]">正在执行 {currentOperation.index}/{currentOperation.total}：{currentOperation.label}</div>}
+      <div className="grid gap-1 sm:grid-cols-5">
+        {stages.map((stage, index) => {
+          const event = events.find((item) => item.type === stage.key);
+          const current = !event && isProcessing && index === Math.min(stages.length - 1, events.length);
+          return <div key={stage.key} className={`flex items-center gap-1.5 ${event?.status === 'success' ? 'text-emerald-600' : current ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-tertiary)]'}`}>
+            {event?.status === 'success' ? <Check className="h-3 w-3" /> : current ? <Loader2 className="h-3 w-3 animate-spin" /> : <span className="inline-flex h-3 w-3 items-center justify-center rounded-full border text-[9px]">{index + 1}</span>}
+            <span className="truncate">{stage.label}</span>
+          </div>;
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -444,13 +491,16 @@ function PermissionPanel({ sessionId, onClose }: { sessionId: string | null; onC
 export default function Agent() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { messages, isProcessing, error, run, applyPending, cancelPending, undoLast, undoRunById, clear,
+  const { messages, isProcessing, executionProgress, error, run, applyPending, cancelPending, undoLast, undoRunById, clear,
     sessionId, sessions, runs, initialized, init, newSession, loadSession, renameSession, setSessionStatus, deleteSession, deleteAllSessions } = useAgentStore();
   const { loadAll } = useJournalStore();
   const { isMobile } = useViewModeStore();
   const [input, setInput] = useState('');
   const [attached, setAttached] = useState<{ name: string; content: string } | null>(null);
   const [approved, setApproved] = useState<Set<string>>(new Set());
+  const [planRiskFilter, setPlanRiskFilter] = useState<PlanRiskFilter>('all');
+  const [liveEvents, setLiveEvents] = useState<AgentRunEvent[]>([]);
+  const [showFailureDetails, setShowFailureDetails] = useState(false);
   // Agent 的会话历史是辅助信息；首次进入时优先让用户看到任务入口和输入区。
   const [showSessions, setShowSessions] = useState(false);
   const [showRuns, setShowRuns] = useState(false);
@@ -487,6 +537,17 @@ export default function Agent() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isProcessing]);
+
+  // 执行期间轮询已持久化的运行事件，让主对话区实时反映检索、审批和执行阶段。
+  useEffect(() => {
+    const activeRun = runs.find((item) => item.status === 'running') ?? (isProcessing ? runs[0] : undefined);
+    if (!activeRun) { setLiveEvents([]); return; }
+    let alive = true;
+    const refresh = () => listAgentRunEvents(activeRun.id).then((rows) => { if (alive) setLiveEvents(rows); }).catch(() => {});
+    void refresh();
+    const timer = window.setInterval(refresh, isProcessing ? 600 : 2500);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [runs, isProcessing]);
 
   // 当出现新的待确认计划时，默认全部勾选（低/中风险默认勾选，高风险默认不勾选需手动确认）
   useEffect(() => {
@@ -604,6 +665,19 @@ export default function Agent() {
       await deleteSession(id);
       setApproved(new Set());
     }
+  };
+
+  const approveAllSafe = (ops: AgentPlan['ops']) => setApproved(new Set(ops.filter((op) => op.opId && op.risk !== 'high').map((op) => op.opId!)));
+  const retryLastTask = async () => {
+    const latest = [...messages].reverse().find((message) => message.role === 'user' && message.content.trim());
+    if (!latest || isProcessing) return;
+    await run(latest.content, undefined, latest.intent);
+  };
+  const replanLastTask = () => {
+    const latest = [...messages].reverse().find((message) => message.role === 'user' && message.content.trim());
+    if (!latest || isProcessing) return;
+    setInput(`请根据上次任务失败原因重新读取相关文档并生成新的待确认计划：${error ?? '请重新检查目标文档状态'}`);
+    textareaRef.current?.focus();
   };
   const handleDeleteAllSessions = async () => {
     if (!sessions.length || !confirm('确定删除全部 Agent 历史？此操作不可恢复。')) return;
@@ -785,13 +859,16 @@ export default function Agent() {
               {/* 操作计划预览 */}
               {msg.plan && !msg.applied && (
                 <div className="mt-3 border-t border-[var(--color-border)] pt-2 space-y-2">
-                  <div className="text-xs font-medium text-[var(--color-text-secondary)]">📋 操作计划（待确认，可逐项勾选）：</div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><div><span className="font-medium text-[var(--color-text)]">操作计划</span><span className="ml-2 text-[var(--color-text-tertiary)]">{msg.plan.ops.length} 项 · {msg.plan.ops.filter((op) => op.risk === 'high').length} 项高风险</span></div><div className="flex flex-wrap gap-1"><Select className="w-24" size="compact" value={planRiskFilter} onChange={(value) => setPlanRiskFilter(value as PlanRiskFilter)} ariaLabel="计划风险筛选" options={[{ value: 'all', label: '全部' }, { value: 'low', label: '低风险' }, { value: 'medium', label: '中风险' }, { value: 'high', label: '高风险' }, { value: 'failed', label: '执行失败' }]} /><button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => approveAllSafe(msg.plan!.ops)}>选择安全项</button><button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => setApproved(new Set())}>全部取消</button></div></div>
                   <EvidenceBlock evidence={msg.evidence} />
-                  {msg.plan.ops.map((op, j) => {
-                    const preview = msg.preview?.results[j];
+                  {groupedPlanOps(msg.plan, planRiskFilter, msg.preview?.results).map((group) => (
+                    <div key={group.title} className="space-y-1.5">
+                      <div className="flex items-center gap-2 px-1 text-[11px] font-medium text-[var(--color-text-secondary)]"><FileText className="h-3 w-3" />《{group.title}》<span className="text-[var(--color-text-tertiary)]">{group.items.length} 项</span></div>
+                      {group.items.map(({ op, index }) => {
+                    const preview = msg.preview?.results[index];
                     const checked = !!op.opId && approved.has(op.opId);
                     return (
-                      <div key={j} className="rounded-md border border-[var(--color-border)] p-2">
+                      <div key={op.opId ?? index} className="rounded-md border border-[var(--color-border)] p-2">
                         <label className="flex items-start gap-2 cursor-pointer">
                           <input
                             type="checkbox"
@@ -826,6 +903,9 @@ export default function Agent() {
                       </div>
                     );
                   })}
+                    </div>
+                  ))}
+                  {groupedPlanOps(msg.plan, planRiskFilter, msg.preview?.results).length === 0 && <div className="rounded-md border border-dashed border-[var(--color-border)] px-3 py-4 text-center text-xs text-[var(--color-text-tertiary)]">没有符合当前筛选条件的操作</div>}
                   <div className="flex gap-2 pt-1">
                     <button
                       className="btn-primary text-xs px-3 py-1 flex items-center gap-1"
@@ -871,17 +951,21 @@ export default function Agent() {
           </div>
         ))}
 
-        {isProcessing && (
+        {(isProcessing || liveEvents.length > 0) && (
           <div className="flex justify-start">
-            <div className="agent-assistant-content mx-auto w-full max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] px-1 py-2 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>AI 正在分析并生成操作计划…</span>
+            <div className="agent-assistant-content mx-auto w-full max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] px-1 py-2">
+              <ProgressTimeline events={liveEvents} isProcessing={isProcessing} currentOperation={executionProgress} />
             </div>
           </div>
         )}
 
         {error && (
-          <div className="mx-auto flex max-w-3xl items-center gap-2 rounded-lg border border-[var(--color-danger)]/30 bg-[var(--color-danger-light)] px-3 py-2 text-sm text-[var(--color-danger)]"><ShieldAlert className="h-4 w-4 shrink-0" />{error}</div>
+          <div className="mx-auto max-w-3xl rounded-lg border border-[var(--color-danger)]/30 bg-[var(--color-danger-light)] px-3 py-2 text-sm text-[var(--color-danger)]">
+            {(() => { const advice = classifyAgentFailure(error); return <>
+              <div className="flex items-center gap-2"><ShieldAlert className="h-4 w-4 shrink-0" /><span className="min-w-0 flex-1 font-medium">{advice.label}</span><button type="button" className="btn-ghost h-8 shrink-0 px-2 text-xs" onClick={() => void retryLastTask()} disabled={isProcessing}>{advice.retryLabel}</button><button type="button" className="btn-ghost h-8 shrink-0 px-2 text-xs" onClick={replanLastTask} disabled={isProcessing}>{advice.replanLabel}</button><button type="button" className="btn-ghost h-8 shrink-0 px-2 text-xs" onClick={() => setShowFailureDetails((value) => !value)}>{showFailureDetails ? '收起详情' : '查看详情'}</button></div>
+              {showFailureDetails && <div className="mt-1.5 pl-6 text-xs">{advice.hint}<div className="mt-1 break-words opacity-80">原始错误：{error}</div></div>}
+            </>; })()}
+          </div>
         )}
         <div ref={messagesEndRef} />
       </div>

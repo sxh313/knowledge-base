@@ -134,12 +134,17 @@
   .scope-menu-option:hover { transform: translateX(2px); }
   .table-picker-popover { animation: scope-menu-in 0.16s ease-out both; transform-origin: top left; }
   .table-picker-cell:hover { background: var(--color-primary); border-color: var(--color-primary); transform: scale(1.08); }
-  .ProseMirror .tableWrapper { overflow-x: auto; margin: 1rem 0; }
-  .ProseMirror table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
-  .ProseMirror th, .ProseMirror td { min-width: 5rem; border: 1px solid var(--color-border); padding: 0.5rem 0.65rem; vertical-align: top; }
-  .ProseMirror th { background: var(--color-surface-2); font-weight: 650; }
+  .ProseMirror .tableWrapper { overflow-x: auto; max-width: 100%; margin: 1rem 0; border: 1px solid var(--color-border-strong); border-radius: 0.7rem; scrollbar-gutter: stable; }
+  .ProseMirror table { width: max-content; min-width: 100%; margin: 0; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+  .ProseMirror th, .ProseMirror td { position: relative; min-width: 7rem; max-width: 32rem; border: 0; border-right: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); padding: 0.58rem 0.72rem; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
+  .ProseMirror tr:last-child td { border-bottom: 0; }
+  .ProseMirror th:last-child, .ProseMirror td:last-child { border-right: 0; }
+  .ProseMirror th { background: color-mix(in srgb, var(--color-surface-2) 78%, var(--color-primary-light)); color: var(--color-text); font-weight: 700; }
+  .ProseMirror td > p, .ProseMirror th > p { margin: 0; }
+  .ProseMirror td > p + p, .ProseMirror th > p + p { margin-top: 0.45rem; }
   .ProseMirror .selectedCell { background: color-mix(in srgb, var(--color-primary-light) 55%, transparent); }
   .ProseMirror .column-resize-handle { position: absolute; top: 0; right: -2px; bottom: 0; width: 4px; background: var(--color-primary); cursor: col-resize; }
+  .editor-table-tools { flex-wrap: wrap; }
   @keyframes scope-menu-in { from { opacity: 0; transform: translateY(4px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
   @media (prefers-reduced-motion: reduce) { .scope-menu-popover, .scope-menu-option { animation: none; transition: none; } }
   button { -webkit-tap-highlight-color: transparent; }
