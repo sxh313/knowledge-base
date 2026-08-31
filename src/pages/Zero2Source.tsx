@@ -21,21 +21,22 @@ interface SourceDocument {
   sourceUrl?: string;
 }
 
-let indexPromise: Promise<SourceDocument[]> | null = null;
-function loadIndex(): Promise<SourceDocument[]> {
-  if (!indexPromise) {
-    indexPromise = fetch(`${import.meta.env.BASE_URL || '/'}zero2agent-kb.json`)
+const indexPromises = new Map<string, Promise<SourceDocument[]>>();
+function loadIndex(knowledgeBase: 'zero2agent' | 'zero2leetcode'): Promise<SourceDocument[]> {
+  const existing = indexPromises.get(knowledgeBase);
+  if (existing) return existing;
+  const request = fetch(`${import.meta.env.BASE_URL || '/'}${knowledgeBase}-kb.json`)
       .then((response) => {
         if (!response.ok) throw new Error(`知识库索引加载失败：${response.status}`);
         return response.json() as Promise<{ documents?: SourceDocument[] }>;
       })
       .then((data) => data.documents ?? [])
       .catch((error) => {
-        indexPromise = null;
+        indexPromises.delete(knowledgeBase);
         throw error;
       });
-  }
-  return indexPromise;
+  indexPromises.set(knowledgeBase, request);
+  return request;
 }
 
 function findSource(documents: SourceDocument[], chunkId: string) {
@@ -47,7 +48,7 @@ function findSource(documents: SourceDocument[], chunkId: string) {
   return null;
 }
 
-export default function Zero2Source() {
+export default function Zero2Source({ knowledgeBase = 'zero2agent' }: { knowledgeBase?: 'zero2agent' | 'zero2leetcode' }) {
   const [params] = useSearchParams();
   const chunkId = params.get('chunkId') || '';
   const [source, setSource] = useState<ReturnType<typeof findSource>>(null);
@@ -59,7 +60,7 @@ export default function Zero2Source() {
       setError('缺少 chunkId，无法定位来源。');
       return () => { active = false; };
     }
-    void loadIndex().then((documents) => {
+    void loadIndex(knowledgeBase).then((documents) => {
       if (!active) return;
       const match = findSource(documents, chunkId);
       if (match) setSource(match);
@@ -68,7 +69,7 @@ export default function Zero2Source() {
       if (active) setError(reason instanceof Error ? reason.message : '来源加载失败');
     });
     return () => { active = false; };
-  }, [chunkId]);
+  }, [chunkId, knowledgeBase]);
 
   if (error) return <div className="content-frame-reading"><div className="card p-6 text-sm text-red-600">{error}</div></div>;
   if (!source) return <div className="content-frame-reading"><div className="card p-6 text-sm text-[var(--color-text-secondary)]">正在定位原文…</div></div>;
@@ -99,4 +100,3 @@ export default function Zero2Source() {
     </div>
   );
 }
-

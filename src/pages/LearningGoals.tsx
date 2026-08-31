@@ -1,88 +1,82 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Clock3, Plus, RotateCcw, SkipForward, Target, Brain } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import {
-  createLearningGoal,
-  createTasksForGoal,
-  listLearningGoals,
-  listLearningTasks,
-  updateLearningGoal,
-  updateLearningTask,
-  type LearningGoal,
-  type LearningTask,
-} from '../lib/agent/learning';
+import { Bell, BookOpen, Check, Clock3, ListChecks, Plus, Target } from 'lucide-react';
+import { createAgentCourseGoal, createLearningGoal, createTasksForGoal, ensureAgentCoursePlan, listLearningGoals, listLearningTasks, updateLearningTask, type LearningGoal, type LearningTask } from '../lib/agent/learning';
+import { buildAgentCourseTasks, learningLocalDate, loadAgentCourse } from '../lib/agent/coursePlanner';
+import { showToast } from '../lib/ui/toast';
 
 export default function LearningGoals() {
   const [goals, setGoals] = useState<LearningGoal[]>([]);
   const [tasks, setTasks] = useState<LearningTask[]>([]);
+  const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('');
   const [dailyMinutes, setDailyMinutes] = useState(30);
   const [deadline, setDeadline] = useState('');
-
+  const [agentCourse, setAgentCourse] = useState(true);
+  const [preview, setPreview] = useState<LearningTask[] | null>(null);
   const reload = async () => {
+    await ensureAgentCoursePlan();
     const nextGoals = await listLearningGoals();
     setGoals(nextGoals);
     setTasks((await Promise.all(nextGoals.map((goal) => listLearningTasks(goal.id)))).flat());
+    setLoading(false);
   };
-  useEffect(() => { void reload(); }, []);
-
-  const grouped = useMemo(() => goals.map((goal) => ({ goal, tasks: tasks.filter((task) => task.goalId === goal.id) })), [goals, tasks]);
-
+  useEffect(() => { void reload().catch(() => setLoading(false)); }, []);
+  const groups = useMemo(() => goals.map((goal) => ({ goal, tasks: tasks.filter((task) => task.goalId === goal.id) })), [goals, tasks]);
+  const today = learningLocalDate();
+  const finish = async (task: LearningTask) => {
+    await updateLearningTask(task.id, { status: task.status === 'done' ? 'todo' : 'done' });
+    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: item.status === 'done' ? 'todo' : 'done' } : item));
+  };
+  const updatePlanTask = async (task: LearningTask, patch: Partial<Pick<LearningTask, 'title' | 'date' | 'minutes'>>) => {
+    await updateLearningTask(task.id, patch);
+    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, ...patch } : item));
+  };
+  const updateLearningFeedback = async (task: LearningTask, patch: Partial<Pick<LearningTask, 'learningStage' | 'reflection' | 'quizAnswer'>>) => {
+    await updateLearningTask(task.id, patch);
+    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, ...patch } : item));
+  };
   const addGoal = async () => {
     if (!title.trim()) return;
-    const goal = await createLearningGoal({ title, dailyMinutes, deadline: deadline || undefined, level: '未设置' });
-    await createTasksForGoal(goal, [], [goal.title]);
+    if (agentCourse) await createAgentCourseGoal({ title, dailyMinutes, deadline: deadline || undefined, level: '未设置' });
+    else { const goal = await createLearningGoal({ title, dailyMinutes, deadline: deadline || undefined, level: '未设置' }); await createTasksForGoal(goal, [], [goal.title]); }
     setTitle(''); setDeadline(''); setDailyMinutes(30); await reload();
   };
-
-  const setTaskStatus = async (task: LearningTask, status: LearningTask['status']) => {
-    await updateLearningTask(task.id, { status });
-    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status } : item));
+  const previewPlan = async () => {
+    if (!title.trim() || !agentCourse) return;
+    const draft: LearningGoal = { id: 'preview', title, dailyMinutes, deadline: deadline || undefined, level: '预览', status: 'active', createdAt: 0, updatedAt: 0 };
+    setPreview(buildAgentCourseTasks(draft, await loadAgentCourse()));
+  };
+  const shiftOverdue = async (plan: LearningTask[]) => {
+    const overdue = plan.filter((task) => task.date < today && task.status === 'todo').sort((a, b) => a.date.localeCompare(b.date));
+    await Promise.all(overdue.map((task, index) => {
+      const date = new Date(`${today}T12:00:00`); date.setDate(date.getDate() + index);
+      return updateLearningTask(task.id, { date: date.toISOString().slice(0, 10) });
+    }));
+    showToast('success', '已顺延未完成任务', '课程内容保持不变，日期已重新排到今天起。');
+    await reload();
+  };
+  const enableNotifications = async () => {
+    if (!('Notification' in window)) { showToast('warning', '当前环境不支持桌面通知'); return; }
+    if (Notification.permission !== 'granted') await Notification.requestPermission();
+    showToast(Notification.permission === 'granted' ? 'success' : 'warning', Notification.permission === 'granted' ? '每日任务提醒已开启' : '未获得通知权限');
   };
 
-  const postpone = async (task: LearningTask) => {
-    const next = new Date(`${task.date}T12:00:00`);
-    next.setDate(next.getDate() + 1);
-    const date = next.toISOString().slice(0, 10);
-    await updateLearningTask(task.id, { date, status: 'todo' });
-    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, date, status: 'todo' } : item));
-  };
-
-  return (
-    <div className="content-frame animate-fade-in space-y-5">
-      <div className="page-hero">
-        <div className="page-hero-copy">
-          <div className="flex items-center gap-2">
-            <Target className="h-5 w-5 text-[var(--color-primary)]" />
-            <div><h1 className="text-xl font-bold">学习目标</h1><p className="text-xs text-[var(--color-text-secondary)]">把目标拆成每天可调整的学习任务</p></div>
-          </div><Link className="btn-ghost inline-flex items-center gap-1 text-xs" to="/zero2-review"><Brain className="h-3.5 w-3.5" />用 zero2Agent 制定计划</Link>
-        </div>
-      </div>
-      <div className="card learning-goal-form p-4">
-        <label className="learning-field learning-title-field"><span>目标</span><input className="input-field text-sm" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：两周掌握 RAG 基础" /></label>
-        <label className="learning-field"><span><Clock3 className="h-3.5 w-3.5" />每日时间</span><div className="flex items-center gap-2"><input className="input-field text-sm" type="number" min={10} value={dailyMinutes} onChange={(e) => setDailyMinutes(Number(e.target.value) || 30)} /><span className="text-xs text-[var(--color-text-secondary)]">分钟</span></div></label>
-        <label className="learning-field"><span>截止日期</span><input className="input-field text-sm" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} /></label>
-        <button className="btn-primary learning-create-button flex items-center justify-center gap-1 whitespace-nowrap text-sm" onClick={addGoal}><Plus className="h-4 w-4" />创建目标</button>
-        <div className="learning-preview rounded-lg bg-[var(--color-surface-2)] px-3 py-2 text-xs text-[var(--color-text-secondary)]">计划预览：{deadline ? `将在 ${Math.max(1, Math.ceil((new Date(`${deadline}T12:00:00`).getTime() - Date.now()) / 86400000))} 天内` : '按每天的节奏'}完成「{title.trim() || '你的学习目标'}」，每天约 {dailyMinutes} 分钟。创建后可以调整日期、暂停或顺延任务。</div>
-      </div>
-      {grouped.length === 0 && <div className="empty-state compact-empty"><Target className="h-5 w-5 text-[var(--color-primary)]" /><p className="text-sm font-medium text-[var(--color-text)]">还没有学习目标</p><p className="text-xs text-[var(--color-text-secondary)]">可以先从每天 30 分钟开始，之后随时调整节奏。</p><button className="btn-secondary mt-2 text-xs" onClick={() => setTitle('每天 30 分钟学习一个主题')}>使用示例目标</button></div>}
-      {grouped.map(({ goal, tasks: goalTasks }) => (
-        <section key={goal.id} className="space-y-2">
-          <div className="flex items-center justify-between"><div><h2 className="font-semibold">{goal.title}</h2><p className="text-xs text-[var(--color-text-secondary)]">每天 {goal.dailyMinutes} 分钟{goal.deadline ? ` · 截止 ${goal.deadline}` : ''}</p></div><button className="btn-ghost text-xs" onClick={async () => { await updateLearningGoal(goal.id, { status: goal.status === 'paused' ? 'active' : 'paused' }); await reload(); }}>{goal.status === 'paused' ? '继续' : '暂停'}</button></div>
-          <div className="space-y-1.5">
-            {goalTasks.map((task) => (
-              <div key={task.id} className="flex items-center gap-2 rounded-md border border-[var(--color-border)] px-3 py-2 text-sm">
-                <span className={`h-2 w-2 rounded-full ${task.status === 'done' ? 'bg-emerald-500' : task.status === 'skipped' ? 'bg-gray-400' : 'bg-[var(--color-primary)]'}`} />
-                <input className="w-28 bg-transparent text-xs text-[var(--color-text-secondary)]" type="date" value={task.date} onChange={async (e) => { await updateLearningTask(task.id, { date: e.target.value }); setTasks((current) => current.map((item) => item.id === task.id ? { ...item, date: e.target.value } : item)); }} />
-                <span className={`flex-1 ${task.status !== 'todo' ? 'text-[var(--color-text-tertiary)] line-through' : ''}`}>{task.title}</span><span className="text-xs text-[var(--color-text-tertiary)]">{task.minutes} 分钟</span>
-                <button className="btn-ghost p-1" onClick={() => setTaskStatus(task, task.status === 'done' ? 'todo' : 'done')} title="完成/恢复" aria-label="完成或恢复任务"><Check className="h-3.5 w-3.5" /></button>
-                <button className="btn-ghost p-1" onClick={() => setTaskStatus(task, task.status === 'skipped' ? 'todo' : 'skipped')} title="跳过" aria-label="跳过任务"><SkipForward className="h-3.5 w-3.5" /></button>
-                <button className="btn-ghost p-1" onClick={() => postpone(task)} title="顺延一天" aria-label="顺延一天"><RotateCcw className="h-3.5 w-3.5" /></button>
-              </div>
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
+  return <div className="content-frame animate-fade-in space-y-5">
+    <header className="page-hero"><div className="page-hero-copy"><div className="flex items-center gap-2"><Target className="h-5 w-5 text-[var(--color-primary)]" /><div><h1 className="text-xl font-bold">学习与复习</h1><p className="text-xs text-[var(--color-text-secondary)]">系统依据内置 Agent 课程自动安排；你只需查看当天任务并完成学习。</p></div></div></div><button className="btn-ghost inline-flex items-center gap-1 text-xs" onClick={() => void enableNotifications()}><Bell className="h-3.5 w-3.5" />开启每日提醒</button></header>
+    <div className="card learning-goal-form p-4"><label className="learning-field learning-title-field"><span>目标</span><input className="input-field text-sm" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：一周学完 Agent 基础" /></label><label className="learning-field"><span><Clock3 className="h-3.5 w-3.5" />每日时间</span><input className="input-field text-sm" type="number" min={10} value={dailyMinutes} onChange={(event) => setDailyMinutes(Number(event.target.value) || 30)} /></label><label className="learning-field"><span>截止日期</span><input className="input-field text-sm" type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} /></label><div className="flex gap-2"><button className="btn-secondary text-sm" onClick={() => void previewPlan()}>预览计划</button><button className="btn-primary learning-create-button flex items-center justify-center gap-1 text-sm" onClick={() => void addGoal()}><Plus className="h-4 w-4" />确认生成</button></div><label className="col-span-full flex items-center gap-2 rounded-lg bg-[var(--color-surface-2)] px-3 py-2 text-xs text-[var(--color-text-secondary)]"><input type="checkbox" checked={agentCourse} onChange={(event) => setAgentCourse(event.target.checked)} /><ListChecks className="h-3.5 w-3.5 text-[var(--color-primary)]" />使用内置 Agent 课程自动排期；课程原文与练习资料始终只读。</label></div>
+    {preview && <div className="card p-4 text-sm"><div className="font-medium">计划预览 · 共 {preview.length} 天</div><p className="mt-1 text-xs text-[var(--color-text-secondary)]">确认前可继续调整目标、日期和每日时长。</p><ol className="mt-3 space-y-1 text-xs text-[var(--color-text-secondary)]">{preview.slice(0, 6).map((task) => <li key={task.id}>{task.date} · {task.title}</li>)}{preview.length > 6 && <li>…其余 {preview.length - 6} 天</li>}</ol></div>}
+    <p className="px-1 text-xs text-[var(--color-text-tertiary)]">提醒说明：应用打开时会在设定时间提示今日任务；若希望软件关闭后仍准时提醒，需要桌面端后台服务或系统级定时任务。</p>
+    {loading && <div className="card p-5 text-sm text-[var(--color-text-secondary)]">正在生成课程学习计划…</div>}
+    {groups.map(({ goal, tasks: plan }) => {
+      const done = plan.filter((task) => task.status === 'done').length;
+      const progress = plan.length ? Math.round(done / plan.length * 100) : 0;
+      const todayTask = plan.find((task) => task.date === today && task.status !== 'done');
+      const overdue = plan.filter((task) => task.date < today && task.status === 'todo');
+      return <section key={goal.id} className="card space-y-4 p-4"><div><div className="flex items-center gap-2"><h2 className="font-semibold">{goal.title}</h2>{goal.planKind === 'agent-course' && <span className="rounded-full bg-[var(--color-primary-light)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-primary)]">自动课程计划</span>}</div><p className="mt-1 text-xs text-[var(--color-text-secondary)]">每天约 {goal.dailyMinutes} 分钟 · 课程已自动拆为 {plan.length} 天 · 进度 {done}/{plan.length}</p></div><div className="h-1.5 overflow-hidden rounded-full bg-[var(--color-surface-2)]"><div className="h-full rounded-full bg-[var(--color-primary)] transition-all" style={{ width: `${progress}%` }} /></div>
+        {todayTask && <div className="rounded-lg border border-[var(--color-primary)]/30 bg-[var(--color-primary-light)]/30 px-3 py-2 text-sm"><span className="mr-2 text-xs font-semibold text-[var(--color-primary)]">今日任务</span>{todayTask.title}<span className="ml-2 text-xs text-[var(--color-text-secondary)]">约 {todayTask.minutes} 分钟</span></div>}
+        {overdue.length >= 2 && <div className="flex items-center justify-between rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-[var(--color-text-secondary)]"><span>连续有 {overdue.length} 项未完成任务，建议放慢节奏，避免计划积压。</span><button className="btn-secondary text-xs" onClick={() => void shiftOverdue(plan)}>自动顺延</button></div>}
+        <div className="space-y-2">{plan.map((task) => <article key={task.id} className="rounded-lg border border-[var(--color-border)] px-3 py-3 text-sm"><div className="flex gap-2"><span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${task.status === 'done' ? 'bg-emerald-500' : 'bg-[var(--color-primary)]'}`} /><div className="min-w-0 flex-1"><input className={`w-full bg-transparent font-medium outline-none ${task.status === 'done' ? 'text-[var(--color-text-tertiary)] line-through' : ''}`} value={task.title} onChange={(event) => void updatePlanTask(task, { title: event.target.value })} aria-label="任务标题" /><div className="mt-1 flex gap-2"><input className="w-28 bg-transparent text-xs text-[var(--color-text-secondary)]" type="date" value={task.date} onChange={(event) => void updatePlanTask(task, { date: event.target.value })} /><input className="w-16 bg-transparent text-xs text-[var(--color-text-secondary)]" type="number" min={5} value={task.minutes} onChange={(event) => void updatePlanTask(task, { minutes: Number(event.target.value) || task.minutes })} /><span className="text-xs text-[var(--color-text-secondary)]">分钟</span></div><p className="mt-2 text-xs text-[var(--color-text-secondary)]">{task.summary}</p><div className="mt-2 flex gap-1 text-xs">{(['reading', 'practice', 'review'] as const).map((stage) => <button key={stage} className={task.learningStage === stage ? 'btn-primary h-7 px-2' : 'btn-ghost h-7 px-2'} onClick={() => void updateLearningFeedback(task, { learningStage: stage })}>{stage === 'reading' ? '阅读' : stage === 'practice' ? '练习' : '复盘'}</button>)}</div><p className="mt-2 rounded-md bg-[var(--color-surface-2)] px-2 py-1.5 text-xs text-[var(--color-text-secondary)]"><b>课程练习（只读）：</b>{task.exercise}</p><textarea className="input-field mt-2 min-h-16 w-full text-xs" value={task.reflection ?? ''} onChange={(event) => void updateLearningFeedback(task, { reflection: event.target.value })} placeholder="写一句你的理解或疑问（可选）" /><p className="mt-2 text-xs text-[var(--color-text-secondary)]"><b>自测：</b>{task.quizPrompt}</p><input className="input-field mt-1 w-full text-xs" value={task.quizAnswer ?? ''} onChange={(event) => void updateLearningFeedback(task, { quizAnswer: event.target.value })} placeholder="写下你的答案（可选）" />{task.sourceRefs?.length ? <div className="mt-2 flex flex-wrap gap-2">{task.sourceRefs.map((source) => <a key={source.path} className="inline-flex items-center gap-1 text-xs text-[var(--color-primary)] hover:underline" href={source.sourceUrl} target="_blank" rel="noreferrer"><BookOpen className="h-3 w-3" />{source.title}</a>)}</div> : null}</div><button className="btn-ghost h-8 shrink-0 px-2 text-xs" onClick={() => void finish(task)} title="标记完成"><Check className="h-3.5 w-3.5" />{task.status === 'done' ? '已完成' : '完成'}</button></div></article>)}</div>
+      </section>;
+    })}
+  </div>;
 }

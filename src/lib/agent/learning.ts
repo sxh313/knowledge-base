@@ -1,4 +1,5 @@
 import { db, type LearningGoal, type LearningTask } from '../db/schema';
+import { buildAgentCourseTasks, loadAgentCourse } from './coursePlanner';
 
 export type { LearningGoal, LearningTask } from '../db/schema';
 
@@ -35,15 +36,15 @@ export async function listLearningGoals(): Promise<LearningGoal[]> {
   return goals.filter((goal) => !goal.deletedAt && goal.status !== 'completed').sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export async function createLearningGoal(input: Pick<LearningGoal, 'title' | 'dailyMinutes' | 'deadline' | 'level'>): Promise<LearningGoal> {
+export async function createLearningGoal(input: Pick<LearningGoal, 'title' | 'dailyMinutes' | 'deadline' | 'level'> & Partial<Pick<LearningGoal, 'planKind' | 'reminderEnabled' | 'reminderTime'>>): Promise<LearningGoal> {
   await migrateLegacyLearningData();
   const now = Date.now();
-  const goal: LearningGoal = { id: crypto.randomUUID(), title: input.title.trim(), dailyMinutes: Math.max(10, input.dailyMinutes || 30), deadline: input.deadline, level: input.level, status: 'active', createdAt: now, updatedAt: now };
+  const goal: LearningGoal = { id: crypto.randomUUID(), title: input.title.trim(), dailyMinutes: Math.max(10, input.dailyMinutes || 30), deadline: input.deadline, level: input.level, planKind: input.planKind ?? 'custom', reminderEnabled: input.reminderEnabled ?? false, reminderTime: input.reminderTime ?? '09:00', status: 'active', createdAt: now, updatedAt: now };
   await db.learningGoals.put(goal);
   return goal;
 }
 
-export async function updateLearningGoal(id: string, patch: Partial<Pick<LearningGoal, 'title' | 'dailyMinutes' | 'deadline' | 'level' | 'status'>>): Promise<LearningGoal | undefined> {
+export async function updateLearningGoal(id: string, patch: Partial<Pick<LearningGoal, 'title' | 'dailyMinutes' | 'deadline' | 'level' | 'status' | 'planKind' | 'totalTasks' | 'reminderEnabled' | 'reminderTime'>>): Promise<LearningGoal | undefined> {
   const goal = await db.learningGoals.get(id);
   if (!goal || goal.deletedAt) return undefined;
   const updated = { ...goal, ...patch, updatedAt: Date.now() };
@@ -74,7 +75,7 @@ export async function listLearningTasks(goalId?: string): Promise<LearningTask[]
   return tasks.filter((task) => !task.deletedAt).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-export async function updateLearningTask(id: string, patch: Partial<Pick<LearningTask, 'date' | 'title' | 'minutes' | 'status'>>): Promise<LearningTask | undefined> {
+export async function updateLearningTask(id: string, patch: Partial<Pick<LearningTask, 'date' | 'title' | 'minutes' | 'status' | 'learningStage' | 'reflection' | 'quizAnswer'>>): Promise<LearningTask | undefined> {
   const task = await db.learningTasks.get(id);
   if (!task || task.deletedAt) return undefined;
   const updated = { ...task, ...patch, updatedAt: Date.now() };
@@ -84,6 +85,46 @@ export async function updateLearningTask(id: string, patch: Partial<Pick<Learnin
 
 export async function createTasksForGoal(goal: LearningGoal, sourceIds: string[], topics: string[]): Promise<LearningTask[]> {
   return saveGoalTasks(buildGoalTasks(goal, sourceIds, topics));
+}
+
+export async function replaceTasksForGoal(goalId: string, tasks: LearningTask[]): Promise<LearningTask[]> {
+  await migrateLegacyLearningData();
+  const existing = await db.learningTasks.where('goalId').equals(goalId).toArray();
+  const now = Date.now();
+  const replacementIds = new Set(tasks.map((task) => task.id));
+  const retired = existing.filter((task) => !replacementIds.has(task.id) && task.status === 'todo').map((task) => ({ ...task, deletedAt: now, updatedAt: now }));
+  if (retired.length) await db.learningTasks.bulkPut(retired);
+  await db.learningTasks.bulkPut(tasks);
+  return tasks.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export async function createAgentCourseGoal(input: Pick<LearningGoal, 'title' | 'dailyMinutes' | 'deadline' | 'level'>): Promise<{ goal: LearningGoal; tasks: LearningTask[] }> {
+  const goal = await createLearningGoal({ ...input, planKind: 'agent-course', reminderEnabled: true, reminderTime: '09:00' });
+  const tasks = buildAgentCourseTasks(goal, await loadAgentCourse());
+  const plannedGoal = { ...goal, totalTasks: tasks.length, updatedAt: Date.now() };
+  await db.learningGoals.put(plannedGoal);
+  await replaceTasksForGoal(goal.id, tasks);
+  return { goal: plannedGoal, tasks };
+}
+
+export async function regenerateAgentCoursePlan(goal: LearningGoal): Promise<LearningTask[]> {
+  const tasks = buildAgentCourseTasks(goal, await loadAgentCourse());
+  const updatedGoal = { ...goal, planKind: 'agent-course' as const, totalTasks: tasks.length, reminderEnabled: goal.reminderEnabled ?? true, reminderTime: goal.reminderTime ?? '09:00', updatedAt: Date.now() };
+  await db.learningGoals.put(updatedGoal);
+  return replaceTasksForGoal(goal.id, tasks);
+}
+
+/** 将历史中以 Agent 为目标的旧计时计划升级为课程计划；没有计划时创建默认计划。 */
+export async function ensureAgentCoursePlan(): Promise<LearningGoal> {
+  const goals = await listLearningGoals();
+  const planned = goals.find((goal) => goal.planKind === 'agent-course');
+  if (planned) return planned;
+  const legacyAgentGoal = goals.find((goal) => /agent|智能体/i.test(goal.title));
+  if (legacyAgentGoal) {
+    await regenerateAgentCoursePlan(legacyAgentGoal);
+    return (await db.learningGoals.get(legacyAgentGoal.id))!;
+  }
+  return (await createAgentCourseGoal({ title: 'Agent 系统学习与复习', dailyMinutes: 30, level: '系统规划' })).goal;
 }
 
 export async function createTasksFromKnowledgeGaps(goal: LearningGoal, gaps: { concept: string; evidence?: string[] }[]): Promise<LearningTask[]> {

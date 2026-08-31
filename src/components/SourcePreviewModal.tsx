@@ -45,8 +45,8 @@ export default function SourcePreviewModal({ citation, onClose }: Props) {
       return () => { active = false; };
     }
 
-    if (citation.source === 'zero2agent') {
-      void fetch(`${import.meta.env.BASE_URL || '/'}zero2agent-kb.json`)
+    if (citation.source === 'zero2agent' || citation.source === 'zero2leetcode') {
+      void fetch(`${import.meta.env.BASE_URL || '/'}${citation.source}-kb.json`)
         .then((response) => response.json() as Promise<{ documents?: KBDocument[] }>)
         .then((data) => {
           if (!active) return;
@@ -74,13 +74,13 @@ export default function SourcePreviewModal({ citation, onClose }: Props) {
 
   if (!citation) return null;
   const heading = citation.headingPath?.join(' > ') || citation.heading || '正文片段';
-  const sourceUrl = citation.source === 'zero2agent' && citation.sourceUrl
+  const sourceUrl = (citation.source === 'zero2agent' || citation.source === 'zero2leetcode') && citation.sourceUrl
     ? `${citation.sourceUrl}${citation.sourceAnchor ? `#${citation.sourceAnchor}` : ''}`
     : citation.source === 'web' && isRetrieved(citation)
       ? citation.sourceUrl
       : undefined;
-  const localUrl = citation.source === 'zero2agent'
-    ? `/source/zero2agent?chunkId=${encodeURIComponent(citation.chunkId)}`
+  const localUrl = citation.source === 'zero2agent' || citation.source === 'zero2leetcode'
+    ? `/source/${citation.source}?chunkId=${encodeURIComponent(citation.chunkId)}`
     : isRetrieved(citation) ? citation.localUrl : undefined;
   const copy = async () => {
     await navigator.clipboard.writeText(content);
@@ -93,7 +93,7 @@ export default function SourcePreviewModal({ citation, onClose }: Props) {
         <div className="min-w-0"><div className="source-modal-kicker"><LocateFixed className="h-3.5 w-3.5" /> 回答依据</div><h2 id="source-preview-title" className="truncate">{citation.title}</h2><p className="truncate">{fullSource ? '完整原文' : heading}</p></div>
         <button ref={closeRef} className="btn-ghost h-9 w-9 p-0" onClick={onClose} aria-label="关闭" title="关闭" type="button"><X className="h-5 w-5" /></button>
       </header>
-      <div className="source-modal-meta"><span>{citation.source === 'zero2agent' ? 'zero2Agent 原文' : citation.source === 'web' ? '联网来源' : '个人文档'}</span>{citation.path && <span className="truncate">{citation.path}</span>}{isRetrieved(citation) && citation.offset?.start != null && <span>位置 {citation.offset.start}</span>}</div>
+      <div className="source-modal-meta"><span>{citation.source === 'zero2agent' ? 'zero2Agent 原文' : citation.source === 'zero2leetcode' ? '刷题知识库原文' : citation.source === 'web' ? '联网来源' : '个人文档'}</span>{citation.path && <span className="truncate">{citation.path}</span>}{isRetrieved(citation) && citation.offset?.start != null && <span>位置 {citation.offset.start}</span>}</div>
       <div className="source-modal-content"><div className="source-modal-highlight"><MarkdownContent>{content}</MarkdownContent></div></div>
       <footer className="source-modal-actions"><button className="btn-secondary text-xs" onClick={() => { setContent(fullSource ? matchedContent : content); setFullSource((value) => !value); }} disabled={!matchedContent || citation.source === 'web'} type="button">{fullSource ? '查看命中片段' : '查看完整原文'}</button><button className="btn-secondary text-xs" onClick={() => void copy()} type="button">{copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}{copied ? '已复制' : fullSource ? '复制完整原文' : '复制片段'}</button>{localUrl && <a className="btn-secondary text-xs" href={localUrl}>在来源页查看</a>}{sourceUrl && <a className="btn-primary text-xs" href={sourceUrl} target="_blank" rel="noreferrer"><ExternalLink className="h-3.5 w-3.5" />打开网页原文</a>}</footer>
     </section>

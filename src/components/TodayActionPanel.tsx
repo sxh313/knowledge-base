@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, Brain, Inbox, MessageSquare, Bot, RotateCcw } from 'lucide-react';
+import { ArrowRight, Brain, Inbox, MessageSquare, Bot, RotateCcw, GraduationCap } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { getCardsDueToday } from '../lib/db/cards';
 import { listDueTopicMastery } from '../lib/zero2review/repository';
 import type { JournalEntry } from '../lib/db/schema';
+import { ensureAgentCoursePlan, listLearningTasks, type LearningTask } from '../lib/agent/learning';
+import { learningLocalDate } from '../lib/agent/coursePlanner';
 
 interface Props { entries: JournalEntry[] }
 
@@ -11,12 +13,14 @@ interface Props { entries: JournalEntry[] }
 export default function TodayActionPanel({ entries }: Props) {
   const [dueCards, setDueCards] = useState(0);
   const [dueTopics, setDueTopics] = useState(0);
+  const [todayTask, setTodayTask] = useState<LearningTask | null>(null);
   useEffect(() => {
     let active = true;
-    void Promise.all([getCardsDueToday(), listDueTopicMastery()]).then(([cards, topics]) => {
+    void Promise.all([getCardsDueToday(), listDueTopicMastery(), ensureAgentCoursePlan().then((goal) => listLearningTasks(goal.id))]).then(([cards, topics, tasks]) => {
       if (!active) return;
       setDueCards(cards.length);
       setDueTopics(topics.length);
+      setTodayTask(tasks.find((task) => task.date === learningLocalDate() && task.status === 'todo') ?? null);
     }).catch(() => undefined);
     return () => { active = false; };
   }, []);
@@ -25,6 +29,7 @@ export default function TodayActionPanel({ entries }: Props) {
   const latest = entries.filter((entry) => !entry.deletedAt && entry.status !== 'inbox').sort((a, b) => b.updatedAt - a.updatedAt)[0];
   const reviewCount = dueCards + dueTopics;
   const cards = [
+    { to: '/learning', icon: GraduationCap, label: todayTask ? '开始今日学习' : '查看学习规划', detail: todayTask ? `${todayTask.title} · 约 ${todayTask.minutes} 分钟` : '课程计划已自动安排', tone: todayTask ? 'violet' : 'quiet', action: todayTask ? '开始学习' : '查看计划' },
     { to: '/inbox', icon: Inbox, label: '清空收集箱', detail: inboxCount ? `${inboxCount} 条素材待整理` : '收集箱今天是空的', tone: inboxCount ? 'warm' : 'quiet', action: inboxCount ? '去整理' : '添加素材' },
     { to: '/zero2-review', icon: Brain, label: '完成今日复习', detail: reviewCount ? `${reviewCount} 个主题或卡片到期` : '暂无到期内容，继续保持', tone: reviewCount ? 'violet' : 'quiet', action: reviewCount ? '开始复习' : '查看教练' },
     { to: latest ? `/edit/${latest.id}` : '/edit/new', icon: RotateCcw, label: latest ? '继续上次学习' : '写下第一条笔记', detail: latest ? latest.title || '无标题文档' : '把今天学到的东西留下来', tone: 'blue', action: latest ? '继续编辑' : '开始记录' },

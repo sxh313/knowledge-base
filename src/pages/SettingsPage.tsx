@@ -13,7 +13,7 @@ import SyncSettingsSection from '../components/settings/SyncSettingsSection';
 import AIModelCenter from '../components/settings/AIModelCenter';
 import SettingsSelect from '../components/settings/SettingsSelect';
 import DesktopUpdater from '../components/DesktopUpdater';
-import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck, ArrowUp, ArrowDown, GripVertical, Bot } from 'lucide-react';
+import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck, ArrowUp, ArrowDown, GripVertical, Bot, Pencil, Trash2 } from 'lucide-react';
 import { describeConnectionError } from '../lib/ai/connectionError';
 import { searchAndFetchWeb } from '../lib/ai/webSearch';
 import { resolveAIBaseUrl } from '../lib/ai/localProxy';
@@ -68,7 +68,7 @@ export default function SettingsPage() {
   const [apiTestResults, setApiTestResults] = useState<Record<string, ApiTestResult>>({});
   const [webSearchTest, setWebSearchTest] = useState<ApiTestResult>({ status: 'waiting', msg: '' });
   const [manualModel, setManualModel] = useState<Record<string, string>>({});
-  const [localModelDraft, setLocalModelDraft] = useState({ name: '', modelId: '' });
+  const [localModelDraft, setLocalModelDraft] = useState({ name: '', modelId: '', baseUrl: '', apiKey: '' });
   const [showLocalModelDraft, setShowLocalModelDraft] = useState(false);
   const { doSync, status: syncStatus, pullOnly, message: syncErrorMessage } = useSyncStore();
   const [openProvider, setOpenProvider] = useState<ProviderName | null>(null);
@@ -85,6 +85,8 @@ export default function SettingsPage() {
   const { needRefresh, checking, lastCheckAt, markChecked, setChecking } = useUpdateStore();
   const [checkMsg, setCheckMsg] = useState<string | null>(null);
   const [draggingProvider, setDraggingProvider] = useState<ProviderName | null>(null);
+  const [renamingProvider, setRenamingProvider] = useState<ProviderName | null>(null);
+  const [providerNameDraft, setProviderNameDraft] = useState('');
   const [advancedSettings, setAdvancedSettings] = useState(() => localStorage.getItem('settings-advanced') === '1');
 
   const handleCheckUpdate = async () => {
@@ -117,7 +119,8 @@ export default function SettingsPage() {
   useEffect(() => {
     if (providerOpenInitialized.current || !localProviders) return;
     providerOpenInitialized.current = true;
-    const firstEnabled = PROVIDER_INFO.find(({ key }) => localProviders[key]?.enabled);
+    const removed = new Set(settings?.removedProviders ?? []);
+    const firstEnabled = PROVIDER_INFO.find(({ key }) => !removed.has(key) && localProviders[key]?.enabled);
     if (firstEnabled) setOpenProvider(firstEnabled.key);
   }, [localProviders]);
 
@@ -170,7 +173,7 @@ export default function SettingsPage() {
   };
 
   const handleTestAllProviders = async () => {
-    for (const { key } of PROVIDER_INFO) await handleTestProvider(key);
+    for (const { key } of orderedProviders) await handleTestProvider(key);
   };
 
   const handleTestWebSearch = async () => {
@@ -281,8 +284,16 @@ export default function SettingsPage() {
       availableModels: { ...available, local: providerModels.includes(modelId) ? providerModels : [...providerModels, modelId] },
       selectedModels: current.includes(key) ? current : [...current, key],
       modelLabels: { ...(settings.modelLabels ?? {}), [key]: label },
+      localModelConfigs: {
+        ...(settings.localModelConfigs ?? {}),
+        [key]: {
+          displayName: label,
+          baseUrl: localModelDraft.baseUrl.trim() || localProviders.local.baseUrl || DEFAULT_BASE_URLS.local,
+          apiKey: localModelDraft.apiKey.trim(),
+        },
+      },
     });
-    setLocalModelDraft({ name: '', modelId: '' });
+    setLocalModelDraft({ name: '', modelId: '', baseUrl: '', apiKey: '' });
     setShowLocalModelDraft(false);
   };
   const removeModel = (model: string) => {
@@ -311,6 +322,49 @@ export default function SettingsPage() {
     order.splice(to, 0, draggingProvider);
     update({ providerOrder: order });
     setDraggingProvider(null);
+  };
+
+  const startRenameProvider = (key: ProviderName, fallbackName: string) => {
+    setRenamingProvider(key);
+    setProviderNameDraft(settings.providerLabels?.[key] || fallbackName);
+  };
+
+  const saveProviderName = (key: ProviderName) => {
+    const name = providerNameDraft.trim();
+    const providerLabels = { ...(settings.providerLabels ?? {}) };
+    if (name) providerLabels[key] = name;
+    else delete providerLabels[key];
+    void update({ providerLabels });
+    setRenamingProvider(null);
+  };
+
+  const deleteProvider = (key: ProviderName, fallbackName: string) => {
+    const displayName = settings.providerLabels?.[key] || fallbackName;
+    if (!window.confirm(`确定删除“${displayName}”吗？该服务的模型和角色绑定也会被移除。`)) return;
+
+    const removedProviders = Array.from(new Set([...(settings.removedProviders ?? []), key]));
+    const defaultOrder: ProviderName[] = ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek', 'local'];
+    const providerOrder = (settings.providerOrder ?? defaultOrder).filter((provider) => provider !== key);
+    const modelIds = new Set((settings.availableModels?.[key] ?? []).map((model) => key === 'local' ? `local/${model}` : model));
+    const selectedModels = (settings.selectedModels ?? []).filter((model) => !modelIds.has(model));
+    const availableModels = { ...(settings.availableModels ?? {}) };
+    delete availableModels[key];
+
+    const removedProfileIds = new Set((settings.modelProfiles ?? [])
+      .filter((profile) => profile.id.startsWith(`api:${key}:`))
+      .map((profile) => profile.id));
+    const modelProfiles = (settings.modelProfiles ?? []).filter((profile) => !removedProfileIds.has(profile.id));
+    const modelBindings = { ...(settings.modelBindings ?? {}) } as Partial<NonNullable<typeof settings.modelBindings>>;
+    for (const bindingKey of Object.keys(modelBindings)) {
+      const bindingValue = modelBindings[bindingKey as keyof typeof modelBindings];
+      if (bindingValue && removedProfileIds.has(bindingValue)) {
+        delete modelBindings[bindingKey as keyof typeof modelBindings];
+      }
+    }
+    const providerLabels = { ...(settings.providerLabels ?? {}) };
+    delete providerLabels[key];
+    if (openProvider === key) setOpenProvider(null);
+    void update({ removedProviders, providerOrder, selectedModels, availableModels, modelProfiles, modelBindings: modelBindings as NonNullable<typeof settings.modelBindings>, providerLabels });
   };
 
   // 隐藏浏览器原生拖动副本，排序只由卡片在纵向列表中的位置决定。
@@ -388,13 +442,15 @@ export default function SettingsPage() {
     }
   };
 
+  const removedProviders = new Set(settings.removedProviders ?? []);
   const orderedProviders = (settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek', 'local'])
+    .filter((key) => !removedProviders.has(key))
     .map((key) => PROVIDER_INFO.find((provider) => provider.key === key))
     .filter((provider): provider is typeof PROVIDER_INFO[number] => Boolean(provider));
 
   return (
     <div className="settings-layout w-full p-1 sm:p-3">
-      <main className="min-w-0 space-y-5 sm:space-y-7">
+      <main className="settings-main min-w-0 space-y-5 sm:space-y-7">
       <header className="page-hero !items-start !flex-col !gap-0">
         <h1 className="text-2xl font-bold">设置</h1>
         <div className="mt-3 flex w-full flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5">
@@ -418,6 +474,7 @@ export default function SettingsPage() {
         </div>
         {orderedProviders.map(({ key, label, desc }) => {
           const prov = localProviders[key];
+          const displayLabel = settings.providerLabels?.[key] || label;
           const models = settings.availableModels?.[key] ?? [];
           const isRefreshing = refreshing[key];
           const msg = refreshMsg[key];
@@ -441,12 +498,45 @@ export default function SettingsPage() {
                   onDragStart={(event) => startProviderDrag(event, key)}
                   title="拖动此处调整服务优先级"
                 >
-                  <div>
-                    <h3 className="font-medium">{label}</h3>
+                  <div className="min-w-0">
+                    {renamingProvider === key ? (
+                      <input
+                        autoFocus
+                        value={providerNameDraft}
+                        onChange={(event) => setProviderNameDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') saveProviderName(key);
+                          if (event.key === 'Escape') setRenamingProvider(null);
+                        }}
+                        onBlur={() => saveProviderName(key)}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        className="input-field h-8 w-48 px-2 text-sm font-medium"
+                        aria-label="服务名称"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        className="group flex items-center gap-1 text-left"
+                        onClick={() => startRenameProvider(key, displayLabel)}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        title="点击修改服务名称"
+                      >
+                        <h3 className="font-medium">{displayLabel}</h3>
+                        <Pencil className="h-3 w-3 text-transparent transition-colors group-hover:text-[var(--color-text-tertiary)]" />
+                      </button>
+                    )}
                     <p className="text-xs text-gray-400">{desc}</p>
                   </div>
                 </div>
                 <div className="provider-card-actions">
+                  <button
+                    className="btn-ghost h-8 whitespace-nowrap px-2 text-xs text-red-400 hover:text-red-300"
+                    type="button"
+                    onClick={() => deleteProvider(key, label)}
+                    title={`删除${displayLabel}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> 删除
+                  </button>
                   {(() => {
                     const result = apiTestResults[key] ?? { status: 'waiting' as const, msg: '未测试' };
                     return <span className={`flex min-w-0 items-center gap-1 text-[11px] ${statusTextClass(result.status)}`}><StatusMark status={result.status} /><span className="hidden max-w-24 truncate sm:inline">{result.msg}</span></span>;
@@ -507,12 +597,18 @@ export default function SettingsPage() {
                     )}
                   </div>
                   {key === 'local' && showLocalModelDraft && (
-                    <div className="grid grid-cols-1 gap-2 rounded-lg bg-[var(--color-surface-2)]/55 p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                    <div className="grid grid-cols-1 gap-2 rounded-lg bg-[var(--color-surface-2)]/55 p-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
                       <label className="text-xs text-[var(--color-text-secondary)]">显示名称
                         <input className="input-field mt-1 text-xs" value={localModelDraft.name} onChange={(e) => setLocalModelDraft((draft) => ({ ...draft, name: e.target.value }))} placeholder="例如：我的 DeepSeek" />
                       </label>
                       <label className="text-xs text-[var(--color-text-secondary)]">模型 ID
                         <input className="input-field mt-1 text-xs font-mono" value={localModelDraft.modelId} onChange={(e) => setLocalModelDraft((draft) => ({ ...draft, modelId: e.target.value }))} placeholder="例如：llama3.2" />
+                      </label>
+                      <label className="text-xs text-[var(--color-text-secondary)]">API 地址
+                        <input className="input-field mt-1 text-xs font-mono" value={localModelDraft.baseUrl} onChange={(e) => setLocalModelDraft((draft) => ({ ...draft, baseUrl: e.target.value }))} placeholder="例如：http://127.0.0.1:1234/v1" />
+                      </label>
+                      <label className="text-xs text-[var(--color-text-secondary)]">API Key（可选）
+                        <input type="password" className="input-field mt-1 text-xs font-mono" value={localModelDraft.apiKey} onChange={(e) => setLocalModelDraft((draft) => ({ ...draft, apiKey: e.target.value }))} placeholder="本地服务可留空" />
                       </label>
                       <button className="btn-primary text-xs" type="button" onClick={addLocalModel} disabled={!localModelDraft.modelId.trim()}><Plus className="h-3 w-3" /> 添加</button>
                     </div>
@@ -889,7 +985,7 @@ export default function SettingsPage() {
         API Key 由当前设备保存，安装包不内置共享密钥；笔记数据默认本地，仅在启用云同步时推送到你自己的 GitHub 仓库
       </div>
       </main>
-      <aside className="sticky top-3 hidden lg:block">
+      <aside className="settings-sidebar sticky top-3 hidden lg:block">
         <nav aria-label="设置分区" className="card !p-2">
           <p className="mb-2 px-2 text-sm font-semibold text-[var(--color-text-tertiary)]">设置导航</p>
           {[

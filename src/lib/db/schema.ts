@@ -95,7 +95,7 @@ export interface KnowledgeEdge {
 }
 
 export interface PersistedCitation {
-  source: 'personal' | 'zero2agent' | 'web';
+  source: 'personal' | 'zero2agent' | 'zero2leetcode' | 'web';
   sourceId: string;
   chunkId: string;
   offset?: { start: number; end: number };
@@ -163,6 +163,13 @@ export interface AIModelProfile {
   apiKey: string;
   enabled: boolean;
   dimension?: number;
+}
+
+/** 本地服务中每个模型的独立连接配置。键为 local/<modelId>。 */
+export interface LocalModelConfig {
+  displayName: string;
+  baseUrl: string;
+  apiKey: string;
 }
 
 export interface AIModelBindings {
@@ -244,12 +251,18 @@ export interface AppSettings {
   selectedModels: string[];
   /** 本地模型的用户自定义显示名称，键为 local/<modelId>。 */
   modelLabels?: Record<string, string>;
+  /** 本地模型的独立地址与 Key，键为 local/<modelId>；未配置时回退到服务级配置。 */
+  localModelConfigs?: Record<string, LocalModelConfig>;
   theme: 'light' | 'dark' | 'auto';
   reviewDailyGoal: number;   // cards per day
   /** 云同步配置（GitHub） */
   sync?: SyncConfig;
   /** AI provider 优先级顺序（用户可自定义排序；缺省时按内置顺序） */
   providerOrder?: ProviderName[];
+  /** API 服务的自定义显示名称。 */
+  providerLabels?: Partial<Record<ProviderName, string>>;
+  /** 用户删除的内置 API 服务，避免刷新设置后重新出现。 */
+  removedProviders?: ProviderName[];
   /** 独立模型中心；与旧的 provider 配置并存，逐步迁移不破坏旧用户设置。 */
   modelProfiles?: AIModelProfile[];
   /** 各业务角色实际绑定的模型配置。 */
@@ -543,6 +556,10 @@ export interface LearningGoal {
   deadline?: string;
   dailyMinutes: number;
   level?: string;
+  planKind?: 'custom' | 'agent-course';
+  totalTasks?: number;
+  reminderEnabled?: boolean;
+  reminderTime?: string;
   status: 'active' | 'paused' | 'completed';
   createdAt: number;
   updatedAt: number;
@@ -556,6 +573,14 @@ export interface LearningTask {
   title: string;
   minutes: number;
   sourceIds: string[];
+  sourceRefs?: { title: string; path: string; sourceUrl?: string; localPath?: string }[];
+  summary?: string;
+  exercise?: string;
+  learningStage?: 'reading' | 'practice' | 'review' | 'done';
+  reflection?: string;
+  quizPrompt?: string;
+  quizAnswer?: string;
+  order?: number;
   status: 'todo' | 'done' | 'skipped';
   createdAt: number;
   updatedAt: number;

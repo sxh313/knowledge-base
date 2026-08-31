@@ -21,7 +21,7 @@ import { useViewModeStore } from '../stores/viewModeStore';
 import type { AIConversation } from '../lib/db/schema';
 import CitationList from '../components/CitationList';
 import MarkdownContent from '../components/MarkdownContent';
-import { Save, Plus, Trash2, PanelLeft, Bot, SlidersHorizontal, Send, Copy, Pencil, Download, BookOpen, Compass, FileText, Target, Globe2 } from 'lucide-react';
+import { Save, Plus, Trash2, PanelLeft, Bot, SlidersHorizontal, Send, Copy, Pencil, Download, BookOpen, Compass, FileText, Target, Globe2, Code2 } from 'lucide-react';
 import { explainWebSearchDecision, formatWebContextForPrompt, retrieveWeb } from '../lib/ai/webRetrieval';
 import { formatSearchContextForPrompt, readSearchAIContext, searchContextToChunks, type SearchAIContext } from '../lib/ai/searchContext';
 import { IconButton, Textarea } from '../components/ui';
@@ -54,6 +54,7 @@ function parseScope(s: string): KnowledgeScope {
   if (s === 'none') return { kind: 'none' };
   if (s === 'zero2agent') return { kind: 'zero2agent' };
   if (s === 'zero2agent-interview') return { kind: 'zero2agent', pathPrefix: 'learn-agent-interview/' };
+  if (s === 'zero2leetcode') return { kind: 'zero2leetcode' };
   if (s === 'all') return { kind: 'combined' };
   if (s === 'personal' || !s) return { kind: 'personal' };
   if (s.startsWith('subject:')) return { kind: 'subject', subject: decodeURIComponent(s.slice(8)) };
@@ -251,7 +252,7 @@ export default function AIChat() {
       } catch { newCitations = []; }
       // 课程入口统一使用混合回答：优先引用课程，课程片段不足时允许模型明确补充自身知识。
       // 否则只要召回到一条弱相关课程片段，旧 strict 状态就会再次禁止模型回答常识。
-      const promptMode: RAGAnswerMode = scope.kind === 'zero2agent' ? 'hybrid' : ragMode;
+      const promptMode: RAGAnswerMode = scope.kind === 'zero2agent' || scope.kind === 'zero2leetcode' ? 'hybrid' : ragMode;
       sysPrefix = buildRAGSystemPrompt(formatContextForPrompt(newCitations), newCitations.length > 0, promptMode);
     }
     const webSettings = settings?.webSearch;
@@ -309,11 +310,11 @@ export default function AIChat() {
         setReasoningContent((current) => current + token);
       };
       const enableThinking = userText.length > 80 || /(为什么|如何|比较|区别|分析|方案|推理|多跳|权衡|设计)/.test(userText);
-      const hasCourseSources = newCitations.some((chunk) => chunk.source === 'zero2agent');
+      const hasCourseSources = newCitations.some((chunk) => chunk.source === 'zero2agent' || chunk.source === 'zero2leetcode');
       // 课程库入口也允许模型补充自身知识；课程/网页上下文仍会通过 sysPrefix 提供给模型。
       // 这样即使课程召回为空或只有弱相关片段，也不会直接返回“无法回答”。
       const allowStrictCourse = false;
-      if (scope.kind === 'zero2agent' && hasCourseSources && !newCitations.some((chunk) => chunk.source === 'web') && allowStrictCourse) {
+      if ((scope.kind === 'zero2agent' || scope.kind === 'zero2leetcode') && hasCourseSources && !newCitations.some((chunk) => chunk.source === 'web') && allowStrictCourse) {
         // 课程知识库使用真实 SSE；回答完成后再校验引用白名单。
         setIsGroundedStreaming(true);
         useAIStore.setState({ stage: 'generating', streamingContent: '' });
@@ -381,7 +382,7 @@ export default function AIChat() {
           useAIStore.setState({ streamingContent: '' });
         }
       }
-      if (scope.kind !== 'zero2agent' && scope.kind !== 'none') {
+      if (scope.kind !== 'zero2agent' && scope.kind !== 'zero2leetcode' && scope.kind !== 'none') {
         const validated = validateRAGAnswer(finalContent, newCitations, ragMode);
         finalContent = validated.answer;
         newCitations = validated.citations;
@@ -623,6 +624,7 @@ export default function AIChat() {
               { value: 'personal', label: '自己的文档', icon: <BookOpen className="h-3.5 w-3.5" /> },
               { value: 'zero2agent-interview', label: '面试题库', icon: <Target className="h-3.5 w-3.5" /> },
               { value: 'zero2agent', label: '完整课程', icon: <Compass className="h-3.5 w-3.5" /> },
+              { value: 'zero2leetcode', label: '刷题知识库', icon: <Code2 className="h-3.5 w-3.5" /> },
               { value: 'all', label: '全部知识库', icon: <FileText className="h-3.5 w-3.5" /> },
               { value: 'none', label: '不使用知识库', icon: <Globe2 className="h-3.5 w-3.5" /> },
               ...subjects.map((s) => ({ value: `subject:${encodeURIComponent(s)}`, label: s, icon: <FileText className="h-3.5 w-3.5" />, group: '按分类' })),
@@ -630,7 +632,7 @@ export default function AIChat() {
               ...recentDocs.map((d) => ({ value: `doc:${d.id}`, label: d.title || '无标题', icon: <FileText className="h-3.5 w-3.5" />, group: '指定文档' })),
             ]}
           />
-          {scopeStr !== 'zero2agent' && scopeStr !== 'zero2agent-interview' && (
+          {scopeStr !== 'zero2agent' && scopeStr !== 'zero2agent-interview' && scopeStr !== 'zero2leetcode' && (
             <Select ariaLabel="选择知识库回答模式" className={`${showAnswerSettings ? 'flex' : 'hidden md:flex'} w-[120px] shrink-0`} size="compact" placement="up" value={ragMode} onChange={(value) => changeRagMode(value as RAGAnswerMode)} options={[{ value: 'strict', label: '仅使用知识库', description: '资料不足时明确说明' }, { value: 'hybrid', label: '知识库 + 常识', description: '允许补充通用知识' }]} />
           )}
           </div>
