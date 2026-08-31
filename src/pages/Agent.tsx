@@ -445,7 +445,7 @@ export default function Agent() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { messages, isProcessing, error, run, applyPending, cancelPending, undoLast, undoRunById, clear,
-    sessionId, sessions, runs, initialized, init, newSession, loadSession, renameSession, setSessionStatus, deleteSession } = useAgentStore();
+    sessionId, sessions, runs, initialized, init, newSession, loadSession, renameSession, setSessionStatus, deleteSession, deleteAllSessions } = useAgentStore();
   const { loadAll } = useJournalStore();
   const { isMobile } = useViewModeStore();
   const [input, setInput] = useState('');
@@ -605,6 +605,11 @@ export default function Agent() {
       setApproved(new Set());
     }
   };
+  const handleDeleteAllSessions = async () => {
+    if (!sessions.length || !confirm('确定删除全部 Agent 历史？此操作不可恢复。')) return;
+    await deleteAllSessions();
+    setApproved(new Set());
+  };
 
   const RUN_STATUS_META: Record<string, { label: string; color: string }> = {
     planned: { label: '待确认', color: 'text-amber-600' },
@@ -634,9 +639,10 @@ export default function Agent() {
       <aside className={`${isMobile ? 'absolute inset-y-0 left-0 z-30 w-[84vw] max-w-[280px] shadow-xl' : 'w-64'} shrink-0 flex flex-col ${showSessions ? '' : 'hidden'} agent-workspace-sidebar`}>
         <div className="soft-divider flex items-center justify-between p-3">
           <span className="text-xs font-medium text-[var(--color-text-secondary)]">对话历史</span>
-          <button className="btn-ghost p-1" onClick={toggleSessions} title="隐藏会话列表" aria-label="隐藏会话列表" type="button">
-            <PanelLeft className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button className="btn-ghost p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)]" onClick={handleDeleteAllSessions} title="清空全部历史" aria-label="清空全部历史" type="button"><Trash2 className="h-3.5 w-3.5" /></button>
+            <button className="btn-ghost p-1" onClick={toggleSessions} title="隐藏会话列表" aria-label="隐藏会话列表" type="button"><PanelLeft className="h-4 w-4" /></button>
+          </div>
         </div>
         <button className="m-2 btn-primary text-xs flex items-center justify-center gap-1" onClick={handleNewSession} title="新建对话" type="button">
           <Plus className="h-3.5 w-3.5" /> 新建对话

@@ -236,7 +236,7 @@ export default function MarkdownContent({ components, citationItems = [], childr
   }, [preview]);
   return <>
     <div className="answer-markdown prose-custom">
-      <ReactMarkdown {...props} remarkPlugins={[remarkGfm]} urlTransform={safeUrlTransform} children={typeof children === 'string' ? linkCitations(normalizeAIResponseMarkdown(children)) : children} components={{
+      <ReactMarkdown {...props} remarkPlugins={[remarkGfm]} urlTransform={safeUrlTransform} children={typeof children === 'string' ? linkCitations(normalizeAIResponseMarkdown(children).replace(/^\s*\*?\s*\(?注[：:].*?\)?\s*\*?\s*$/gm, '')) : children} components={{
         ...components,
         pre: CodeBlock,
         a: ({ href, children: linkChildren, ...rest }) => {
