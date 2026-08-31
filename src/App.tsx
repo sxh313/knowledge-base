@@ -7,6 +7,7 @@ import { useThemeStore } from './stores/themeStore';
 import { useSyncStore } from './stores/syncStore';
 import { buildSearchIndex } from './lib/search/fuse';
 import { ensureIndexesRebuilt } from './lib/db/queries';
+import { checkDailyLearningReminder } from './lib/agent/learningReminder';
 
 import Layout from './components/Layout';
 import CommandPalette from './components/CommandPalette';
@@ -76,6 +77,12 @@ export default function App() {
       clearTimeout(t);
     };
   }, [syncEnabled, doSync]);
+
+  useEffect(() => {
+    void checkDailyLearningReminder().catch(() => undefined);
+    const timer = window.setInterval(() => { void checkDailyLearningReminder().catch(() => undefined); }, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
 
   // Ctrl+K 打开命令面板；Ctrl+F 在非编辑器页面也打开命令面板（编辑器内 Ctrl+F 由查找替换栏接管）
@@ -147,6 +154,7 @@ export default function App() {
           <Route path="/learning" element={<LearningGoals />} />
           <Route path="/zero2-review" element={<Zero2Review />} />
           <Route path="/source/zero2agent" element={<Zero2Source />} />
+          <Route path="/source/zero2leetcode" element={<Zero2Source knowledgeBase="zero2leetcode" />} />
           <Route path="/search" element={<SearchResultsPage />} />
           <Route path="/trash" element={<Trash />} />
         </Route>

@@ -538,8 +538,8 @@ export default function JournalEditor() {
             />
           </div>
         )}
-        <div className="flex-1 overflow-y-auto">
-          <div className="editor-reading-column mx-auto w-full max-w-[900px] px-4 py-5 sm:px-7 sm:py-7 lg:px-10">
+        <div className="editor-document-scroll flex-1 overflow-y-auto">
+          <div className="editor-reading-column mx-auto w-full max-w-[1120px] px-4 py-5 sm:px-7 sm:py-7 lg:px-12 lg:py-10">
             {/* 标题 */}
             <textarea
               ref={titleRef}

@@ -1,7 +1,7 @@
 {
   "name": "knowledge-base",
   "private": true,
-  "version": "1.6.17",
+  "version": "1.6.18",
   "description": "本地优先的 AI 学习笔记与知识管理应用",
   "type": "module",
   "main": "electron/main.cjs",
@@ -14,6 +14,7 @@
     "test:acceptance": "vitest run src/lib/evals/acceptance.test.ts src/lib/agent/acceptance.test.ts",
     "generate:zero2agent": "node scripts/generate-zero2agent-kb.mjs",
     "generate:zero2agent-embeddings": "node scripts/generate-zero2agent-embeddings.mjs",
+    "generate:zero2leetcode": "node scripts/generate-zero2leetcode-kb.mjs",
     "test:watch": "vitest",
     "deploy": "bash deploy.sh",
     "auto-deploy": "bash auto-deploy.sh",

@@ -107,19 +107,20 @@ export default function AIModelCenter({ settings, onUpdate }: Props) {
       for (const modelId of modelIds ?? []) {
         const selectedId = provider === 'local' ? `local/${modelId}` : modelId;
         if (!selectedModels.has(selectedId)) continue;
+        const localConfig = provider === 'local' ? settings.localModelConfigs?.[selectedId] : undefined;
         result.push({
           id: serviceProfileId(provider, modelId),
-          name: `${PROVIDER_LABELS[provider] ?? provider} · ${modelId}`,
+          name: localConfig?.displayName || `${PROVIDER_LABELS[provider] ?? provider} · ${modelId}`,
           kind: isEmbeddingModel(modelId) ? 'embedding' : 'chat',
-          baseUrl: providerConfig.baseUrl,
+          baseUrl: localConfig?.baseUrl || providerConfig.baseUrl,
           modelId,
-          apiKey: providerConfig.apiKey,
+          apiKey: localConfig?.apiKey || providerConfig.apiKey,
           enabled: providerConfig.enabled,
         });
       }
     }
     return result;
-  }, [settings.availableModels, settings.aiProviders, settings.selectedModels]);
+  }, [settings.availableModels, settings.aiProviders, settings.selectedModels, settings.localModelConfigs]);
   const rerankerProfile = serviceProfiles.find((profile) => profile.id === bindings.rerankerModelId && profile.kind === 'chat');
   const updateBinding = (key: keyof AIModelBindings, value: string) => {
     const selected = serviceProfiles.find((profile) => profile.id === value);

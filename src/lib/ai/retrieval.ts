@@ -13,6 +13,7 @@ export type KnowledgeScope =
   | { kind: 'all' } // 兼容旧调用：仅个人文档
   | { kind: 'personal' }
   | { kind: 'zero2agent'; module?: string; pathPrefix?: string }
+  | { kind: 'zero2leetcode'; module?: string; pathPrefix?: string }
   | { kind: 'combined' }
   | { kind: 'none' }
   | { kind: 'subject'; subject: string }
@@ -20,7 +21,7 @@ export type KnowledgeScope =
   | { kind: 'doc'; journalId: string };
 
 export interface RetrievedChunk {
-  source: 'personal' | 'zero2agent' | 'web';
+  source: 'personal' | 'zero2agent' | 'zero2leetcode' | 'web';
   sourceId: string;
   chunkId: string;
   offset?: { start: number; end: number };
@@ -63,6 +64,7 @@ interface Zero2AgentBundle {
 }
 
 let zero2AgentBundlePromise: Promise<Zero2AgentBundle> | null = null;
+let zero2LeetcodeBundlePromise: Promise<Zero2AgentBundle> | null = null;
 interface Zero2AgentEmbeddingIndex {
   model?: string;
   dimension?: number;
@@ -162,6 +164,22 @@ function scoreText(haystack: string, terms: string[]): number {
   }, 0);
 }
 
+function zero2LeetcodeBundle(): Promise<Zero2AgentBundle> {
+  if (!zero2LeetcodeBundlePromise) {
+    const url = `${import.meta.env.BASE_URL || '/'}zero2leetcode-kb.json`;
+    zero2LeetcodeBundlePromise = fetch(url)
+      .then((response) => {
+        if (!response.ok) throw new Error(`zero2Leetcode 索引加载失败: ${response.status}`);
+        return response.json() as Promise<Zero2AgentBundle>;
+      })
+      .catch((error) => {
+        zero2LeetcodeBundlePromise = null;
+        throw error;
+      });
+  }
+  return zero2LeetcodeBundlePromise;
+}
+
 function matchedTermCount(text: string, terms: string[]): number {
   const lower = (text || '').toLowerCase();
   return terms.reduce((count, term) => count + (lower.includes(term) ? 1 : 0), 0);
@@ -172,6 +190,7 @@ export async function getCandidateJournals(scope: KnowledgeScope): Promise<Journ
   switch (scope.kind) {
     case 'none':
     case 'zero2agent':
+    case 'zero2leetcode':
       return [];
     case 'subject': return all.filter((j) => j.subject === scope.subject);
     case 'tag': return all.filter((j) => (j.tags ?? []).includes(scope.tag));
@@ -284,13 +303,13 @@ function selectPerDocument(chunks: RetrievedChunk[], topK: number): RetrievedChu
   return selected;
 }
 
-async function retrieveZero2Agent(question: string, topK: number, scope: Extract<KnowledgeScope, { kind: 'zero2agent' }> = { kind: 'zero2agent' }, keywordOnly = false, retrievalQuery?: string): Promise<RetrievedChunk[]> {
+async function retrieveBuiltInKnowledge(question: string, topK: number, source: 'zero2agent' | 'zero2leetcode', scope: { module?: string; pathPrefix?: string } = {}, keywordOnly = false, retrievalQuery?: string): Promise<RetrievedChunk[]> {
   const settings = await getSettings();
   const retrievalSettings = getRetrievalSettings(settings);
   const rewritten = retrievalQuery ?? await buildRetrievalQuery(question, retrievalSettings.queryRewriteEnabled);
   const terms = extractTerms(`${question} ${rewritten}`);
   if (!terms.length) return [];
-  const bundle = await zero2AgentBundle();
+  const bundle = await (source === 'zero2agent' ? zero2AgentBundle() : zero2LeetcodeBundle());
   const docs = bundle.documents ?? [];
   // 倒排索引只负责缩小候选范围；最终相关性仍由下面的完整字段打分决定。
   // 使用并集可避免中文分词/改写不完整导致漏召回，索引不可用时回退旧逻辑。
@@ -320,12 +339,12 @@ async function retrieveZero2Agent(question: string, topK: number, scope: Extract
       if (matchedTerms < Math.min(2, terms.length)) continue;
       const score = scoreText(section.content, terms) + scoreText(section.question ?? '', terms) * 4 + scoreText(section.heading ?? '', terms) * 2 + scoreText(doc.title, terms) * 3 + scoreText(doc.module, terms);
       const sourceAnchor = section.anchor || (section.heading ? section.heading.toLowerCase().replace(/[^\p{Letter}\p{Number}\s-]/gu, '').replace(/\s+/g, '-') : undefined);
-      scored.push({ source: 'zero2agent', sourceId: doc.id, chunkId, offset: { start: section.startOffset, end: section.startOffset + section.content.length }, knowledgeDocId: doc.id, title: doc.title, heading: section.heading, headingPath: section.headingPath, question: section.question, unitType: section.unitType, content: section.content, score, confidence: Math.min(0.99, score / Math.max(1, terms.length * 3)), path: doc.path, module: doc.module, sourceUrl: doc.sourceUrl, localPath: doc.localPath, sourceAnchor, localUrl: `/source/zero2agent?chunkId=${encodeURIComponent(chunkId)}` });
+      scored.push({ source, sourceId: doc.id, chunkId, offset: { start: section.startOffset, end: section.startOffset + section.content.length }, knowledgeDocId: doc.id, title: doc.title, heading: section.heading, headingPath: section.headingPath, question: section.question, unitType: section.unitType, content: section.content, score, confidence: Math.min(0.99, score / Math.max(1, terms.length * 3)), path: doc.path, module: doc.module, sourceUrl: doc.sourceUrl, localPath: doc.localPath, sourceAnchor, localUrl: `/source/${source}?chunkId=${encodeURIComponent(chunkId)}` });
     }
   }
   let queryVector: number[] | null = null;
   let vectorByChunk = new Map<string, number[]>();
-  if (!keywordOnly && retrievalSettings.vectorEnabled && getEmbeddingProfile(settings)) {
+  if (source === 'zero2agent' && !keywordOnly && retrievalSettings.vectorEnabled && getEmbeddingProfile(settings)) {
     const index = await zero2AgentEmbeddings();
     if (index?.items?.length) {
       vectorByChunk = new Map(index.items.map((item) => [item.chunkId, item.vector]));
@@ -368,7 +387,17 @@ export async function retrieve(question: string, scope: KnowledgeScope, topK = 8
     : topK;
   const reportRetrieval = () => trace?.onTiming?.({ retrievalMs: Math.round(performance.now() - startedAt) });
   if (scope.kind === 'zero2agent') {
-    const candidates = await retrieveZero2Agent(question, candidateTopK, scope, false, retrievalQuery);
+    const candidates = await retrieveBuiltInKnowledge(question, candidateTopK, 'zero2agent', scope, false, retrievalQuery);
+    reportRetrieval();
+    if (!wantsRerank) return candidates.slice(0, topK);
+    trace?.onStage?.('reranking');
+    const rerankStartedAt = performance.now();
+    const result = await rerankChunks(question, candidates, topK);
+    trace?.onTiming?.({ rerankMs: Math.round(performance.now() - rerankStartedAt) });
+    return result;
+  }
+  if (scope.kind === 'zero2leetcode') {
+    const candidates = await retrieveBuiltInKnowledge(question, candidateTopK, 'zero2leetcode', scope, true, retrievalQuery);
     reportRetrieval();
     if (!wantsRerank) return candidates.slice(0, topK);
     trace?.onStage?.('reranking');
@@ -378,12 +407,13 @@ export async function retrieve(question: string, scope: KnowledgeScope, topK = 8
     return result;
   }
   if (scope.kind === 'combined') {
-    const [personal, external] = await Promise.all([
+    const [personal, zero2Agent, zero2Leetcode] = await Promise.all([
       retrievePersonal(question, { kind: 'personal' }, candidateTopK, retrievalQuery),
-      retrieveZero2Agent(question, candidateTopK, undefined, false, retrievalQuery),
+      retrieveBuiltInKnowledge(question, candidateTopK, 'zero2agent', undefined, false, retrievalQuery),
+      retrieveBuiltInKnowledge(question, candidateTopK, 'zero2leetcode', undefined, true, retrievalQuery),
     ]);
     reportRetrieval();
-    const merged = [...personal, ...external].sort((a, b) => b.score - a.score);
+    const merged = [...personal, ...zero2Agent, ...zero2Leetcode].sort((a, b) => b.score - a.score);
     if (!wantsRerank) return selectPerDocument(merged, topK);
     trace?.onStage?.('reranking');
     const rerankStartedAt = performance.now();
@@ -403,7 +433,7 @@ export async function retrieve(question: string, scope: KnowledgeScope, topK = 8
 
 export function formatContextForPrompt(chunks: RetrievedChunk[]): string {
   return chunks.map((c, i) => {
-    const source = c.source === 'zero2agent' ? `zero2Agent / ${c.path}` : `个人文档 / ${c.title}`;
+    const source = c.source === 'zero2agent' ? `zero2Agent / ${c.path}` : c.source === 'zero2leetcode' ? `zero2Leetcode 刷题库 / ${c.path}` : `个人文档 / ${c.title}`;
     const headingPath = c.headingPath?.length ? ` / 章节：${c.headingPath.join(' > ')}` : c.heading ? ` / 章节：${c.heading}` : '';
     return `[${i + 1}] chunkId=${c.chunkId}\n来源：${source}${headingPath}\n${c.content.slice(0, 1200)}`;
   }).join('\n\n---\n\n').slice(0, 9000);
