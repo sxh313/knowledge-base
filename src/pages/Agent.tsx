@@ -8,7 +8,7 @@ import {
   Send, Paperclip, Check, X, FileText, Plus, Pencil, ArrowDownToLine,
   ArrowUpFromLine, CornerDownRight, Search, Loader2, Trash2, ExternalLink, MessageSquare,
   Tag, FolderInput, Layers, Undo2, ShieldAlert, ShieldCheck, Shield, Wrench, Network, Link2, PanelLeft, Bot,
-  Activity, GitBranch, BookOpen, SlidersHorizontal,
+  Activity, GitBranch, BookOpen, SlidersHorizontal, Copy,
 } from 'lucide-react';
 import type { AgentOp, AgentOpResult, AgentPlan } from '../lib/agent/tools';
 import { INTENT_META, type AgentIntent } from '../lib/agent/intent';
@@ -496,6 +496,7 @@ export default function Agent() {
   const { loadAll } = useJournalStore();
   const { isMobile } = useViewModeStore();
   const [input, setInput] = useState('');
+  const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
   const [attached, setAttached] = useState<{ name: string; content: string } | null>(null);
   const [approved, setApproved] = useState<Set<string>>(new Set());
   const [planRiskFilter, setPlanRiskFilter] = useState<PlanRiskFilter>('all');
@@ -584,6 +585,7 @@ export default function Agent() {
     if (!input.trim() || isProcessing) return;
     const text = input.trim();
     setInput('');
+    setEditingMessageIndex(null);
     const attach = attached;
     setAttached(null);
     await run(text, attach?.content, intentMode === 'auto' ? undefined : intentMode);
@@ -665,6 +667,16 @@ export default function Agent() {
       await deleteSession(id);
       setApproved(new Set());
     }
+  };
+
+  const copyMessage = async (content: string) => {
+    try { await navigator.clipboard.writeText(content); } catch { /* 浏览器未授权时不打断对话 */ }
+  };
+
+  const editMessage = (index: number, content: string) => {
+    setEditingMessageIndex(index);
+    setInput(content);
+    textareaRef.current?.focus();
   };
 
   const approveAllSafe = (ops: AgentPlan['ops']) => setApproved(new Set(ops.filter((op) => op.opId && op.risk !== 'high').map((op) => op.opId!)));
@@ -839,6 +851,11 @@ export default function Agent() {
             }`}>
               <MarkdownContent>{msg.content}</MarkdownContent>
 
+              <div className="mt-2 flex items-center gap-1 text-[11px] text-[var(--color-text-tertiary)]">
+                <button type="button" className="btn-ghost h-6 px-1.5" onClick={() => void copyMessage(msg.content)} title="复制消息"><Copy className="h-3 w-3" />复制</button>
+                {msg.role === 'user' && <button type="button" className="btn-ghost h-6 px-1.5" onClick={() => editMessage(i, msg.content)} title="编辑后重新发送"><Pencil className="h-3 w-3" />编辑</button>}
+              </div>
+
               {/* 意图模式标签（自动分类或手动切换的结果） */}
               {msg.intent && (
                 <div className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">
@@ -972,6 +989,7 @@ export default function Agent() {
 
       {/* Input */}
       <div className="soft-divider px-4 pb-4 pt-3 bg-[var(--color-bg)]">
+        {editingMessageIndex !== null && <div className="mx-auto mb-1 flex max-w-4xl items-center justify-between text-[11px] text-[var(--color-primary)]"><span>正在编辑第 {editingMessageIndex + 1} 条消息，发送后会重新生成任务</span><button type="button" className="btn-ghost h-6 px-1.5" onClick={() => { setEditingMessageIndex(null); setInput(''); }}>取消编辑</button></div>}
         <div className="mx-auto mb-2 flex max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] justify-end">
           <button className="btn-ghost agent-settings-toggle h-7 gap-1 px-2 text-xs" onClick={() => setShowComposerSettings(value => !value)} type="button" aria-expanded={showComposerSettings}>
             <SlidersHorizontal className="h-3.5 w-3.5" />更多设置

@@ -13,7 +13,7 @@ import SyncSettingsSection from '../components/settings/SyncSettingsSection';
 import AIModelCenter from '../components/settings/AIModelCenter';
 import SettingsSelect from '../components/settings/SettingsSelect';
 import DesktopUpdater from '../components/DesktopUpdater';
-import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck, ArrowUp, ArrowDown, GripVertical, Bot, Pencil, Trash2 } from 'lucide-react';
+import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck, ArrowUp, ArrowDown, GripVertical, Bot, Pencil, Trash2, ClipboardPaste } from 'lucide-react';
 import { describeConnectionError } from '../lib/ai/connectionError';
 import { searchAndFetchWeb } from '../lib/ai/webSearch';
 import { resolveAIBaseUrl } from '../lib/ai/localProxy';
@@ -67,6 +67,7 @@ export default function SettingsPage() {
   const [refreshMsg, setRefreshMsg] = useState<Record<string, string>>({});
   const [apiTestResults, setApiTestResults] = useState<Record<string, ApiTestResult>>({});
   const [webSearchTest, setWebSearchTest] = useState<ApiTestResult>({ status: 'waiting', msg: '' });
+  const [webSearchClipboardMessage, setWebSearchClipboardMessage] = useState('');
   const [manualModel, setManualModel] = useState<Record<string, string>>({});
   const [localModelDraft, setLocalModelDraft] = useState({ name: '', modelId: '', baseUrl: '', apiKey: '' });
   const [showLocalModelDraft, setShowLocalModelDraft] = useState(false);
@@ -174,6 +175,18 @@ export default function SettingsPage() {
 
   const handleTestAllProviders = async () => {
     for (const { key } of orderedProviders) await handleTestProvider(key);
+  };
+
+  const fillWebSearchKeyFromClipboard = async () => {
+    try {
+      const value = (await navigator.clipboard.readText()).trim();
+      if (!value) { setWebSearchClipboardMessage('剪贴板为空'); return; }
+      updateWebSearch({ apiKey: value });
+      setWebSearchClipboardMessage('已填入本机设置');
+      window.setTimeout(() => setWebSearchClipboardMessage(''), 2400);
+    } catch {
+      setWebSearchClipboardMessage('无法读取剪贴板，请检查浏览器权限');
+    }
   };
 
   const handleTestWebSearch = async () => {
@@ -807,7 +820,7 @@ export default function SettingsPage() {
             <label className="text-xs text-gray-400">联网搜索服务
               <SettingsSelect className="mt-1" value={webSearchSettings.provider} ariaLabel="联网搜索服务" onChange={(value) => updateWebSearch({ provider: value as WebSearchSettings['provider'] })} options={[{ value: 'tavily', label: 'Tavily（推荐，不用本地部署）' }, { value: 'open-websearch', label: 'open-webSearch（本地/自托管）' }, { value: 'duckduckgo', label: 'DuckDuckGo 摘要兜底' }]} />
             </label>
-            {webSearchSettings.provider === 'tavily' && <label className="text-xs text-gray-400">Tavily API Key<input type="password" className="input-field mt-1 text-xs font-mono" value={webSearchSettings.apiKey ?? ''} onChange={(event) => updateWebSearch({ apiKey: event.target.value })} placeholder="tvly-..." /></label>}
+            {webSearchSettings.provider === 'tavily' && <label className="text-xs text-gray-400">Tavily API Key<div className="mt-1 flex gap-2"><input type="password" className="input-field min-w-0 flex-1 text-xs font-mono" value={webSearchSettings.apiKey ?? ''} onChange={(event) => updateWebSearch({ apiKey: event.target.value })} placeholder="tvly-..." /><button type="button" className="btn-secondary shrink-0 px-2 text-xs" onClick={() => void fillWebSearchKeyFromClipboard()} title="从剪贴板填入"><ClipboardPaste className="h-3.5 w-3.5" />填入</button></div>{webSearchClipboardMessage && <span className="mt-1 block text-[11px] text-[var(--color-primary)]">{webSearchClipboardMessage}</span>}</label>}
             {webSearchSettings.provider === 'open-websearch' && <label className="text-xs text-gray-400">open-webSearch 地址<input className="input-field mt-1 text-xs font-mono" value={webSearchSettings.baseUrl} onChange={(event) => updateWebSearch({ baseUrl: event.target.value })} placeholder="http://127.0.0.1:3210" /></label>}
             <label className="text-xs text-gray-400">聊天默认联网模式
               <SettingsSelect className="mt-1" value={webSearchSettings.mode} ariaLabel="聊天默认联网模式" onChange={(value) => updateWebSearch({ mode: value as WebSearchSettings['mode'] })} options={[{ value: 'off', label: '不联网' }, { value: 'manual', label: '仅手动联网' }, { value: 'auto', label: '知识库不足时联网' }, { value: 'always', label: '总是联网补充' }]} />

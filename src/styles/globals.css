@@ -1268,7 +1268,8 @@
   .app-content { background: transparent; }
   .app-content-workspace { overflow: hidden; }
   .workspace-mobile-content { height: calc(100dvh - 6.0625rem); min-height: 0; overflow: hidden; }
-  .workspace-mobile-content-editor { height: calc(100dvh - 2.75rem); }
+  /* 底部导航在所有移动端页面常驻，工作区高度同步扣除顶部栏和底部安全区。 */
+  .workspace-mobile-content-editor { height: calc(100dvh - 6.0625rem); }
   .app-content > .animate-fade-in,
   .app-content > .flex.min-h-full,
   .app-content > .flex.flex-col.h-full {
@@ -1355,7 +1356,7 @@
     .stat-card svg { width: 1rem; height: 1rem; margin-bottom: 0.25rem; }
     .stat-card p.text-2xl { font-size: 1.15rem; }
     .empty-state { min-height: 12rem; padding: 1.5rem 1rem; }
-    .mobile-bottom-nav { box-shadow: 0 -8px 24px rgba(31, 35, 41, 0.06); }
+    .mobile-bottom-nav { min-height: calc(52px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 24px rgba(31, 35, 41, 0.06); }
     .mobile-tab { position: relative; }
     .mobile-tab.text-\[var\(--color-primary\)\]::before { content: ''; position: absolute; top: 0.2rem; width: 1.5rem; height: 0.18rem; border-radius: 99px; background: var(--color-primary); }
   }
