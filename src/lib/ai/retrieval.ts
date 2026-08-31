@@ -162,6 +162,11 @@ function scoreText(haystack: string, terms: string[]): number {
   }, 0);
 }
 
+function matchedTermCount(text: string, terms: string[]): number {
+  const lower = (text || '').toLowerCase();
+  return terms.reduce((count, term) => count + (lower.includes(term) ? 1 : 0), 0);
+}
+
 export async function getCandidateJournals(scope: KnowledgeScope): Promise<JournalEntry[]> {
   const all = await db.journals.filter((j) => !j.deletedAt).toArray();
   switch (scope.kind) {
@@ -202,6 +207,7 @@ async function retrievePersonal(question: string, scope: KnowledgeScope, topK: n
     catch (error) { console.warn('Personal query embedding skipped:', (error as Error).message); }
   }
   const scored = chunks.map((c, index) => {
+    const matchedTerms = matchedTermCount(`${c.contentPlain} ${c.heading ?? ''} ${c.title}`, terms);
     const lexicalScore = lexicalScores[index] / maxLexical;
     const vectorScore = queryVector && c.embeddingModelId === embeddingProfile?.id ? Math.max(0, cosine(queryVector, c.embedding ?? [])) : 0;
     const hasVector = vectorScore > 0;
@@ -219,13 +225,15 @@ async function retrievePersonal(question: string, scope: KnowledgeScope, topK: n
       content: c.content,
       score,
       confidence: Math.min(0.99, score),
+      matchedTerms,
     };
-  }).filter((c) => c.score > 0.01).sort((a, b) => b.score - a.score);
+  }).filter((c) => c.score > 0.01 && c.matchedTerms >= Math.min(2, terms.length)).sort((a, b) => b.score - a.score);
+  const strongest = scored[0]?.score ?? 0;
   const selected: RetrievedChunk[] = [];
   const perDoc = new Map<string, number>();
   for (const chunk of scored) {
     const count = perDoc.get(chunk.journalId!) ?? 0;
-    if (count >= 2) continue;
+    if (count >= 2 || (strongest > 0 && chunk.score < strongest * 0.35)) continue;
     perDoc.set(chunk.journalId!, count + 1);
     selected.push({ ...chunk, confidence: Math.min(0.99, chunk.score / Math.max(1, terms.length * 3)) });
     if (selected.length >= topK) break;
@@ -307,6 +315,9 @@ async function retrieveZero2Agent(question: string, topK: number, scope: Extract
       const indexedTerms = section.searchTerms;
       const quickText = indexedTerms ? '' : `${section.content} ${section.question ?? ''} ${section.heading ?? ''} ${doc.title} ${doc.module}`.toLowerCase();
       if (indexedTerms ? !terms.some((term) => indexedTerms.includes(term)) : !terms.some((term) => quickText.includes(term))) continue;
+      const searchableText = `${section.content} ${section.question ?? ''} ${section.heading ?? ''} ${doc.title} ${doc.module}`;
+      const matchedTerms = matchedTermCount(searchableText, terms);
+      if (matchedTerms < Math.min(2, terms.length)) continue;
       const score = scoreText(section.content, terms) + scoreText(section.question ?? '', terms) * 4 + scoreText(section.heading ?? '', terms) * 2 + scoreText(doc.title, terms) * 3 + scoreText(doc.module, terms);
       const sourceAnchor = section.anchor || (section.heading ? section.heading.toLowerCase().replace(/[^\p{Letter}\p{Number}\s-]/gu, '').replace(/\s+/g, '-') : undefined);
       scored.push({ source: 'zero2agent', sourceId: doc.id, chunkId, offset: { start: section.startOffset, end: section.startOffset + section.content.length }, knowledgeDocId: doc.id, title: doc.title, heading: section.heading, headingPath: section.headingPath, question: section.question, unitType: section.unitType, content: section.content, score, confidence: Math.min(0.99, score / Math.max(1, terms.length * 3)), path: doc.path, module: doc.module, sourceUrl: doc.sourceUrl, localPath: doc.localPath, sourceAnchor, localUrl: `/source/zero2agent?chunkId=${encodeURIComponent(chunkId)}` });
@@ -340,7 +351,8 @@ async function retrieveZero2Agent(question: string, topK: number, scope: Extract
     })
     .filter((chunk) => chunk.score > 0)
     .sort((a, b) => b.score - a.score);
-  return selectPerDocument(blended, topK);
+  const strongest = blended[0]?.score ?? 0;
+  return selectPerDocument(blended.filter((chunk) => strongest === 0 || chunk.score >= strongest * 0.35), topK);
 }
 
 export async function retrieve(question: string, scope: KnowledgeScope, topK = 8, trace?: RetrievalTrace): Promise<RetrievedChunk[]> {
