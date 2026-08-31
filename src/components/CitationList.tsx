@@ -51,7 +51,7 @@ export default function CitationList({ citations }: CitationListProps) {
               {expanded.has(citationKey) ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
             </button>
             </div>
-            {expanded.has(citationKey) && <div id={panelId} className="citation-markdown mt-1.5 max-h-40 overflow-auto rounded border border-[var(--color-border)] bg-[var(--color-surface-2)] p-2 text-[11px] leading-5 text-[var(--color-text-secondary)]"><MarkdownContent>{c.content}</MarkdownContent></div>}
+            {expanded.has(citationKey) && <div id={panelId} className="citation-markdown mt-1.5 rounded border border-[var(--color-border)] bg-[var(--color-surface-2)] p-2 text-[11px] leading-5 text-[var(--color-text-secondary)]"><MarkdownContent>{c.content}</MarkdownContent></div>}
           </div>
           );
         })}
