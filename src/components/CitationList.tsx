@@ -43,9 +43,6 @@ export default function CitationList({ citations }: CitationListProps) {
                 </span>
                 <LocateFixed className="h-3 w-3 shrink-0 opacity-70" />
               </span>
-              <span className="block mt-0.5 text-[10px] leading-4 text-[var(--color-text-tertiary)] line-clamp-3">
-                {c.path ? `${c.path} · ` : ''}{c.confidence != null ? `匹配度 ${Math.round(c.confidence * 100)}% · ` : ''}{c.content.replace(/\s+/g, ' ').slice(0, 180)}
-              </span>
             </button>
             <button className="btn-ghost shrink-0 p-1" onClick={() => setExpanded((prev) => { const next = new Set(prev); if (next.has(citationKey)) next.delete(citationKey); else next.add(citationKey); return next; })} title={expanded.has(citationKey) ? '收起原文片段' : '查看原文片段'} aria-label={expanded.has(citationKey) ? '收起原文片段' : '查看原文片段'} aria-expanded={expanded.has(citationKey)} aria-controls={panelId} type="button">
               {expanded.has(citationKey) ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
