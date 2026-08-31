@@ -589,6 +589,15 @@ export async function deleteConversation(id: string) {
   await db.aiConversations.put({ ...existing, deletedAt: now, updatedAt: now });
 }
 
+/** 删除全部 AI 问答历史（保留软删除墓碑，确保云同步不会复活旧会话） */
+export async function deleteAllConversations() {
+  const now = Date.now();
+  await db.aiConversations.toCollection().modify((conversation) => {
+    conversation.deletedAt = now;
+    conversation.updatedAt = now;
+  });
+}
+
 // ──── Fetch Available Models from Provider API ────
 
 export async function fetchAvailableModels(

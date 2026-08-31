@@ -15,7 +15,7 @@ import {
   type QueryRewriteResult,
 } from '../lib/ai/retrieval';
 import { answerGroundedQuestion } from '../lib/ai/groundedAnswer';
-import { getConversations, getConversation, upsertConversation, deleteConversation } from '../lib/db/queries';
+import { getConversations, getConversation, upsertConversation, deleteConversation, deleteAllConversations } from '../lib/db/queries';
 import { useSyncStore } from '../stores/syncStore';
 import { useViewModeStore } from '../stores/viewModeStore';
 import type { AIConversation } from '../lib/db/schema';
@@ -180,6 +180,15 @@ export default function AIChat() {
     // 已启用云同步时立即同步,使远端(data.json + conversations/*.md)也删除该对话
     if (settings?.sync?.enabled && settings.sync.token) {
       try { await doSync(); } catch { /* 忽略同步错误,本地删除已完成 */ }
+    }
+  };
+  const handleDeleteAllConversations = async () => {
+    if (!conversations.length || !window.confirm('确定删除全部 AI 问答历史？此操作不可恢复。')) return;
+    await deleteAllConversations();
+    handleNew();
+    setConversations([]);
+    if (settings?.sync?.enabled && settings.sync.token) {
+      try { await doSync(); } catch { /* 忽略同步错误，本地删除已完成 */ }
     }
   };
   const titleOf = (conv: AIConversation) => {
@@ -461,7 +470,10 @@ export default function AIChat() {
         >
           <div className="ai-history-header soft-divider flex items-center justify-between p-3">
             <span className="text-xs font-medium text-[var(--color-text-secondary)]">对话历史</span>
-            <button className="btn-ghost p-1" onClick={toggleSidebar} title="隐藏列表"><PanelLeft className="h-4 w-4" /></button>
+            <div className="flex items-center gap-1">
+              <button className="btn-ghost p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)]" onClick={handleDeleteAllConversations} title="清空全部历史" aria-label="清空全部历史"><Trash2 className="h-3.5 w-3.5" /></button>
+              <button className="btn-ghost p-1" onClick={toggleSidebar} title="隐藏列表"><PanelLeft className="h-4 w-4" /></button>
+            </div>
           </div>
           <button className="m-2 btn-primary text-xs flex items-center justify-center gap-1" onClick={handleNew}>
             <Plus className="h-3.5 w-3.5" /> 新建对话

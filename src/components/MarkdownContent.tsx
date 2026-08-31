@@ -106,6 +106,19 @@ function MermaidBlock({ source }: { source: string }) {
   </div>;
 }
 
+function AsciiFlowBlock({ source }: { source: string }) {
+  const rows = source.split('\n').filter((line) => line.includes('→')).map((line) => Array.from(line.matchAll(/│\s*([^│]+?)\s*│/g)).map((match) => match[1].trim()).filter(Boolean));
+  const labels = rows[0] ?? [];
+  const subtitles = rows[1] ?? [];
+  const copy = () => void navigator.clipboard.writeText(source);
+  return <div className="ascii-flow-diagram">
+    <div className="ascii-flow-toolbar"><span>流程图</span><button type="button" onClick={copy}><Copy className="h-3.5 w-3.5" />复制</button></div>
+    <div className="ascii-flow-track">
+      {labels.map((label, index) => <div key={`${label}-${index}`} className="ascii-flow-step"><div className="ascii-flow-card"><strong>{label}</strong>{subtitles[index] && <small>{subtitles[index]}</small>}</div>{index < labels.length - 1 && <span className="ascii-flow-arrow">→</span>}</div>)}
+    </div>
+  </div>;
+}
+
 function CodeBlock({ children }: ComponentProps<'pre'>) {
   const [copied, setCopied] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -118,6 +131,7 @@ function CodeBlock({ children }: ComponentProps<'pre'>) {
   const long = source.split('\n').length > 28;
 
   if (language.toLowerCase() === 'mermaid') return <MermaidBlock source={source} />;
+  if (language.toLowerCase() === 'text' && /┌[─-]+┐/.test(source) && source.includes('→')) return <AsciiFlowBlock source={source} />;
 
   const copy = async () => {
     await navigator.clipboard.writeText(source);
