@@ -4,6 +4,7 @@ import MarkdownContent from './MarkdownContent';
 import { useFocusTrap } from '../lib/ui/useFocusTrap';
 import type { RetrievedChunk } from '../lib/ai/retrieval';
 import type { Zero2SourceReference } from '../lib/zero2review/types';
+import { getJournal } from '../lib/db/queries';
 
 export type PreviewCitation = RetrievedChunk | Zero2SourceReference;
 
@@ -21,6 +22,8 @@ function isRetrieved(citation: PreviewCitation): citation is RetrievedChunk {
 
 export default function SourcePreviewModal({ citation, onClose }: Props) {
   const [content, setContent] = useState(() => citation && (isRetrieved(citation) || citation.content) ? (citation as { content?: string }).content || '' : '正在加载对应原文片段…');
+  const [matchedContent, setMatchedContent] = useState('');
+  const [fullSource, setFullSource] = useState(false);
   const [copied, setCopied] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
@@ -28,21 +31,34 @@ export default function SourcePreviewModal({ citation, onClose }: Props) {
 
   useEffect(() => {
     let active = true;
-    if (citation && (isRetrieved(citation) || citation.content)) {
-      setContent((citation as { content?: string }).content || '');
-    }
-    if (!citation || isRetrieved(citation) || citation.content || citation.source !== 'zero2agent') return () => { active = false; };
-    void fetch(`${import.meta.env.BASE_URL || '/'}zero2agent-kb.json`)
-      .then((response) => response.json() as Promise<{ documents?: KBDocument[] }>)
-      .then((data) => {
+    if (!citation) return () => { active = false; };
+    const matched = (citation as { content?: string }).content || '';
+    setMatchedContent(matched);
+    setContent(matched || '正在加载对应原文…');
+    setFullSource(false);
+
+    if (isRetrieved(citation) && citation.source === 'personal' && citation.journalId) {
+      void getJournal(citation.journalId).then((journal) => {
         if (!active) return;
-        for (const document of data.documents ?? []) {
-          const section = (document.sections ?? []).find((item) => `${document.id}:${item.startOffset}` === citation.chunkId);
-          if (section) { setContent(section.content); return; }
-        }
-        setContent('没有找到对应的原文片段，可能是知识库已经更新。');
-      })
-      .catch(() => { if (active) setContent('原文加载失败，请稍后重试。'); });
+        if (journal?.content) { setContent(journal.content); setFullSource(true); }
+      }).catch(() => { /* 保留命中的分块 */ });
+      return () => { active = false; };
+    }
+
+    if (citation.source === 'zero2agent') {
+      void fetch(`${import.meta.env.BASE_URL || '/'}zero2agent-kb.json`)
+        .then((response) => response.json() as Promise<{ documents?: KBDocument[] }>)
+        .then((data) => {
+          if (!active) return;
+          const document = (data.documents ?? []).find((item) => item.id === (isRetrieved(citation) ? citation.knowledgeDocId || citation.sourceId : citation.sourceId));
+          if (document) {
+            const full = (document.sections ?? []).map((section) => section.content.trim()).filter(Boolean).join('\n\n');
+            if (full) { setContent(full); setFullSource(true); return; }
+          }
+          if (!matched) setContent('没有找到对应的原文片段，可能是知识库已经更新。');
+        })
+        .catch(() => { if (active && !matched) setContent('原文加载失败，请稍后重试。'); });
+    }
     return () => { active = false; };
   }, [citation]);
 
@@ -74,12 +90,12 @@ export default function SourcePreviewModal({ citation, onClose }: Props) {
   return <div className="source-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section ref={dialogRef} className="source-modal" role="dialog" aria-modal="true" aria-labelledby="source-preview-title">
       <header className="source-modal-header">
-        <div className="min-w-0"><div className="source-modal-kicker"><LocateFixed className="h-3.5 w-3.5" /> 回答依据</div><h2 id="source-preview-title" className="truncate">{citation.title}</h2><p className="truncate">{heading}</p></div>
+        <div className="min-w-0"><div className="source-modal-kicker"><LocateFixed className="h-3.5 w-3.5" /> 回答依据</div><h2 id="source-preview-title" className="truncate">{citation.title}</h2><p className="truncate">{fullSource ? '完整原文' : heading}</p></div>
         <button ref={closeRef} className="btn-ghost h-9 w-9 p-0" onClick={onClose} aria-label="关闭" title="关闭" type="button"><X className="h-5 w-5" /></button>
       </header>
       <div className="source-modal-meta"><span>{citation.source === 'zero2agent' ? 'zero2Agent 原文' : citation.source === 'web' ? '联网来源' : '个人文档'}</span>{citation.path && <span className="truncate">{citation.path}</span>}{isRetrieved(citation) && citation.offset?.start != null && <span>位置 {citation.offset.start}</span>}</div>
       <div className="source-modal-content"><div className="source-modal-highlight"><MarkdownContent>{content}</MarkdownContent></div></div>
-      <footer className="source-modal-actions"><button className="btn-secondary text-xs" onClick={() => void copy()} type="button">{copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}{copied ? '已复制' : '复制片段'}</button>{localUrl && <a className="btn-secondary text-xs" href={localUrl}>在来源页查看</a>}{sourceUrl && <a className="btn-primary text-xs" href={sourceUrl} target="_blank" rel="noreferrer"><ExternalLink className="h-3.5 w-3.5" />打开网页原文</a>}</footer>
+      <footer className="source-modal-actions"><button className="btn-secondary text-xs" onClick={() => { setContent(fullSource ? matchedContent : content); setFullSource((value) => !value); }} disabled={!matchedContent || citation.source === 'web'} type="button">{fullSource ? '查看命中片段' : '查看完整原文'}</button><button className="btn-secondary text-xs" onClick={() => void copy()} type="button">{copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}{copied ? '已复制' : fullSource ? '复制完整原文' : '复制片段'}</button>{localUrl && <a className="btn-secondary text-xs" href={localUrl}>在来源页查看</a>}{sourceUrl && <a className="btn-primary text-xs" href={sourceUrl} target="_blank" rel="noreferrer"><ExternalLink className="h-3.5 w-3.5" />打开网页原文</a>}</footer>
     </section>
   </div>;
 }
