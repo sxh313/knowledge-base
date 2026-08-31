@@ -22,6 +22,8 @@ export interface JournalEntry {
   id: string;
   title: string;
   content: string;           // Markdown
+  /** TipTap JSON 快照：保留合并单元格、列宽等 Markdown 无法表达的结构。 */
+  editorState?: Record<string, unknown>;
   contentPlain: string;      // plain text for search
   contentHash?: string;      // 规范化标题与内容的稳定哈希
   summary?: string;          // AI-generated summary

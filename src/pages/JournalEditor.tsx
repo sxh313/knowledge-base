@@ -36,6 +36,7 @@ export default function JournalEditor() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [editorState, setEditorState] = useState<Record<string, unknown> | undefined>();
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   // 仅在切换到新文档时从 store 初始化，避免自动保存/同步更新 currentEntry 时覆盖正在编辑的光标。
@@ -156,7 +157,7 @@ export default function JournalEditor() {
     } else {
       initializedEntryIdRef.current = null;
       setCurrent(null);
-      setTitle(''); setContent(''); setMode(isMobile ? 'markdown' : 'rich');
+      setTitle(''); setContent(''); setEditorState(undefined); setMode(isMobile ? 'markdown' : 'rich');
       setTags([]); setTagInput('');
     }
   }, [id]);
@@ -164,6 +165,7 @@ export default function JournalEditor() {
     if (currentEntry && currentEntry.id === id && initializedEntryIdRef.current !== currentEntry.id) {
       setTitle(currentEntry.title);
       setContent(currentEntry.content);
+      setEditorState(currentEntry.editorState);
       setTags(currentEntry.tags ?? []);
       initializedEntryIdRef.current = currentEntry.id;
     }
@@ -195,6 +197,7 @@ export default function JournalEditor() {
     const entryData = {
       title: title.trim(),
       content,
+      editorState,
       contentPlain: content.replace(/[#*`[\]()>|~_ -]/g, '').replace(/\s+/g, ' ').trim(),
       tags,
       subject: currentEntry?.subject ?? '',
@@ -212,7 +215,7 @@ export default function JournalEditor() {
     }
     setSaving(false);
     // 本地保存完成（编辑停顿约 3 秒自动存）。云同步独立：顶部☁️手动 / 编辑停顿 10s 自动
-  }, [title, content, tags, isNew, id, currentEntry]);
+  }, [title, content, editorState, tags, isNew, id, currentEntry]);
 
   // 编辑停顿 10s 后自动同步（仅当启用且开启 autoSync）
   useEffect(() => {
@@ -336,7 +339,7 @@ export default function JournalEditor() {
     const contentPlain = v.content.replace(/[#*`[\]()>|~_ -]/g, '').replace(/\s+/g, ' ').trim();
     setTitle(v.title);
     setContent(v.content);
-    await update(id, { title: v.title, content: v.content, contentPlain });
+    await update(id, { title: v.title, content: v.content, contentPlain, editorState: undefined });
     setShowHistory(false);
   };
 
@@ -587,6 +590,8 @@ export default function JournalEditor() {
               <RichTextEditor
                 value={content}
                 onChange={setContent}
+                editorState={editorState}
+                onEditorStateChange={setEditorState}
                 autoFocus={isNew}
                 onAIAction={handleSelectionAI}
                 onWikilinkClick={handleWikilinkClick}
@@ -598,7 +603,7 @@ export default function JournalEditor() {
                 className="w-full min-h-[60vh] bg-transparent border-none outline-none resize-none font-mono text-sm leading-[1.5]"
                 placeholder="# 在此输入 Markdown..."
                 value={content}
-                onChange={(e) => setContent(e.target.value)}
+                onChange={(e) => { setContent(e.target.value); setEditorState(undefined); }}
                 spellCheck={false}
               />
             )}

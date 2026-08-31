@@ -835,6 +835,7 @@ class DuplicatePlanError extends Error {}
 export async function applyPlan(
   plan: AgentPlan,
   approvedOpIds?: Set<string>,
+  onProgress?: (progress: { index: number; total: number; op: AgentOp; status: 'started' | 'success' | 'failed' | 'skipped' }) => void,
 ): Promise<AgentExecutionResult & { undo?: UndoInfo }> {
   const planId = plan.planId || crypto.randomUUID();
   // 防重复执行：同一 planId 只允许执行一次（防止重复点击造成重复写入）
@@ -877,8 +878,9 @@ export async function applyPlan(
         const out: AgentOpResult[] = [];
         const statusById = new Map<string, OpStatus>();
         const runnableIds = new Set(ordered.map((op) => op.opId).filter((id): id is string => !!id));
-        for (const op of ordered) {
+        for (const [index, op] of ordered.entries()) {
           const opKey = op.opId ?? '';
+          onProgress?.({ index: index + 1, total: ordered.length, op, status: 'started' });
           // 前置依赖失败或被跳过：该操作自动跳过，不执行写入
           const deps = (op.dependsOn ?? []).filter((d) => runnableIds.has(d));
           const blocked = deps.find((d) => statusById.get(d) !== 'success');
@@ -891,6 +893,7 @@ export async function applyPlan(
               opStatus: 'skipped',
               skippedReason: '前置操作失败，已自动跳过',
             });
+            onProgress?.({ index: index + 1, total: ordered.length, op, status: 'skipped' });
             continue;
           }
           // 前置条件校验（journalExists / expectedHash）
@@ -898,6 +901,7 @@ export async function applyPlan(
           if (preError) {
             statusById.set(opKey, 'failed');
             out.push({ op, ok: false, opStatus: 'failed', error: preError });
+            onProgress?.({ index: index + 1, total: ordered.length, op, status: 'failed' });
             continue;
           }
           const startedAt = performance.now();
@@ -905,6 +909,7 @@ export async function applyPlan(
           const durationMs = Math.round(performance.now() - startedAt);
           statusById.set(opKey, result.ok ? 'success' : 'failed');
           out.push({ ...result, durationMs, opStatus: result.ok ? 'success' : 'failed' });
+          onProgress?.({ index: index + 1, total: ordered.length, op, status: result.ok ? 'success' : 'failed' });
         }
         // 默认保持整批事务回滚：任一写操作失败则抛出信号回滚全部写入
         if (out.some((r) => !r.ok && !r.skipped)) {
