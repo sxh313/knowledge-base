@@ -186,6 +186,8 @@ interface AgentStore {
   setSessionStatus: (id: string, status: AgentSession['status']) => Promise<void>;
   /** 删除会话 */
   deleteSession: (id: string) => Promise<void>;
+  /** 删除全部会话并新建一个空会话 */
+  deleteAllSessions: () => Promise<void>;
 
   clear: () => void;
   /** 发送用户指令，触发 AI 生成计划并预览（intentOverride 供 UI 手动切换意图） */
@@ -295,6 +297,13 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       }
     }
     set({ sessions });
+  },
+
+  deleteAllSessions: async () => {
+    const sessions = await listAgentSessions();
+    for (const session of sessions) await deleteAgentSession(session.id);
+    await get().newSession();
+    set({ sessions: (await listAgentSessions()) });
   },
 
   clear: () => set({ messages: [], pendingPlan: null, pendingPreview: null, pendingMsgIndex: null, error: null }),
