@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, ClipboardPaste, Check } from 'lucide-react';
 import type { SyncConfig } from '../../lib/db/schema';
 import type { SyncStatus } from '../../stores/syncStore';
 import SyncConflicts from '../SyncConflicts';
@@ -18,6 +18,23 @@ interface Props {
 
 export default function SyncSettingsSection({ config, status, errorMessage, testing, testMessage, onUpdate, onTest, onPull, onSync }: Props) {
   const [expanded, setExpanded] = useState(config.enabled);
+  const [tokenMessage, setTokenMessage] = useState<string | null>(null);
+
+  const fillTokenFromClipboard = async () => {
+    setTokenMessage(null);
+    try {
+      const token = (await navigator.clipboard.readText()).trim();
+      if (!token) { setTokenMessage('剪贴板为空'); return; }
+      if (!/^(github_pat_|ghp_)/.test(token)) {
+        setTokenMessage('剪贴板内容不像 GitHub Token，请确认复制的是完整 Token');
+        return;
+      }
+      onUpdate({ token });
+      setTokenMessage('已填入 Token（仅保存在本机）');
+    } catch {
+      setTokenMessage('无法读取剪贴板，请允许剪贴板权限后重试');
+    }
+  };
 
   return (
     <section id="cloud-sync" className="scroll-mt-6 space-y-3">
@@ -41,7 +58,8 @@ export default function SyncSettingsSection({ config, status, errorMessage, test
             <label className="text-xs text-gray-400">分支<input className="input-field mt-1" value={config.branch} onChange={e => onUpdate({ branch: e.target.value.trim() })} placeholder="main" /></label>
             <label className="text-xs text-gray-400">数据文件路径<input className="input-field mt-1" value={config.path} onChange={e => onUpdate({ path: e.target.value.trim() })} placeholder="data.json" /></label>
           </div>
-          <label className="block text-xs text-gray-400">GitHub Fine-grained Token（仅授予该私有仓库 Contents 读写权限）<input type="password" className="input-field mt-1 font-mono" value={config.token} onChange={e => onUpdate({ token: e.target.value.trim() })} placeholder="github_pat_..." autoComplete="off" /></label>
+          <div className="space-y-1"><div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400"><span>GitHub Fine-grained Token（仅授予该私有仓库 Contents 读写权限）</span><button type="button" className="btn-ghost inline-flex h-7 items-center gap-1 px-2 text-[11px]" onClick={() => void fillTokenFromClipboard()}><ClipboardPaste className="h-3 w-3" />从剪贴板填入</button></div><input type="password" className="input-field font-mono" value={config.token} onChange={e => onUpdate({ token: e.target.value.trim() })} placeholder="github_pat_..." autoComplete="off" /></div>
+          {tokenMessage && <p className={`text-[11px] ${tokenMessage.startsWith('已填入') ? 'text-green-500' : 'text-amber-600 dark:text-amber-400'}`}><Check className="mr-1 inline h-3 w-3" />{tokenMessage}</p>}
           <p className="text-[11px] text-amber-600 dark:text-amber-400">Token 仅保存在当前设备的 IndexedDB，不进入安装包、普通备份或云同步。</p>
           <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={config.autoSync} onChange={e => onUpdate({ autoSync: e.target.checked })} className="h-4 w-4 rounded border-[var(--color-border)]" /><span className="text-sm">编辑停顿 10 秒后自动同步</span></label>
           <label className="flex items-center gap-2 cursor-pointer" title="同步 Agent 会话、消息与运行记录（含撤销快照，可能含敏感内容）"><input type="checkbox" checked={config.syncAgentData ?? false} onChange={e => onUpdate({ syncAgentData: e.target.checked })} className="h-4 w-4 rounded border-[var(--color-border)]" /><span className="text-sm">同步 Agent 运行记录（含敏感内容，默认关闭）</span></label>

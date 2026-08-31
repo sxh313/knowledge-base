@@ -249,7 +249,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
         </div>
 
         <main className={`app-main flex-1 min-h-0 ${isWorkspacePage ? 'overflow-hidden p-0' : 'overflow-y-auto px-2.5 py-3'}`}>
-          <div key={location.pathname} className={`min-h-full animate-slide-up ${isWorkspacePage ? `workspace-mobile-content ${isEditorPage ? 'workspace-mobile-content-editor' : ''}` : ''}`}>
+          <div key={location.pathname} className={`min-h-full animate-slide-up ${isWorkspacePage ? 'workspace-mobile-content' : ''}`}>
             <Outlet />
           </div>
         </main>
@@ -301,7 +301,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </div>
         )}
 
-        {!isEditorPage && <nav className="mobile-bottom-nav glass flex shrink-0 items-center border-t border-[var(--color-border)] pb-[env(safe-area-inset-bottom)]">
+        <nav className="mobile-bottom-nav glass relative z-30 flex shrink-0 items-center border-t border-[var(--color-border)] pb-[env(safe-area-inset-bottom)]">
           {mobileTabItems.map((item) => {
             const isActive = item.to === '/'
               ? location.pathname === '/'
@@ -328,7 +328,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
             <MoreHorizontal className="h-5 w-5" />
             更多
           </button>
-        </nav>}
+        </nav>
 
         {showMoreSheet && (
           <div className="fixed inset-0 z-50 flex min-h-[100dvh] flex-col justify-end" onClick={() => setShowMoreSheet(false)}>

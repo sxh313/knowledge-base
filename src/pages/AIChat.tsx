@@ -404,9 +404,15 @@ export default function AIChat() {
       const totalMs = Math.round(performance.now() - requestStartedRef.current);
       const generationMs = Math.max(0, totalMs - (timingRef.current.retrievalMs ?? 0) - (timingRef.current.rerankMs ?? 0) - (timingRef.current.webSearchMs ?? 0));
       timingRef.current = { ...timingRef.current, generationMs, totalMs };
-      useAIStore.setState({ timing: timingRef.current, isProcessing: false, stage: 'idle' });
+      // 请求成功后清掉本次/上次遗留的错误，避免底部继续显示“回答生成失败”。
+      useAIStore.setState({ timing: timingRef.current, isProcessing: false, stage: 'idle', error: null });
       useAIStore.setState({ streamingContent: '' });
-    } catch { groundedControllerRef.current = null; useAIStore.setState({ streamingContent: '', isProcessing: false, stage: 'idle' }); setIsGroundedStreaming(false); }
+    } catch (error) {
+      groundedControllerRef.current = null;
+      const message = error instanceof Error ? error.message : '模型服务没有返回有效回答';
+      useAIStore.setState({ streamingContent: '', isProcessing: false, stage: 'idle', error: message });
+      setIsGroundedStreaming(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
