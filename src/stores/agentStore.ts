@@ -151,6 +151,11 @@ export interface AgentMessage {
   appliedAt?: number;
   /** 多轮工具循环日志（read/search 闭环记录） */
   toolLog?: string[];
+  /** 可审计的处理摘要；不保存或展示模型的原始隐式推理。 */
+  thinking?: {
+    steps: string[];
+    durationMs: number;
+  };
 }
 
 interface AgentStore {
@@ -311,6 +316,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   clear: () => set({ messages: [], pendingPlan: null, pendingPreview: null, pendingMsgIndex: null, error: null }),
 
   run: async (instruction, attachedContent, intentOverride) => {
+    const runStartedAt = Date.now();
+    const thinkingSteps: string[] = ['已接收任务，判断处理方式'];
+    const thinking = () => ({
+      steps: Array.from(new Set(thinkingSteps)).slice(-8),
+      durationMs: Math.max(0, Date.now() - runStartedAt),
+    });
     const MAX_ATTACHED_CHARS = 50000;
     const boundedAttachment = attachedContent && attachedContent.length > MAX_ATTACHED_CHARS
       ? `${attachedContent.slice(0, MAX_ATTACHED_CHARS)}\n\n[附件已截断：原文超过 50,000 字符，请分段处理]`
@@ -374,6 +385,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     // 两阶段检索：召回 20 个候选 → 本地证据重排保留高分片段（不增加模型调用）
     const retrieveEvidence = async (): Promise<{ refs: EvidenceRef[]; docIds: string[] }> => {
       const t0 = Date.now();
+      thinkingSteps.push('检索知识库并重排相关片段');
       try {
         const chunks = await retrieve(instruction, { kind: 'all' }, 20);
         const evidence = rerankEvidence(instruction, toEvidenceChunks(chunks));
@@ -384,6 +396,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           durationMs: Date.now() - t0,
         });
         const refs = toEvidenceRefs(evidence);
+        thinkingSteps.push(`保留 ${evidence.length} 条相关证据`);
         // 文档定位 ID：证据命中文档优先，不足 8 篇时用原始召回补齐（去重）
         const docIds: string[] = [];
         for (const chunk of [...evidence, ...chunks]) {
@@ -436,12 +449,14 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           .slice(-12) // 草稿模式只取近期上下文，降低延迟
           .map((m) => ({ role: m.role, content: m.content }));
         const t0 = Date.now();
+        thinkingSteps.push('调用模型生成只读草稿');
         const result = await routeAI('qa', [
           { role: 'system', content: draftSystem },
           ...history,
           { role: 'user', content: text },
         ]);
         latestRouteMeta = { model: result.model, provider: result.provider, usage: result.usage };
+        thinkingSteps.push(`模型返回草稿：${result.provider}/${result.model}`);
         pushEvent({
           type: 'model_call',
           status: 'success',
@@ -455,6 +470,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           content: `${result.content}\n\n---\n（草稿模式：仅生成内容，未修改任何笔记）`,
           createdAt: Date.now(),
           evidence: evidenceRefs,
+          thinking: thinking(),
         };
         set((s) => ({ messages: [...s.messages, assistantMsg], isProcessing: false }));
         await persistAssistantMessage(sessionId, assistantMsg.content);
@@ -531,6 +547,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         for (let attempt = 0; attempt < 2; attempt++) {
           const t0 = Date.now();
           const useNativeTools = attempt === 0;
+          thinkingSteps.push(useNativeTools ? '调用模型生成工具计划' : '切换兼容格式重新生成计划');
           const result = await routeAI(
             'qa',
             baseMessages,
@@ -540,6 +557,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             useNativeTools ? AGENT_TOOL_DEFINITIONS : undefined,
           );
           latestRouteMeta = { model: result.model, provider: result.provider, usage: result.usage };
+          thinkingSteps.push(`模型响应：${result.provider}/${result.model}`);
           pushEvent({
             type: 'model_call',
             status: 'success',
@@ -605,6 +623,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           content,
           createdAt: Date.now(),
           evidence: evidenceRefs.length ? evidenceRefs : undefined,
+          thinking: thinking(),
         };
         set((s) => ({ messages: [...s.messages, assistantMsg], isProcessing: false }));
         await persistAssistantMessage(sessionId, assistantMsg.content);
@@ -646,6 +665,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           role: 'assistant',
           content: `⚠️ AI 生成的操作计划未通过安全校验，已拒绝执行：\n\n${validation.errors.join('\n')}`,
           createdAt: Date.now(),
+          thinking: thinking(),
         };
         set((s) => ({ messages: [...s.messages, assistantMsg], isProcessing: false }));
         await persistAssistantMessage(sessionId, assistantMsg.content);
@@ -659,7 +679,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         recordAgentMetric('plan_rejected');
         pushEvent({ type: 'plan_rejected', status: 'failed', summary: `权限拒绝：${permission.reason}` });
         await recordFailedRun(plan, permission.reason ?? '当前会话权限策略阻止了该计划');
-        const assistantMsg: AgentMessage = { role: 'assistant', content: `⚠️ 操作计划被当前会话权限策略阻止：${permission.reason}`, createdAt: Date.now() };
+        const assistantMsg: AgentMessage = { role: 'assistant', content: `⚠️ 操作计划被当前会话权限策略阻止：${permission.reason}`, createdAt: Date.now(), thinking: thinking() };
         set((s) => ({ messages: [...s.messages, assistantMsg], isProcessing: false }));
         await persistAssistantMessage(sessionId, assistantMsg.content);
         return;
@@ -673,6 +693,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
       // 4. 预览计划（不写入）
       const preview = await previewPlan(plan);
+      thinkingSteps.push('已完成计划预览，等待你的确认');
       // 预览后为每个解析到目标文档的操作绑定 expectedHash，
       // 供执行时校验目标是否被修改（防止误执行旧计划）
       plan = await attachExpectedHashes(plan, preview);
@@ -686,6 +707,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         plan,
         preview,
         toolLog: toolLog.length ? toolLog : undefined,
+        thinking: thinking(),
       };
       set((s) => ({
         messages: [...s.messages, assistantMsg],
