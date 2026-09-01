@@ -6,7 +6,7 @@ import { create } from 'zustand';
 import type { ChatMessage } from '../lib/ai/client';
 import { routeAI } from '../lib/ai/router';
 import { getJournal } from '../lib/db/queries';
-import { retrieve } from '../lib/ai/retrieval';
+import { formatContextForPrompt, retrieve, type RetrievedChunk } from '../lib/ai/retrieval';
 import { buildAgentSystemPrompt } from '../lib/agent/prompt';
 import { previewPlan, applyPlan, undoRun, type UndoInfo } from '../lib/agent/executor';
 import {
@@ -54,6 +54,7 @@ import { searchMemories } from '../lib/agent/memory';
 import { applyContextBudget } from '../lib/agent/context';
 import { checkPlanPermission } from '../lib/agent/permissions';
 import { classifyAgentIntent, type AgentIntent } from '../lib/agent/intent';
+import { formatAgentCourseCatalog, loadAgentCourse } from '../lib/agent/coursePlanner';
 import {
   toEvidenceChunks,
   rerankEvidence,
@@ -383,11 +384,19 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     };
 
     // 两阶段检索：召回 20 个候选 → 本地证据重排保留高分片段（不增加模型调用）
-    const retrieveEvidence = async (): Promise<{ refs: EvidenceRef[]; docIds: string[] }> => {
+    const retrieveEvidence = async (): Promise<{ refs: EvidenceRef[]; docIds: string[]; chunks: RetrievedChunk[] }> => {
       const t0 = Date.now();
       thinkingSteps.push('检索知识库并重排相关片段');
       try {
-        const chunks = await retrieve(instruction, { kind: 'all' }, 20);
+        const explicitlyZero2Agent = /zero\s*2\s*agent|zero2agent/i.test(instruction);
+        const explicitlyZero2Leetcode = /zero\s*2\s*leetcode|zero2leetcode/i.test(instruction);
+        const scope = explicitlyZero2Agent
+          ? { kind: 'zero2agent' as const }
+          : explicitlyZero2Leetcode
+            ? { kind: 'zero2leetcode' as const }
+            : { kind: 'combined' as const };
+        // 显式库名是强约束；未指定时才联合检索。写入证据仍只允许个人文档。
+        const chunks = await retrieve(instruction, scope, 20);
         const evidence = rerankEvidence(instruction, toEvidenceChunks(chunks));
         pushEvent({
           type: 'retrieval',
@@ -404,7 +413,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           if (id && !docIds.includes(id)) docIds.push(id);
           if (docIds.length >= 8) break;
         }
-        return { refs, docIds };
+        return { refs, docIds, chunks };
       } catch (e) {
         pushEvent({
           type: 'retrieval',
@@ -412,19 +421,23 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           summary: `检索失败：${(e as Error).message}`,
           durationMs: Date.now() - t0,
         });
-        return { refs: [], docIds: [] };
+        return { refs: [], docIds: [], chunks: [] };
       }
     };
 
     try {
       // ── 搜索意图：直接返回检索结果，不调用模型 ──
       if (intent === 'search') {
-        const { refs: evidenceRefs } = await retrieveEvidence();
-        const content = evidenceRefs.length
-          ? `找到 ${evidenceRefs.length} 个相关片段：\n\n${evidenceRefs
-              .map((r, i) => `${i + 1}. 《${r.title}》${r.heading ? `「${r.heading}」` : ''}\n   ${r.snippet.replace(/\s+/g, ' ').slice(0, 120)}`)
+        const { refs: evidenceRefs, chunks } = await retrieveEvidence();
+        const content = chunks.length
+          ? `找到 ${chunks.length} 个相关片段：\n\n${chunks
+              .map((chunk, index) => {
+                const source = chunk.source === 'zero2agent' ? 'zero2Agent' : chunk.source === 'zero2leetcode' ? 'zero2Leetcode' : '个人笔记';
+                const title = chunk.localUrl ? `[《${chunk.title}》](${chunk.localUrl})` : `《${chunk.title}》`;
+                return `${index + 1}. ${title}${chunk.heading ? `「${chunk.heading}」` : ''} · ${source}\n   ${chunk.content.replace(/\s+/g, ' ').slice(0, 120)}`;
+              })
               .join('\n\n')}\n\n（搜索模式：结果来自本地检索，未调用模型）`
-          : '未找到与指令相关的笔记片段。可以换个关键词，或切换到「问答」模式提问。';
+          : '未找到相关的个人笔记或内置课程片段。可以换个关键词，或切换到「问答」模式提问。';
         const assistantMsg: AgentMessage = { role: 'assistant', content, createdAt: Date.now(), evidence: evidenceRefs };
         set((s) => ({ messages: [...s.messages, assistantMsg], isProcessing: false }));
         await persistAssistantMessage(sessionId, assistantMsg.content);
@@ -479,18 +492,25 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
       // ── 问答意图：基于知识库直接返回自然语言，不进入 JSON 操作计划闭环 ──
       if (intent === 'chat') {
-        const { refs: evidenceRefs } = await retrieveEvidence();
+        const { refs: evidenceRefs, chunks } = await retrieveEvidence();
         const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+        const wantsAgentCourse = /zero\s*2\s*agent|zero2agent|agent\s*课程|agent\s*学习/i.test(instruction);
+        const courseCatalog = wantsAgentCourse
+          ? formatAgentCourseCatalog(await loadAgentCourse())
+          : '';
         const qaSystem = [
           '你是知识库问答助手。请直接用自然、清晰的 Markdown 回答用户问题。',
           '- 只读回答，不修改笔记，不生成操作计划。',
           '- 禁止输出 JSON、summary/ops 字段或代码围栏形式的结构化计划。',
           '- 优先依据参考笔记；证据不足时明确说明，不要编造。',
           '- 用户要求总结时，必须给出实际内容要点，不能只说“已完成总结”。',
+          '- 课程目录中的每一项是一个课时，不要把课时数量说成模块数量。',
+          '- 安排课程时把标题写成 Markdown 链接；不要输出无法解析的 [01]、[02] 引用标记。',
           `当前时间：${timeStr}`,
           '',
-          '参考笔记片段：',
-          formatEvidenceRefs(evidenceRefs),
+          '知识库检索片段：',
+          chunks.length ? formatContextForPrompt(chunks.slice(0, 12)) : '（本次未命中相关片段）',
+          courseCatalog ? `\nzero2Agent 内置课程目录（制定学习计划时必须以此为准）：\n${courseCatalog}` : '',
         ].join('\n');
         const history: ChatMessage[] = get()
           .messages.slice(0, -1)
@@ -513,8 +533,13 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           inputTokens: result.usage?.promptTokens,
           outputTokens: result.usage?.completionTokens,
         });
-        const references = evidenceRefs.length
-          ? `\n\n---\n参考笔记：\n${evidenceRefs.slice(0, 5).map((ref, index) => `${index + 1}. 《${ref.title}》${ref.heading ? `「${ref.heading}」` : ''}`).join('\n')}`
+        const sourceChunks = Array.from(new Map(chunks.map((chunk) => [chunk.sourceId, chunk])).values()).slice(0, 5);
+        const references = sourceChunks.length
+          ? `\n\n---\n知识来源：\n${sourceChunks.map((chunk, index) => {
+              const source = chunk.source === 'zero2agent' ? 'zero2Agent' : chunk.source === 'zero2leetcode' ? 'zero2Leetcode' : '个人笔记';
+              const title = chunk.localUrl ? `[《${chunk.title}》](${chunk.localUrl})` : `《${chunk.title}》`;
+              return `${index + 1}. ${title} · ${source}`;
+            }).join('\n')}`
           : '';
         const assistantMsg: AgentMessage = {
           role: 'assistant',
