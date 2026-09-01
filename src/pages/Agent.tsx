@@ -8,7 +8,7 @@ import {
   Send, Paperclip, Check, X, FileText, Plus, Pencil, ArrowDownToLine,
   ArrowUpFromLine, CornerDownRight, Search, Loader2, Trash2, ExternalLink, MessageSquare,
   Tag, FolderInput, Layers, Undo2, ShieldAlert, ShieldCheck, Shield, Wrench, Network, Link2, PanelLeft, Bot,
-  Activity, GitBranch, BookOpen, SlidersHorizontal, Copy,
+  Activity, GitBranch, BookOpen, SlidersHorizontal, Copy, BrainCircuit, ChevronDown, ChevronUp, Clock3,
 } from 'lucide-react';
 import type { AgentOp, AgentOpResult, AgentPlan } from '../lib/agent/tools';
 import { INTENT_META, type AgentIntent } from '../lib/agent/intent';
@@ -88,6 +88,30 @@ function RiskBadge({ risk }: { risk?: AgentOp['risk'] }) {
 }
 
 type PlanRiskFilter = 'all' | 'low' | 'medium' | 'high' | 'failed';
+
+function formatSeconds(durationMs: number) {
+  return `${(Math.max(0, durationMs) / 1000).toFixed(durationMs >= 10000 ? 1 : 2)} 秒`;
+}
+
+/** 展示可审计的处理摘要，避免把模型隐式推理作为用户界面内容。 */
+function ModelThinking({ thinking }: { thinking?: { steps: string[]; durationMs: number } }) {
+  const [open, setOpen] = useState(false);
+  if (!thinking?.steps.length) return null;
+  return (
+    <div className="mt-3 overflow-hidden rounded-lg border border-[var(--color-primary)]/20 bg-[var(--color-primary-light)]/25 text-xs">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-primary-light)]/45"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+      >
+        <span className="flex min-w-0 items-center gap-1.5"><BrainCircuit className="h-3.5 w-3.5 shrink-0 text-[var(--color-primary)]" /><span className="font-medium text-[var(--color-text)]">模型思考</span><span className="truncate text-[11px]">处理摘要</span></span>
+        <span className="flex shrink-0 items-center gap-1 text-[11px] text-[var(--color-text-tertiary)]"><Clock3 className="h-3 w-3" />{formatSeconds(thinking.durationMs)}{open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}</span>
+      </button>
+      {open && <ol className="space-y-1 border-t border-[var(--color-primary)]/15 px-3 py-2 text-[11px] leading-5 text-[var(--color-text-secondary)]">{thinking.steps.map((step, index) => <li key={`${index}-${step}`} className="flex gap-2"><span className="font-mono text-[var(--color-primary)]">{String(index + 1).padStart(2, '0')}</span><span>{step}</span></li>)}</ol>}
+    </div>
+  );
+}
 
 function groupedPlanOps(plan: AgentPlan, filter: PlanRiskFilter, results?: AgentOpResult[]) {
   const groups = new Map<string, { title: string; items: { op: AgentOp; index: number }[] }>();
@@ -862,6 +886,8 @@ export default function Agent() {
                   模式：{INTENT_META[msg.intent].label} · {INTENT_META[msg.intent].hint}
                 </div>
               )}
+
+              {msg.role === 'assistant' && <ModelThinking thinking={msg.thinking} />}
 
               {/* 多轮工具循环日志 */}
               {msg.toolLog && msg.toolLog.length > 0 && (
