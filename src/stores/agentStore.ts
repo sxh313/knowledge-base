@@ -477,6 +477,57 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         return;
       }
 
+      // ── 问答意图：基于知识库直接返回自然语言，不进入 JSON 操作计划闭环 ──
+      if (intent === 'chat') {
+        const { refs: evidenceRefs } = await retrieveEvidence();
+        const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+        const qaSystem = [
+          '你是知识库问答助手。请直接用自然、清晰的 Markdown 回答用户问题。',
+          '- 只读回答，不修改笔记，不生成操作计划。',
+          '- 禁止输出 JSON、summary/ops 字段或代码围栏形式的结构化计划。',
+          '- 优先依据参考笔记；证据不足时明确说明，不要编造。',
+          '- 用户要求总结时，必须给出实际内容要点，不能只说“已完成总结”。',
+          `当前时间：${timeStr}`,
+          '',
+          '参考笔记片段：',
+          formatEvidenceRefs(evidenceRefs),
+        ].join('\n');
+        const history: ChatMessage[] = get()
+          .messages.slice(0, -1)
+          .slice(-12)
+          .map((m) => ({ role: m.role, content: m.content }));
+        const t0 = Date.now();
+        thinkingSteps.push('调用模型生成只读回答');
+        const result = await routeAI('qa', [
+          { role: 'system', content: qaSystem },
+          ...history,
+          { role: 'user', content: text },
+        ]);
+        latestRouteMeta = { model: result.model, provider: result.provider, usage: result.usage };
+        thinkingSteps.push(`模型返回回答：${result.provider}/${result.model}`);
+        pushEvent({
+          type: 'model_call',
+          status: 'success',
+          summary: `问答模型调用：${result.provider}/${result.model}`,
+          durationMs: Date.now() - t0,
+          inputTokens: result.usage?.promptTokens,
+          outputTokens: result.usage?.completionTokens,
+        });
+        const references = evidenceRefs.length
+          ? `\n\n---\n参考笔记：\n${evidenceRefs.slice(0, 5).map((ref, index) => `${index + 1}. 《${ref.title}》${ref.heading ? `「${ref.heading}」` : ''}`).join('\n')}`
+          : '';
+        const assistantMsg: AgentMessage = {
+          role: 'assistant',
+          content: `${result.content.trim()}${references}`,
+          createdAt: Date.now(),
+          evidence: evidenceRefs.length ? evidenceRefs : undefined,
+          thinking: thinking(),
+        };
+        set((state) => ({ messages: [...state.messages, assistantMsg], isProcessing: false }));
+        await persistAssistantMessage(sessionId, assistantMsg.content);
+        return;
+      }
+
       // ── 执行意图：存在待确认计划时引导用户确认（不自动执行）──
       if (intent === 'execute') {
         const pending = get().pendingPlan;
@@ -572,7 +623,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             if (ops.length) return { summary: raw || '模型生成了操作计划', ops };
           }
           p = parseAgentPlan(raw);
-          if (p && p.ops.length > 0) return p;
+          if (p) return p;
           if (attempt === 0) {
             // Provider/模型没有返回有效 tool_calls 时，进入兼容 JSON 降级。
             baseMessages.push(
@@ -613,11 +664,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       }
 
       if (!plan || plan.ops.length === 0) {
-        // AI 没有生成可执行计划，当作普通回答展示；问答模式附上参考笔记引用
-        let content = raw;
-        if (intent === 'chat' && evidenceRefs.length) {
-          content += `\n\n---\n参考笔记：\n${evidenceRefs.slice(0, 5).map((r, i) => `${i + 1}. 《${r.title}》${r.heading ? `「${r.heading}」` : ''}`).join('\n')}`;
-        }
+        // 计划类请求没有生成操作时，展示可读摘要，不把结构化 JSON 泄漏到消息区。
+        const content = plan?.summary?.trim() || raw;
         const assistantMsg: AgentMessage = {
           role: 'assistant',
           content,
