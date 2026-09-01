@@ -880,13 +880,6 @@ export default function Agent() {
                 {msg.role === 'user' && <button type="button" className="btn-ghost h-6 px-1.5" onClick={() => editMessage(i, msg.content)} title="编辑后重新发送"><Pencil className="h-3 w-3" />编辑</button>}
               </div>
 
-              {/* 意图模式标签（自动分类或手动切换的结果） */}
-              {msg.intent && (
-                <div className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">
-                  模式：{INTENT_META[msg.intent].label} · {INTENT_META[msg.intent].hint}
-                </div>
-              )}
-
               {msg.role === 'assistant' && <ModelThinking thinking={msg.thinking} />}
 
               {/* 多轮工具循环日志 */}
