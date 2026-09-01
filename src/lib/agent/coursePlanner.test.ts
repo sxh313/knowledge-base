@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAgentCourseTasks, type CourseDocument } from './coursePlanner';
+import { buildAgentCourseTasks, formatAgentCourseCatalog, type CourseDocument } from './coursePlanner';
 import type { LearningGoal } from '../db/schema';
 
 const goal: LearningGoal = {
@@ -24,5 +24,12 @@ describe('Agent 课程规划器', () => {
     const tasks = buildAgentCourseTasks({ ...goal, deadline: '2030-01-02' }, documents, '2030-01-01');
     expect(tasks).toHaveLength(2);
     expect(tasks.flatMap((task) => task.sourceIds)).toEqual(documents.map((doc) => doc.id));
+  });
+
+  it('向 Agent 提供可规划的课程标题、模块和 topicId', () => {
+    const catalog = formatAgentCourseCatalog(documents);
+    expect(catalog).toContain('[Agent 基础] [什么是 Agent]');
+    expect(catalog).toContain('/source/zero2agent?topicId=zero2agent%3Abasic');
+    expect(catalog).not.toContain('undefined');
   });
 });

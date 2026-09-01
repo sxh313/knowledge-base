@@ -43,6 +43,14 @@ export function loadAgentCourse(): Promise<CourseDocument[]> {
   return agentCoursePromise;
 }
 
+/** 给 Agent 问答使用的紧凑课程目录；只包含规划所需结构，不注入课程全文。 */
+export function formatAgentCourseCatalog(documents: CourseDocument[]): string {
+  if (!documents.length) return '（课程目录为空）';
+  return documents
+    .map((document, index) => `${index + 1}. [${document.module}] [${document.title}](/source/zero2agent?topicId=${encodeURIComponent(document.id)})（${document.estimatedMinutes ?? 10} 分钟）`)
+    .join('\n');
+}
+
 function exerciseFor(documents: CourseDocument[]): string {
   const names = documents.map((doc) => doc.title).join('、');
   return `用自己的话说明「${names}」解决了什么问题；再写一个适用场景或容易踩坑的边界条件。`;
