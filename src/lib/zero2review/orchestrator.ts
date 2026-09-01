@@ -13,11 +13,12 @@ import type { Zero2Mastery } from '../db/schema';
 
 export interface OrchestratorState { sessionId: string; stage: Zero2ReviewStage; response?: Zero2TutorResponse; question?: Zero2ReviewQuestion; evaluation?: Zero2EvaluationDraft; attemptId?: string; clarification?: string; error?: string; }
 export interface Zero2ReviewDependencies { retrieve: (question: string) => Promise<Zero2ReviewRetrieval>; tutor: typeof answerZero2Question; evaluator: typeof evaluateZero2Answer; now: () => number; }
+export interface Zero2ReviewInputOptions { readOnly?: boolean; }
 const defaults: Zero2ReviewDependencies = { retrieve: retrieveZero2Review, tutor: answerZero2Question, evaluator: evaluateZero2Answer, now: () => Date.now() };
 
 export function createZero2ReviewOrchestrator(overrides: Partial<Zero2ReviewDependencies> = {}) {
   const deps = { ...defaults, ...overrides };
-  async function handleInput(input: string, sessionId?: string): Promise<OrchestratorState> {
+  async function handleInput(input: string, sessionId?: string, options: Zero2ReviewInputOptions = {}): Promise<OrchestratorState> {
     const text = input.trim();
     const local = classifyLocalIntent(text);
     if (local === 'out_of_scope') return { sessionId: sessionId ?? '', stage: 'rejected', clarification: '该问题不属于 zero2Agent 复习范围，也不会写入复习记录。' };
@@ -36,7 +37,8 @@ export function createZero2ReviewOrchestrator(overrides: Partial<Zero2ReviewDepe
       if (decision.kind !== 'review_question') return { sessionId: sessionId ?? '', stage: 'complete', clarification: '这是复习控制或帮助请求，不会改变掌握度。' };
       if (retrieval.citations.length === 0) return { sessionId: sessionId ?? '', stage: 'clarifying', clarification: '没有可靠的 zero2Agent 来源，请换一个更具体的概念。' };
       const session = sessionId ? { id: sessionId } : await createReviewSession();
-      const response = await deps.tutor(text, decision.topicIds, retrieval.chunks);
+      const tutorResponse = await deps.tutor(text, decision.topicIds, retrieval.chunks);
+      const response = options.readOnly ? { ...tutorResponse, diagnosticQuestion: undefined } : tutorResponse;
       const interestMastery: Zero2Mastery[] = [];
       for (const topicId of decision.topicIds) {
         const current = await getTopicMastery(topicId) ?? createUnknownMastery(topicId, deps.now());
