@@ -15,17 +15,25 @@ function textContent(node: ReactNode): string {
 }
 
 export function normalizeMermaidSource(source: string): string {
-  let normalized = source
+  const normalizedSource = source
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
     // 模型常把标签内换行输出成两个字符 “\\n”；Mermaid 不会将其当作换行，
     // 还会把后续内容解析成非法 token。使用 Mermaid 支持的 <br/> 保留可读性。
-    .replace(/\\n/g, '<br/>')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\s+(subgraph\s+[A-Za-z_][\w-]*(?:\[[^\]]*\])?)/gi, '\n$1')
-    .replace(/(subgraph\s+[A-Za-z_][\w-]*(?:\[[^\]]*\])?)\s+(?=[A-Za-z_][\w-]*(?:\[|\(|\{))/gi, '$1\n')
-    .replace(/\s+end(?=\s|$)/gi, '\nend\n')
-    .replace(/(\]|\)|\}|\b[A-Za-z_][\w-]*\b)\s+(?=[A-Za-z_][\w-]*\s*(?:-->|---|==>|-\.->))/g, '$1\n')
+    .replace(/\\n/g, '<br/>');
+  const isSingleLine = !/\r?\n/.test(normalizedSource);
+  let normalized = isSingleLine
+    ? normalizedSource
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\s+(subgraph\s+[A-Za-z_][\w-]*(?:\[[^\]]*\])?)/gi, '\n$1')
+      .replace(/(subgraph\s+[A-Za-z_][\w-]*(?:\[[^\]]*\])?)\s+(?=[A-Za-z_][\w-]*(?:\[|\(|\{))/gi, '$1\n')
+      .replace(/\s+end(?=\s|$)/gi, '\nend\n')
+      .replace(/(\]|\)|\}|\b[A-Za-z_][\w-]*\b)\s+(?=[A-Za-z_][\w-]*\s*(?:-->|---|==>|-\.->))/g, '$1\n')
+    : normalizedSource;
+  normalized = normalized
+    // Models sometimes put a labeled edge on its own line, leaving Mermaid without a target node.
+    // Join the next non-empty node declaration back to the edge line.
+    .replace(/(^|\n)([^\n]+(?:-->|---|==>|-\.->)(?:\|[^\n]*\|)?[ \t]*)\n(?:[ \t]*\n)*(?=\s*[A-Za-z_][\w-]*(?:\[|\(|\{|>))/g, '$1$2 ')
     .replace(/\n[ \t]+/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -34,6 +42,39 @@ export function normalizeMermaidSource(source: string): string {
     normalized = normalized.replace(/^flowchart\s+TB\b/i, 'flowchart LR');
   }
   return normalized;
+}
+
+type MermaidModule = typeof import('mermaid').default;
+type PurifierModule = typeof import('dompurify').default;
+
+function sanitizeMermaidSvg(purifier: PurifierModule, svg: string): string {
+  // DOMPurify has shipped both as an initialized sanitizer and as a factory.
+  // Handle both shapes because Electron/Vite can resolve different module formats.
+  const sanitizer = typeof purifier.sanitize === 'function'
+    ? purifier
+    : typeof window !== 'undefined' && typeof purifier === 'function'
+      ? purifier(window)
+      : null;
+  if (!sanitizer) return svg;
+  return sanitizer.sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true },
+    ADD_TAGS: ['foreignObject', 'div', 'span'],
+  });
+}
+
+async function renderMermaidSource(mermaid: MermaidModule, id: string, source: string): Promise<{ svg: string; source: string }> {
+  const candidates = Array.from(new Set([source.trim(), normalizeMermaidSource(source)]));
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      await mermaid.parse(candidate);
+      const rendered = await mermaid.render(id, candidate);
+      return { svg: rendered.svg, source: candidate };
+    } catch (reason: unknown) {
+      lastError = reason;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('流程图语法无法解析');
 }
 
 function MermaidBlock({ source }: { source: string }) {
@@ -81,18 +122,13 @@ function MermaidBlock({ source }: { source: string }) {
           },
           flowchart: { curve: 'basis', nodeSpacing: 42, rankSpacing: 52, padding: 12 },
         });
-        const rendered = await mermaid.render(`mermaid-${reactId}-${Date.now()}`, formatted);
-        // Mermaid 节点文字通常位于 foreignObject；仅启用 svg profile 会将其整段清掉，
-        // 最终只剩空矩形和连线。Mermaid 已使用 strict 安全级别，这里仅放行文字容器标签。
-        const clean = purifierModule.default.sanitize(rendered.svg, {
-          USE_PROFILES: { svg: true, svgFilters: true },
-          ADD_TAGS: ['foreignObject', 'div', 'span'],
-        });
+        const rendered = await renderMermaidSource(mermaid, `mermaid-${reactId}-${Date.now()}`, source);
+        const clean = sanitizeMermaidSvg(purifierModule.default, rendered.svg);
         if (!cancelled) { setSvg(clean); setError(''); }
       })
       .catch((reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : '流程图语法无法解析'); });
     return () => { cancelled = true; };
-  }, [darkMode, formatted, reactId]);
+  }, [darkMode, reactId, source]);
 
   const copy = async () => {
     await navigator.clipboard.writeText(formatted);
@@ -130,7 +166,7 @@ function CodeBlock({ children }: ComponentProps<'pre'>) {
   const source = language.toLowerCase() === 'mermaid' ? normalizeMermaidSource(rawSource) : rawSource;
   const long = source.split('\n').length > 28;
 
-  if (language.toLowerCase() === 'mermaid') return <MermaidBlock source={source} />;
+  if (language.toLowerCase() === 'mermaid') return <MermaidBlock source={rawSource} />;
   if (language.toLowerCase() === 'text' && /┌[─-]+┐/.test(source) && source.includes('→')) return <AsciiFlowBlock source={source} />;
 
   const copy = async () => {
