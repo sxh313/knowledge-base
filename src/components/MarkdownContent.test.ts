@@ -58,6 +58,17 @@ describe('MarkdownContent citations', () => {
     expect(normalized).toContain('A["第一行<br/>第二行"]');
   });
 
+  it('合并带标签但被错误断行的 Mermaid 边', () => {
+    const normalized = normalizeMermaidSource(`flowchart TD
+PARSE -->|tool_use|
+
+DISPATCH[Dispatcher]
+DONE -->|否|
+SAVE[Session]`);
+    expect(normalized).toContain('PARSE -->|tool_use| DISPATCH[Dispatcher]');
+    expect(normalized).toContain('DONE -->|否| SAVE[Session]');
+  });
+
   it('清理引用结尾重复出现的裸编号', () => {
     expect(normalizeAIResponseMarkdown('根据任务边界决定执行策略 [1] [2]。2。')).toBe('根据任务边界决定执行策略 [1] [2]。');
     expect(normalizeAIResponseMarkdown('系统包含 2 个阶段。')).toBe('系统包含 2 个阶段。');
