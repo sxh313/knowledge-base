@@ -10,7 +10,6 @@ import CategoryDialog from '../components/CategoryDialog';
 import type { JournalEntry } from '../lib/db/schema';
 import TemplatePicker from '../components/TemplatePicker';
 import { showToast } from '../lib/ui/toast';
-import TodayActionPanel from '../components/TodayActionPanel';
 import Select from '../components/ui/Select';
 
 export default function JournalList() {
@@ -306,7 +305,6 @@ export default function JournalList() {
           </div>
         </div>
 
-        <TodayActionPanel entries={entries} />
 
         {/* 首次引导 */}
         {showOnboarding && (

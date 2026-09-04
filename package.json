@@ -1,7 +1,7 @@
 {
   "name": "knowledge-base",
   "private": true,
-  "version": "1.6.22",
+  "version": "1.6.23",
   "description": "本地优先的 AI 学习笔记与知识管理应用",
   "type": "module",
   "main": "electron/main.cjs",
@@ -42,6 +42,7 @@
     "@tiptap/extension-table-row": "^3.29.2",
     "@tiptap/extension-task-item": "^3.29.2",
     "@tiptap/extension-task-list": "^3.29.2",
+    "@tiptap/extension-text-align": "^3.29.2",
     "@tiptap/pm": "^3.29.2",
     "@tiptap/react": "^3.29.2",
     "@tiptap/starter-kit": "^3.29.2",
