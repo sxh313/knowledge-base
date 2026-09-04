@@ -16,19 +16,19 @@ function SectionHeader({
   icon: React.ReactNode; label: string; count?: number; expanded: boolean; onClick: () => void; onContextMenu?: (event: React.MouseEvent) => void; onMore?: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   return (
-    <div className="group flex w-full items-center rounded-md hover:bg-[var(--color-surface-2)]" onContextMenu={onContextMenu}>
-      <button className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-[var(--color-text-secondary)]" onClick={onClick} aria-expanded={expanded}>
+    <div className="group flex min-h-9 w-full items-center rounded-lg border border-transparent transition-colors hover:border-[var(--color-border)]/60 hover:bg-[var(--color-surface-2)]" onContextMenu={onContextMenu}>
+      <button className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-[var(--color-text-secondary)]" onClick={onClick} aria-expanded={expanded}>
         {expanded
           ? <ChevronDown className="h-3 w-3 flex-shrink-0" />
           : <ChevronRight className="h-3 w-3 flex-shrink-0" />}
         {icon}
         <span className="truncate text-xs font-medium">{label}</span>
         {typeof count === 'number' && (
-          <span className="ml-auto text-[10px] text-[var(--color-text-tertiary)]">{count}</span>
+          <span className="ml-auto tabular-nums text-[10px] text-[var(--color-text-tertiary)]">{count}</span>
         )}
       </button>
       {onMore && (
-        <button type="button" className="mr-1 rounded p-0.5 text-[var(--color-text-tertiary)] opacity-50 hover:bg-[var(--color-surface)] hover:text-[var(--color-text)] hover:opacity-100 focus:opacity-100" onClick={onMore} title={`${label}分类操作`}>
+        <button type="button" className="mr-1.5 h-7 w-7 rounded-md p-1.5 text-[var(--color-text-tertiary)] opacity-0 transition-opacity hover:bg-[var(--color-surface)] hover:text-[var(--color-text)] group-hover:opacity-100 focus:opacity-100" onClick={onMore} title={`${label}分类操作`}>
           <MoreVertical className="h-3.5 w-3.5" />
         </button>
       )}
@@ -45,7 +45,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
   const navigate = useNavigate();
   const {
     entries, categories, setCurrent, currentEntry, remove, update, duplicate, togglePin,
-    createCategory, renameCategory, deleteCategory,
+    create, createCategory, renameCategory, deleteCategory,
   } = useJournalStore();
   const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(new Set());
   const [expandedTags, setExpandedTags] = useState(false);
@@ -137,6 +137,14 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
     onNavigate?.();
   };
 
+  const createDocumentInCategory = async (category: Category) => {
+    const entry = await create({ title: '无标题', content: '', contentPlain: '', tags: [], subject: category.name, sourceType: 'manual' });
+    setExpandedSubjects((previous) => new Set(previous).add(category.name));
+    setCurrent(entry);
+    navigate(`/edit/${entry.id}`);
+    onNavigate?.();
+  };
+
   const isActive = (id: string) => currentEntry?.id === id;
 
   const renderDocRow = (doc: JournalEntry, indent = false) => (
@@ -156,7 +164,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
         title={doc.title || '无标题'}
       >
         <FileText className="h-3 w-3 flex-shrink-0 opacity-50" />
-        <span className="text-xs min-w-0 whitespace-normal break-words leading-5">{doc.title || '无标题'}</span>
+        <span className="min-w-0 flex-1 truncate text-xs leading-5">{doc.title || '无标题'}</span>
         {doc.pinned && <Star className="h-2.5 w-2.5 ml-auto flex-shrink-0 text-[var(--color-accent)]" />}
       </button>
       <button
@@ -173,7 +181,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
     <div className="space-y-1 text-sm">
       {/* 新建文档（始终可见的快捷入口） */}
       <button
-        className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] transition-colors"
+        className="mb-1 flex min-h-10 items-center gap-2 w-full rounded-lg px-2.5 py-2 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-primary-light)] hover:text-[var(--color-primary)]"
         onClick={() => { setCurrent(null); navigate('/edit/new'); onNavigate?.(); }}
       >
         <Plus className="h-3.5 w-3.5 flex-shrink-0 text-[var(--color-primary)]" />
@@ -189,7 +197,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
         onClick={() => setShowAllDocs(v => !v)}
       />
       {showAllDocs && (
-        <div className="tree-nested ml-5 pl-1 space-y-0.5">
+        <div className="tree-nested ml-4 space-y-0.5 border-l border-[var(--color-border)]/70 pl-2">
           {entries.length === 0 ? (
             <p className="px-2 py-1 text-[10px] text-[var(--color-text-tertiary)]">暂无文档</p>
           ) : (
@@ -211,7 +219,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
             onClick={() => setShowFavorites(v => !v)}
           />
           {showFavorites && (
-            <div className="tree-nested ml-5 pl-1 space-y-0.5">
+            <div className="tree-nested ml-4 space-y-0.5 border-l border-[var(--color-border)]/70 pl-2">
               {favorites.map(doc => renderDocRow(doc))}
             </div>
           )}
@@ -229,7 +237,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
             onClick={() => setShowRecent(v => !v)}
           />
           {showRecent && (
-            <div className="tree-nested ml-5 pl-1 space-y-0.5">
+            <div className="tree-nested ml-4 space-y-0.5 border-l border-[var(--color-border)]/70 pl-2">
               {recent.map(doc => renderDocRow(doc))}
             </div>
           )}
@@ -237,10 +245,10 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
       )}
 
       {/* 按分类分组 */}
-      <div className="flex items-center justify-between px-2 pb-1 text-[var(--color-text-tertiary)]">
-        <span className="text-[10px] font-medium uppercase tracking-wide">分类</span>
+      <div className="mt-2 flex items-center justify-between px-2.5 pb-1.5 pt-2 text-[var(--color-text-tertiary)]">
+        <span className="text-[10px] font-semibold tracking-[0.08em]">分类</span>
         <button
-          className="rounded p-0.5 hover:bg-[var(--color-surface-2)] hover:text-[var(--color-primary)]"
+          className="h-7 w-7 rounded-md p-1.5 transition-colors hover:bg-[var(--color-primary-light)] hover:text-[var(--color-primary)]"
           onClick={() => setCategoryDialog({ mode: 'create' })}
           title="新建分类"
         >
@@ -269,7 +277,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
               } : undefined}
             />
             {expanded && (
-              <div className="tree-nested ml-5 pl-1 space-y-0.5">
+              <div className="tree-nested ml-4 space-y-0.5 border-l border-[var(--color-border)]/70 pl-2">
                 {docs.map(doc => renderDocRow(doc))}
               </div>
             )}
@@ -289,11 +297,11 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
             onClick={() => setExpandedTags(v => !v)}
           />
           {expandedTags && (
-            <div className="tree-nested ml-5 pl-1 space-y-0.5">
+            <div className="tree-nested ml-4 space-y-0.5 border-l border-[var(--color-border)]/70 pl-2">
               {allTags.map(([tag, count]) => (
                 <div key={tag} className="flex items-center gap-1.5 px-2 py-1 text-xs text-[var(--color-text-secondary)]">
                   <span className="truncate">#{tag}</span>
-                  <span className="ml-auto text-[10px] text-[var(--color-text-tertiary)]">{count}</span>
+                  <span className="ml-auto tabular-nums text-[10px] text-[var(--color-text-tertiary)]">{count}</span>
                 </div>
               ))}
             </div>
@@ -342,6 +350,12 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
           y={subjectCtx.y}
           onClose={() => setSubjectCtx(null)}
           items={[
+                        {
+              key: 'create',
+              label: '在此分类中新建文档',
+              icon: <Plus className="h-4 w-4" />,
+              onClick: () => createDocumentInCategory(subjectCtx.category),
+            },
             {
               key: 'rename',
               label: '重命名分类',
