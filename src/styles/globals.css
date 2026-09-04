@@ -1116,7 +1116,8 @@
     padding: 0.75rem 0.9rem;
     border-radius: var(--radius-md);
     border: 1px solid color-mix(in srgb, var(--callout-color, var(--color-primary)) 22%, transparent);
-    border-left: 3px solid var(--callout-color, var(--color-primary));
+    border-left: 3px solid color-mix(in srgb, var(--callout-color, var(--color-primary)) 88%, #111827);
+    border-right: 3px solid color-mix(in srgb, var(--callout-color, var(--color-primary)) 88%, #111827);
     background: var(--callout-bg, var(--color-primary-light));
     position: relative;
   }
