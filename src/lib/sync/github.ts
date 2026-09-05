@@ -16,6 +16,7 @@ function applyZero2HistoryBoundary(data: FullData, enabled: boolean): FullData {
   const safe = { ...data };
   delete safe.zero2ReviewMessages;
   delete safe.zero2ReviewAttempts;
+  delete safe.zero2LearningMemories;
   return safe;
 }
 
@@ -87,6 +88,7 @@ export async function collectAllData(syncAgentData = false, syncZero2ReviewHisto
   let agentAuditLogs: unknown[] | undefined;
   let zero2ReviewMessages: unknown[] | undefined;
   let zero2ReviewAttempts: unknown[] | undefined;
+  let zero2LearningMemories: unknown[] | undefined;
   if (syncAgentData) {
     [agentSessions, agentMessages, agentRuns, agentAuditLogs] = await Promise.all([
       db.agentSessions.toArray(),
@@ -96,9 +98,10 @@ export async function collectAllData(syncAgentData = false, syncZero2ReviewHisto
     ]);
   }
   if (syncZero2ReviewHistory) {
-    [zero2ReviewMessages, zero2ReviewAttempts] = await Promise.all([
+    [zero2ReviewMessages, zero2ReviewAttempts, zero2LearningMemories] = await Promise.all([
       db.zero2ReviewMessages.toArray(),
       db.zero2ReviewAttempts.toArray(),
+      db.zero2LearningMemories.toArray(),
     ]);
   }
   // 附件 Blob 无法直接 JSON 序列化，转成 dataUrl
@@ -117,7 +120,7 @@ export async function collectAllData(syncAgentData = false, syncZero2ReviewHisto
     agentSessions, agentMessages, agentRuns, agentAuditLogs,
     userPreferences, learningGoals, learningTasks,
     zero2ReviewSessions, zero2Mastery, zero2ReviewPlans, zero2ReviewTasks,
-    zero2ReviewMessages, zero2ReviewAttempts,
+    zero2ReviewMessages, zero2ReviewAttempts, zero2LearningMemories,
   };
 }
 
@@ -132,6 +135,7 @@ export async function writeAllData(data: FullData): Promise<void> {
       db.userPreferences, db.learningGoals, db.learningTasks,
       db.zero2ReviewSessions, db.zero2ReviewMessages, db.zero2Mastery,
       db.zero2ReviewPlans, db.zero2ReviewTasks, db.zero2ReviewAttempts,
+      db.zero2LearningMemories,
     ],
     async () => {
       await Promise.all([
@@ -159,6 +163,7 @@ export async function writeAllData(data: FullData): Promise<void> {
         db.zero2ReviewTasks.bulkPut((data.zero2ReviewTasks ?? []) as never),
         ...(data.zero2ReviewMessages ? [db.zero2ReviewMessages.bulkPut(data.zero2ReviewMessages as never)] : []),
         ...(data.zero2ReviewAttempts ? [db.zero2ReviewAttempts.bulkPut(data.zero2ReviewAttempts as never)] : []),
+        ...(data.zero2LearningMemories ? [db.zero2LearningMemories.bulkPut(data.zero2LearningMemories as never)] : []),
       ]);
     },
   );

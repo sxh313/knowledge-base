@@ -22,7 +22,32 @@ describe('Agent context budget', () => {
     });
     const contents = result.messages.filter((message) => message.role !== 'system').map((message) => message.content);
     expect(contents.some((content) => content.startsWith('以下是只读工具'))).toBe(false);
-    expect(contents.some((content) => content.includes('"type":"read"'))).toBe(false);
+    // 压缩摘要现在以普通 user 上下文保留这组信息，但不能再以 system 角色提升优先级。
+    expect(result.messages.filter((message) => message.content.includes('"type":"read"')).every((message) => message.role !== 'system')).toBe(true);
     expect(result.summary).toContain('早期问题');
+  });
+
+  it('hard caps an oversized current message instead of returning an over-budget prompt', () => {
+    const result = applyContextBudget([], {
+      system: { role: 'system', content: '系统规则' },
+      current: { role: 'user', content: '附件内容'.repeat(20000) },
+      maxInputTokens: 3000,
+      reservedOutputTokens: 1000,
+    });
+    expect(result.estimatedTokens).toBeLessThanOrEqual(2000);
+    expect(result.messages.at(-1)?.content).toContain('上下文已截断');
+  });
+
+  it('does not elevate compressed user history to system priority', () => {
+    const result = applyContextBudget([
+      { role: 'user', content: '历史内容' },
+      { role: 'assistant', content: '历史回答' },
+    ], {
+      system: { role: 'system', content: '系统规则' },
+      current: { role: 'user', content: '当前问题' },
+      maxInputTokens: 20,
+      reservedOutputTokens: 10,
+    });
+    expect(result.messages.filter((message) => message.content.includes('历史上下文')).every((message) => message.role !== 'system')).toBe(true);
   });
 });

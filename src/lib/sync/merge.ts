@@ -25,6 +25,7 @@ export interface FullData {
   zero2ReviewPlans?: unknown[];
   zero2ReviewTasks?: unknown[];
   zero2ReviewAttempts?: unknown[];
+  zero2LearningMemories?: unknown[];
 }
 
 interface TimedRow {
@@ -82,5 +83,6 @@ export function mergeData(local: FullData, remote: FullData): FullData {
     zero2ReviewPlans: mergeByNewest(local.zero2ReviewPlans ?? [], r.zero2ReviewPlans ?? []),
     zero2ReviewTasks: mergeByNewest(local.zero2ReviewTasks ?? [], r.zero2ReviewTasks ?? []),
     zero2ReviewAttempts: mergeByNewest(local.zero2ReviewAttempts ?? [], r.zero2ReviewAttempts ?? []),
+    zero2LearningMemories: mergeByNewest(local.zero2LearningMemories ?? [], r.zero2LearningMemories ?? []),
   };
 }

@@ -9,6 +9,18 @@ const READ_ONLY = new Set([
   'explainSyncConflict', 'prepareConflictMerge',
 ]);
 
+const EXISTING_TARGET_WRITES = new Set<AgentOpType>([
+  'edit', 'append', 'prepend', 'insertAfter', 'patchJournal', 'updateMetadata',
+  'rename', 'delete', 'move', 'addTags', 'removeTags', 'generateCards',
+]);
+
+function requestedSubject(op: AgentOp, target: JournalEntry | null): string | undefined {
+  if (op.type === 'create') return op.subject?.trim();
+  if (op.type === 'move') return op.newSubject?.trim();
+  if (op.type === 'updateMetadata' && op.metadata?.subject !== undefined) return op.metadata.subject.trim();
+  return target?.subject?.trim();
+}
+
 export interface PermissionDecision {
   allowed: boolean;
   reason?: string;
@@ -75,6 +87,13 @@ export async function checkPlanPermission(
         };
       }
       const target = options.resolveJournal ? await options.resolveJournal(op) : null;
+      if (policy.allowedSubjects?.length && EXISTING_TARGET_WRITES.has(op.type) && op.type !== 'create' && !target) {
+        return {
+          allowed: false,
+          requiresApproval: false,
+          reason: '无法确认目标笔记所属分类，已拒绝在受限分类范围外执行',
+        };
+      }
       if (target) {
         if (policy.allowedJournalIds?.length && !policy.allowedJournalIds.includes(target.id)) {
           return {
@@ -88,6 +107,16 @@ export async function checkPlanPermission(
             allowed: false,
             requiresApproval: false,
             reason: `目标笔记不属于本会话允许的分类（允许：${policy.allowedSubjects.join('、')}）`,
+          };
+        }
+      }
+      if (policy.allowedSubjects?.length && (op.type === 'create' || op.type === 'move' || op.type === 'updateMetadata')) {
+        const subject = requestedSubject(op, target);
+        if (!subject || !policy.allowedSubjects.includes(subject)) {
+          return {
+            allowed: false,
+            requiresApproval: false,
+            reason: `目标分类不在本会话允许范围内（允许：${policy.allowedSubjects.join('、')}）`,
           };
         }
       }

@@ -1,4 +1,4 @@
-import { db, type Zero2Mastery, type Zero2ReviewAttempt, type Zero2ReviewMessage, type Zero2ReviewPlan, type Zero2ReviewSession, type Zero2ReviewTask } from '../db/schema';
+import { db, type Zero2LearningMemory, type Zero2LearningMemoryKind, type Zero2Mastery, type Zero2ReviewAttempt, type Zero2ReviewMessage, type Zero2ReviewPlan, type Zero2ReviewSession, type Zero2ReviewTask } from '../db/schema';
 import { assertZero2Source } from './isolation';
 
 export async function createReviewSession(title = 'zero2Agent 复习'): Promise<Zero2ReviewSession> {
@@ -184,4 +184,52 @@ export async function saveReviewTasksPreservingCompleted(tasks: Zero2ReviewTask[
     return { ...task, updatedAt: Date.now(), createdAt: old?.createdAt ?? Date.now() };
   });
   await db.zero2ReviewTasks.bulkPut(safe);
+}
+
+export async function listLearningMemories(): Promise<Zero2LearningMemory[]> {
+  return db.zero2LearningMemories
+    .filter((memory) => !memory.deletedAt)
+    .sortBy('updatedAt')
+    .then((memories) => memories.reverse());
+}
+
+export async function saveLearningMemory(input: {
+  topicId?: string;
+  kind: Zero2LearningMemoryKind;
+  content: string;
+  sourceMessageIds?: string[];
+  sourceAttemptIds?: string[];
+  confidence: number;
+  userConfirmed?: boolean;
+}): Promise<Zero2LearningMemory> {
+  const content = input.content.trim();
+  if (!content) throw new Error('学习记忆内容不能为空');
+  const now = Date.now();
+  const existing = await db.zero2LearningMemories
+    .filter((memory) => !memory.deletedAt && memory.topicId === input.topicId && memory.kind === input.kind && memory.content === content)
+    .first();
+  if (existing) {
+    const updated = { ...existing, sourceMessageIds: Array.from(new Set([...(existing.sourceMessageIds ?? []), ...(input.sourceMessageIds ?? [])])), sourceAttemptIds: Array.from(new Set([...(existing.sourceAttemptIds ?? []), ...(input.sourceAttemptIds ?? [])])), confidence: Math.max(existing.confidence, Math.max(0, Math.min(1, input.confidence))), userConfirmed: input.userConfirmed ?? existing.userConfirmed, updatedAt: now };
+    await db.zero2LearningMemories.put(updated);
+    return updated;
+  }
+  const memory: Zero2LearningMemory = { id: crypto.randomUUID(), topicId: input.topicId, kind: input.kind, content, sourceMessageIds: Array.from(new Set(input.sourceMessageIds ?? [])), sourceAttemptIds: Array.from(new Set(input.sourceAttemptIds ?? [])), confidence: Math.max(0, Math.min(1, input.confidence)), userConfirmed: input.userConfirmed, createdAt: now, updatedAt: now };
+  await db.zero2LearningMemories.add(memory);
+  return memory;
+}
+
+export async function deleteLearningMemory(id: string): Promise<void> {
+  await db.zero2LearningMemories.update(id, { deletedAt: Date.now(), updatedAt: Date.now() });
+}
+
+export async function confirmLearningMemory(id: string): Promise<void> {
+  const memory = await db.zero2LearningMemories.get(id);
+  if (!memory) return;
+  await db.zero2LearningMemories.update(id, { kind: 'mastery', content: `已确认掌握：${memory.content.replace(/^待加强：/, '')}`, confidence: 1, userConfirmed: true, updatedAt: Date.now() });
+}
+
+export async function markLearningMemoryWeak(id: string): Promise<void> {
+  const memory = await db.zero2LearningMemories.get(id);
+  if (!memory) return;
+  await db.zero2LearningMemories.update(id, { kind: 'weak_point', content: `待加强：${memory.content.replace(/^已确认掌握：/, '')}`, userConfirmed: true, updatedAt: Date.now() });
 }

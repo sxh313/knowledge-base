@@ -1,7 +1,7 @@
 {
   "name": "knowledge-base",
   "private": true,
-  "version": "1.6.23",
+  "version": "1.6.24",
   "description": "本地优先的 AI 学习笔记与知识管理应用",
   "type": "module",
   "main": "electron/main.cjs",
@@ -9,6 +9,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --pretty false",
+    "check:release": "node scripts/check-release.mjs",
+    "check": "npm run check:release && npm run typecheck && npm test && npm run build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:acceptance": "vitest run src/lib/evals/acceptance.test.ts src/lib/agent/acceptance.test.ts",

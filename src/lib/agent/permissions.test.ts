@@ -94,4 +94,35 @@ describe('Agent permission policy', () => {
     );
     expect(decision.allowed).toBe(true);
   });
+
+  it('enforces the subject whitelist for create and destination changes', async () => {
+    const createOutside = await checkPlanPermission(
+      { ops: [{ type: 'create', newTitle: 'x', content: 'y', subject: '工作' }] },
+      contextWithPolicy({ allowedSubjects: ['学习'] }),
+    );
+    expect(createOutside.allowed).toBe(false);
+
+    const moveOutside = await checkPlanPermission(
+      { ops: [{ type: 'move', journalId: 'j1', newSubject: '工作' }] },
+      contextWithPolicy({ allowedSubjects: ['学习'] }),
+      { resolveJournal: async () => ({ id: 'j1', title: '笔记', subject: '学习' } as never) },
+    );
+    expect(moveOutside.allowed).toBe(false);
+
+    const metadataOutside = await checkPlanPermission(
+      { ops: [{ type: 'updateMetadata', journalId: 'j1', metadata: { subject: '工作' } }] },
+      contextWithPolicy({ allowedSubjects: ['学习'] }),
+      { resolveJournal: async () => ({ id: 'j1', title: '笔记', subject: '学习' } as never) },
+    );
+    expect(metadataOutside.allowed).toBe(false);
+  });
+
+  it('fails closed when a restricted write target cannot be resolved', async () => {
+    const decision = await checkPlanPermission(
+      { ops: [{ type: 'edit', journalId: 'missing', content: 'new' }] },
+      contextWithPolicy({ allowedSubjects: ['学习'] }),
+      { resolveJournal: async () => null },
+    );
+    expect(decision.allowed).toBe(false);
+  });
 });

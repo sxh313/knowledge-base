@@ -1,5 +1,6 @@
 import type { SearchResult } from '../search/searchDocuments';
 import type { RetrievedChunk } from './retrieval';
+import { trimTextToTokenBudget } from './tokenBudget';
 
 export interface SearchAIContextItem {
   journalId: string;
@@ -76,5 +77,6 @@ export function searchContextToChunks(context: SearchAIContext): RetrievedChunk[
 }
 
 export function formatSearchContextForPrompt(context: SearchAIContext): string {
-  return context.items.map((item, index) => `[${index + 1}] journalId=${item.journalId}\n标题：${item.title}\n章节：${item.heading}\n命中摘要：${item.snippet.slice(0, 300)}\n原文摘录：\n${item.contentExcerpt.slice(0, 1200)}`).join('\n\n---\n\n').slice(0, 9000);
+  const formatted = context.items.map((item, index) => `[${index + 1}] journalId=${item.journalId}\n标题：${item.title}\n章节：${item.heading}\n命中摘要：${item.snippet.slice(0, 300)}\n原文摘录：\n${item.contentExcerpt.slice(0, 1200)}`).join('\n\n---\n\n');
+  return trimTextToTokenBudget(formatted, 4500);
 }

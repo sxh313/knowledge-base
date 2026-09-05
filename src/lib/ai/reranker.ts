@@ -2,6 +2,10 @@ import { getSettings } from '../db/queries';
 import { chatCompletion } from './client';
 import { getChatProfile } from './modelProfiles';
 import type { RetrievedChunk } from './retrieval';
+import { estimateTokens, trimTextToTokenBudget } from './tokenBudget';
+
+const MAX_RERANK_INPUT_TOKENS = 5000;
+const MAX_RERANK_CANDIDATES = 40;
 
 interface RerankRow {
   chunkId?: unknown;
@@ -50,13 +54,18 @@ export async function rerankChunks(question: string, chunks: RetrievedChunk[], l
   const profile = getChatProfile(settings, binding);
   if (!settings.retrieval?.rerankEnabled || !profile) return chunks.slice(0, limit);
 
-  const candidateBlock = chunks.map((chunk, index) => [
+  const candidateRows = chunks.slice(0, MAX_RERANK_CANDIDATES).map((chunk, index) => [
     `候选 ${index + 1}`,
     `chunkId=${chunk.chunkId}`,
     `标题=${chunk.title}`,
     `章节=${chunk.headingPath?.join(' > ') || chunk.heading || ''}`,
-    `内容=${chunk.content.slice(0, 1400)}`,
-  ].join('\n')).join('\n\n---\n\n');
+    `内容=${chunk.content.slice(0, 900)}`,
+  ].join('\n'));
+  const candidatePrefix = '用户问题：' + question + '\n\n候选列表：\n';
+  const candidateBlock = trimTextToTokenBudget(
+    candidateRows.join('\n\n---\n\n'),
+    Math.max(1000, MAX_RERANK_INPUT_TOKENS - estimateTokens(candidatePrefix) - 100),
+  );
   const messages = [
     {
       role: 'system' as const,
@@ -74,7 +83,7 @@ export async function rerankChunks(question: string, chunks: RetrievedChunk[], l
       { name: profile.id, baseUrl: profile.baseUrl, apiKey: profile.apiKey, enabled: profile.enabled },
       profile.modelId,
       messages,
-      { temperature: 0, maxTokens: Math.max(200, limit * 40), signal: controller.signal },
+      { temperature: 0, maxTokens: Math.max(200, Math.min(1200, limit * 40)), signal: controller.signal },
     );
     const allow = new Map(chunks.map((chunk) => [chunk.chunkId, chunk]));
     const rows = parseRows(result.content);
@@ -102,4 +111,3 @@ export async function rerankChunks(question: string, chunks: RetrievedChunk[], l
     globalThis.clearTimeout(timeout);
   }
 }
-
