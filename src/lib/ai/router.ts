@@ -91,7 +91,6 @@ export async function routeAI(
     } catch (err) {
       if (signal?.aborted) throw err;
       lastError = `${provider}/${model}: ${(err as Error).message}`;
-      console.warn(`AI failover: ${lastError}`);
       return null;
     }
   };
@@ -123,7 +122,6 @@ export async function routeAI(
     } catch (err) {
       if (signal?.aborted) throw err;
       lastError = `[${profile.id}/${profile.modelId}]: ${(err as Error).message}`;
-      console.warn(`AI failover: ${lastError}`);
       return null;
     }
   };
