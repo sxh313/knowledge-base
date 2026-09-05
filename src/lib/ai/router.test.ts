@@ -136,4 +136,19 @@ describe('routeAI failover', () => {
     expect(res.model).toBe('dsv4');
     expect(mockedChat).toHaveBeenCalledTimes(1);
   });
+
+  it('外部取消信号会停止当前尝试，不会继续 fallback', async () => {
+    mockedGetSettings.mockResolvedValue(
+      makeSettings({ shengsuanyun: { baseUrl: 'https://a', apiKey: 'k1', enabled: true } }),
+    );
+    const controller = new AbortController();
+    mockedChat.mockImplementation((_provider, _model, _messages, options) => new Promise((_resolve, reject) => {
+      options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+      controller.abort();
+    }));
+
+    await expect(routeAI('qa', [{ role: 'user', content: 'hi' }], undefined, undefined, controller.signal))
+      .rejects.toThrow(/Abort|aborted/i);
+    expect(mockedChat).toHaveBeenCalledTimes(1);
+  });
 });

@@ -7,6 +7,9 @@ const fakes = vi.hoisted(() => ({
   evaluator: vi.fn(),
   saveExchange: vi.fn(),
   saveMessage: vi.fn(),
+  saveLearningMemory: vi.fn(),
+  listLearningMemories: vi.fn().mockResolvedValue([]),
+  getPrerequisites: vi.fn().mockResolvedValue([]),
   getMastery: vi.fn(),
   recordAttempt: vi.fn(),
   saveMastery: vi.fn(),
@@ -19,11 +22,13 @@ vi.mock('./intentGate', () => ({
   classifyReviewIntentWithModel: vi.fn().mockResolvedValue({ kind: 'review_question', topicIds: ['topic-1'], confidence: 0.9, reason: 'test' }),
   decideZero2Intent: vi.fn(),
 }));
-vi.mock('./catalog', () => ({ listTopicsByPathPrefix: vi.fn().mockResolvedValue([]) }));
+vi.mock('./catalog', () => ({ listTopicsByPathPrefix: vi.fn().mockResolvedValue([]), getPrerequisites: fakes.getPrerequisites }));
 vi.mock('./repository', () => ({
   createReviewSession: vi.fn().mockResolvedValue(fakes.session),
   saveAcceptedExchangeAndMastery: fakes.saveExchange,
   saveAcceptedMessage: fakes.saveMessage,
+  saveLearningMemory: fakes.saveLearningMemory,
+  listLearningMemories: fakes.listLearningMemories,
   getTopicMastery: fakes.getMastery,
   recordAttemptAndMastery: fakes.recordAttempt,
   saveTopicMastery: fakes.saveMastery,

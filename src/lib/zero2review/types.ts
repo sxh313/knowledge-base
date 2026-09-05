@@ -95,6 +95,24 @@ export interface PersistableReviewMessage {
   citations: Zero2SourceReference[];
 }
 
+export interface Zero2AdaptivePolicy {
+  mode: 'diagnose' | 'reinforce' | 'scaffold' | 'challenge';
+  questionType: Zero2ReviewQuestion['type'];
+  difficulty: 1 | 2 | 3 | 4 | 5;
+  rationale: string;
+  weakPoints: Zero2MistakeType[];
+  recentScores: number[];
+  learningContext?: Zero2LearningContext;
+}
+
+export interface Zero2LearningContext {
+  weakPoints: string[];
+  preferences: string[];
+  prerequisites: string[];
+  confirmedMastery: string[];
+  lastReviewedAt?: number;
+}
+
 export interface Zero2ReviewContext {
   question: string;
   topicCandidates: Zero2TopicCandidate[];

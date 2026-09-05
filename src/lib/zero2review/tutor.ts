@@ -2,7 +2,7 @@ import { routeBoundAI } from '../ai/router';
 import type { RetrievedChunk } from '../ai/retrieval';
 import { assertCitationAllowList, assertZero2Sources } from './isolation';
 import { buildTutorMessages } from './prompts';
-import type { Zero2ReviewQuestion, Zero2SourceReference, Zero2TutorResponse } from './types';
+import type { Zero2AdaptivePolicy, Zero2ReviewQuestion, Zero2SourceReference, Zero2TutorResponse } from './types';
 
 function parseObject(text: string): Record<string, unknown> | null {
   const match = text.trim().match(/```(?:json)?\s*([\s\S]*?)```/) || [text, text];
@@ -34,12 +34,12 @@ function referencesFromChunks(chunks: RetrievedChunk[]): Zero2SourceReference[] 
   }));
 }
 
-export async function answerZero2Question(question: string, topicIds: string[], chunks: RetrievedChunk[]): Promise<Zero2TutorResponse> {
+export async function answerZero2Question(question: string, topicIds: string[], chunks: RetrievedChunk[], adaptivePolicy?: Zero2AdaptivePolicy): Promise<Zero2TutorResponse> {
   assertZero2Sources(chunks);
   const allowed = new Set(chunks.map((chunk) => chunk.chunkId));
   const citations = referencesFromChunks(chunks);
   try {
-    const result = await routeBoundAI('reviewTutorModelId', 'qa', buildTutorMessages(question, chunks));
+    const result = await routeBoundAI('reviewTutorModelId', 'qa', buildTutorMessages(question, chunks, adaptivePolicy));
     const parsed = parseObject(result.content);
     const answer = typeof parsed?.answer === 'string' ? parsed.answer.trim() : '';
     if (!answer) throw new Error('Tutor 未返回有效回答');

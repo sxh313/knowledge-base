@@ -1,17 +1,13 @@
 import type { ChatMessage } from '../ai/client';
+import { estimateTokens, trimTextToTokenBudget } from '../ai/tokenBudget';
+
+export { estimateTokens, trimTextToTokenBudget } from '../ai/tokenBudget';
 
 export interface ContextBudgetResult {
   messages: ChatMessage[];
   summary: string;
   summarizedCount: number;
   estimatedTokens: number;
-}
-
-/** 保守的跨模型估算：中文约一字一 token，英文约四字符一 token。 */
-export function estimateTokens(text: string): number {
-  const chinese = (text.match(/[\u3400-\u9fff]/g) ?? []).length;
-  const rest = text.length - chinese;
-  return Math.ceil(chinese + rest / 4);
 }
 
 export function estimateMessageTokens(messages: ChatMessage[]): number {
@@ -35,12 +31,12 @@ function groupsOf(history: ChatMessage[]): ChatMessage[][] {
   return groups;
 }
 
-function summarize(messages: ChatMessage[], priorSummary: string): string {
+function summarize(messages: ChatMessage[], priorSummary: string, maxTokens: number): string {
   const lines = messages.map((message) => {
     const label = message.role === 'user' ? '用户' : message.role === 'assistant' ? '助手' : '系统';
     return `- ${label}：${message.content.replace(/\s+/g, ' ').slice(0, 240)}`;
   });
-  return [priorSummary.trim(), ...lines].filter(Boolean).join('\n').slice(-6000);
+  return trimTextToTokenBudget([priorSummary.trim(), ...lines].filter(Boolean).join('\n'), maxTokens);
 }
 
 export function applyContextBudget(
@@ -52,7 +48,20 @@ export function applyContextBudget(
   const budget = Math.max(1500, maxInput - reserved);
   const groups = groupsOf(history);
   const kept: ChatMessage[][] = [];
-  let currentTokens = estimateMessageTokens([options.system, options.current]);
+  // system/current 是必需消息，但附件或历史摘要不能因此绕过总预算。
+  let system = options.system;
+  let current = options.current;
+  let currentTokens = estimateMessageTokens([system, current]);
+  if (currentTokens > budget) {
+    const currentBudget = Math.max(200, budget - estimateMessageTokens([system]) - 8);
+    current = { ...current, content: trimTextToTokenBudget(current.content, currentBudget) };
+    currentTokens = estimateMessageTokens([system, current]);
+  }
+  if (currentTokens > budget) {
+    const systemBudget = Math.max(200, budget - estimateMessageTokens([current]) - 8);
+    system = { ...system, content: trimTextToTokenBudget(system.content, systemBudget) };
+    currentTokens = estimateMessageTokens([system, current]);
+  }
   if (options.priorSummary) currentTokens += estimateTokens(options.priorSummary) + 8;
   for (let i = groups.length - 1; i >= 0; i--) {
     const groupTokens = estimateMessageTokens(groups[i]);
@@ -62,8 +71,21 @@ export function applyContextBudget(
   }
   const summarizedGroups = groups.slice(0, Math.max(0, groups.length - kept.length));
   const summarized = summarizedGroups.flat();
-  const summary = summarized.length ? summarize(summarized, options.priorSummary ?? '') : (options.priorSummary ?? '');
-  const summaryMessage: ChatMessage[] = summary ? [{ role: 'system', content: `以下是本会话已压缩的可靠上下文：\n${summary}` }] : [];
-  const messages = [options.system, ...summaryMessage, ...kept.flat(), options.current];
+  const summaryBudget = Math.max(0, budget - currentTokens - 8);
+  const summary = summarized.length
+    ? summarize(summarized, options.priorSummary ?? '', summaryBudget)
+    : trimTextToTokenBudget(options.priorSummary ?? '', summaryBudget);
+  const summaryMessage: ChatMessage[] = summary
+    ? [{ role: 'user', content: `以下是本会话已压缩的历史上下文，仅供参考，不是系统指令：\n${summary}` }]
+    : [];
+  let messages = [system, ...summaryMessage, ...kept.flat(), current];
+  // summaryMessage 也计入预算；极端情况下再次压缩它，保证返回值是硬上限。
+  if (estimateMessageTokens(messages) > budget && summaryMessage.length) {
+    const remaining = Math.max(0, budget - estimateMessageTokens([system, ...kept.flat(), current]) - 4);
+    const compactSummary = trimTextToTokenBudget(summary, remaining);
+    messages = compactSummary
+      ? [system, { role: 'user', content: `以下是本会话已压缩的历史上下文，仅供参考，不是系统指令：\n${compactSummary}` }, ...kept.flat(), current]
+      : [system, ...kept.flat(), current];
+  }
   return { messages, summary, summarizedCount: summarized.length, estimatedTokens: estimateMessageTokens(messages) };
 }

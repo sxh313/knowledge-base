@@ -589,6 +589,22 @@ export interface LearningTask {
   deletedAt?: number;
 }
 
+export type Zero2LearningMemoryKind = 'weak_point' | 'preference' | 'mastery' | 'prerequisite';
+
+export interface Zero2LearningMemory {
+  id: string;
+  topicId?: string;
+  kind: Zero2LearningMemoryKind;
+  content: string;
+  sourceMessageIds: string[];
+  sourceAttemptIds: string[];
+  confidence: number;
+  userConfirmed?: boolean;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
+}
+
 export interface Zero2ReviewSession {
   id: string;
   title: string;
@@ -703,6 +719,7 @@ export class StudyJournalDB extends Dexie {
   agentStates!: Table<AgentStateRecord>;
   agentExecutionReceipts!: Table<AgentExecutionReceipt>;
   memoryItems!: Table<MemoryItem>;
+  zero2LearningMemories!: Table<Zero2LearningMemory>;
   userPreferences!: Table<UserPreference>;
   learningGoals!: Table<LearningGoal>;
   learningTasks!: Table<LearningTask>;
@@ -840,6 +857,10 @@ export class StudyJournalDB extends Dexie {
       // 历史成功运行写入收据，防止升级后旧计划被重新执行。
       const runs = await tx.table<AgentRun, string>('agentRuns').filter((run) => run.status === 'success' || run.status === 'partial' || run.status === 'rolled_back').toArray();
       if (runs.length) await tx.table<AgentExecutionReceipt, string>('agentExecutionReceipts').bulkPut(runs.map((run) => ({ planId: run.planId, status: 'success', startedAt: run.createdAt, finishedAt: run.finishedAt ?? run.updatedAt })));
+    });
+    // version(14): zero2Agent 学习记忆，与通用 Agent memoryItems 隔离。
+    this.version(14).stores({
+      zero2LearningMemories: 'id, topicId, kind, updatedAt, deletedAt, *sourceAttemptIds',
     });
   }
 }

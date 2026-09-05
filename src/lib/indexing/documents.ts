@@ -1,6 +1,7 @@
 import { db, type DocumentChunk, type DocumentLink, type JournalEntry } from '../db/schema';
 import { extractWikilinks, markdownToPlainText } from '../markdownUtils';
 import { rebuildSearchIndex, updateSearchEntry } from '../search/fuse';
+import { invalidatePersonalChunkIndex, replacePersonalJournalChunks } from '../ai/personalIndex';
 
 const CHUNK_TARGET_LENGTH = 650;
 const CHUNK_MAX_LENGTH = 800;
@@ -186,6 +187,8 @@ export async function persistJournalWithIndexes(entry: JournalEntry): Promise<Jo
     !existing ||
     existing.title !== prepared.title ||
     JSON.stringify(existing.aliases ?? []) !== JSON.stringify(prepared.aliases ?? []);
+  const contentChanged = !existing || existing.content !== prepared.content;
+  const deletionChanged = existing?.deletedAt !== prepared.deletedAt;
 
   const chunks = buildDocumentChunks(prepared);
   const previousChunks = existing ? await db.documentChunks.where('journalId').equals(prepared.id).toArray() : [];
@@ -206,17 +209,20 @@ export async function persistJournalWithIndexes(entry: JournalEntry): Promise<Jo
     await db.documentChunks.where('journalId').equals(prepared.id).delete();
     if (chunks.length) await db.documentChunks.bulkPut(chunks);
   });
+  replacePersonalJournalChunks(prepared.id, chunks);
 
-  if (titleChanged) {
-    // 标题/别名变化：重建当前文档的链接，并刷新其他文档中原本失效的 [[链接]]
+  if (titleChanged || deletionChanged) {
+    // 标题、别名或删除状态变化会影响其他文档的目标解析，必须重建全部出链。
     const allEntries = await db.journals.toArray();
-    const entriesForResolution = [...allEntries.filter((item) => item.id !== prepared.id), prepared];
-    const links = buildDocumentLinks(prepared, entriesForResolution);
+    await rebuildAllDocumentLinks(allEntries);
+  } else if (contentChanged) {
+    // 正文变化只影响当前文档的出链，避免每次自动保存都扫描全库。
+    const allEntries = await db.journals.toArray();
+    const links = buildDocumentLinks(prepared, allEntries);
     await db.transaction('rw', db.documentLinks, async () => {
       await db.documentLinks.where('sourceId').equals(prepared.id).delete();
       if (links.length) await db.documentLinks.bulkPut(links);
     });
-    await rebuildBrokenLinkSources();
   }
   // 搜索索引增量更新（仅更新当前文档，避免每次自动保存都全表 rebuild 的开销）
   updateSearchEntry(prepared);
@@ -269,4 +275,17 @@ export async function rebuildDocumentIndexes(journalId?: string): Promise<void> 
     }
   });
   await rebuildSearchIndex();
+  invalidatePersonalChunkIndex();
+}
+
+/** Rebuild the full outgoing-link graph when target titles or deletion state change. */
+async function rebuildAllDocumentLinks(entries: JournalEntry[]): Promise<void> {
+  const activeEntries = entries.filter((entry) => !entry.deletedAt);
+  await db.transaction('rw', db.documentLinks, async () => {
+    await db.documentLinks.clear();
+    for (const entry of activeEntries) {
+      const links = buildDocumentLinks(entry, activeEntries);
+      if (links.length) await db.documentLinks.bulkPut(links);
+    }
+  });
 }

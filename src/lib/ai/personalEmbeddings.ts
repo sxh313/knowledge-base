@@ -2,6 +2,7 @@ import { db, type DocumentChunk } from '../db/schema';
 import { getSettings } from '../db/queries';
 import { embedTexts } from './embeddings';
 import { getEmbeddingProfile, getRetrievalSettings } from './modelProfiles';
+import { getPersonalChunks, updatePersonalChunkEmbedding } from './personalIndex';
 
 const EMBEDDING_BATCH_SIZE = 32;
 
@@ -18,14 +19,12 @@ function embeddingText(chunk: Pick<DocumentChunk, 'title' | 'heading' | 'content
  * 为个人笔记分块增量补齐向量。正文 hash 与模型 id 均一致时直接复用；
  * 没有显式绑定 Embedding 模型时不发出任何网络请求。
  */
-export async function syncPersonalChunkEmbeddings(journalIds?: string[]): Promise<number> {
+async function syncPersonalChunkEmbeddingsOnce(journalIds?: string[]): Promise<number> {
   const settings = await getSettings();
   const retrieval = getRetrievalSettings(settings);
   const profile = getEmbeddingProfile(settings);
   if (!retrieval.vectorEnabled || !profile) return 0;
-  const chunks = journalIds?.length
-    ? await db.documentChunks.where('journalId').anyOf(journalIds).toArray()
-    : await db.documentChunks.toArray();
+  const chunks = await getPersonalChunks(journalIds);
   const stale: Array<{ chunk: DocumentChunk; hash: string; text: string }> = [];
   for (const chunk of chunks) {
     const text = embeddingText(chunk);
@@ -47,10 +46,42 @@ export async function syncPersonalChunkEmbeddings(journalIds?: string[]): Promis
           embeddingContentHash: batch[index].hash,
           embeddedAt: now,
         });
+        updatePersonalChunkEmbedding(batch[index].chunk.id, {
+          embedding: response.vectors[index],
+          embeddingModelId: profile.id,
+          embeddingContentHash: batch[index].hash,
+          embeddedAt: now,
+        });
       }
     });
     updated += batch.length;
   }
   return updated;
+}
+
+let syncPromise: Promise<number> | null = null;
+let syncAllRequested = false;
+const pendingJournalIds = new Set<string>();
+
+/**
+ * Embedding 增量任务使用 single-flight 队列：连续保存/提问只会合并成少量批次，
+ * 不会为同一批分块发起并发重复请求。
+ */
+export function syncPersonalChunkEmbeddings(journalIds?: string[]): Promise<number> {
+  if (journalIds?.length) journalIds.forEach((id) => pendingJournalIds.add(id));
+  else syncAllRequested = true;
+  if (syncPromise) return syncPromise;
+  syncPromise = (async () => {
+    let updated = 0;
+    while (syncAllRequested || pendingJournalIds.size > 0) {
+      const all = syncAllRequested;
+      syncAllRequested = false;
+      const ids = [...pendingJournalIds];
+      pendingJournalIds.clear();
+      updated += await syncPersonalChunkEmbeddingsOnce(all ? undefined : ids);
+    }
+    return updated;
+  })().finally(() => { syncPromise = null; });
+  return syncPromise;
 }
 

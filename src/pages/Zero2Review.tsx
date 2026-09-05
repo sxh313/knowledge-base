@@ -8,6 +8,8 @@ import ReviewConversation from '../components/zero2review/ReviewConversation';
 import ReviewPlanPanel from '../components/zero2review/ReviewPlanPanel';
 import MasteryPanel from '../components/zero2review/MasteryPanel';
 import OutOfScopeNotice from '../components/zero2review/OutOfScopeNotice';
+import AdaptivePolicyPanel from '../components/zero2review/AdaptivePolicyPanel';
+import LearningMemoryPanel from '../components/zero2review/LearningMemoryPanel';
 
 function today() { return new Date().toISOString().slice(0, 10); }
 
@@ -40,6 +42,8 @@ export default function Zero2Review() {
       <label className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]"><Clock3 className="h-3.5 w-3.5" />每日<input aria-label="每日学习时间" className="input-field h-9 w-20 text-sm" type="number" min={10} max={240} value={dailyMinutes} onChange={(event) => setDailyMinutes(Number(event.target.value) || 30)} />分钟</label>
       <button className="btn-primary shrink-0 text-xs" disabled={loadingReview} onClick={() => void startAutomaticReview(dailyMinutes, today(), 'learn-agent-interview')}>{loadingReview ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}{state?.response ? '换一个复习主题' : '生成今日复习'}</button>
     </section>
+    <AdaptivePolicyPanel policy={state?.adaptivePolicy} />
+    <LearningMemoryPanel mastery={mastery} refreshKey={state?.attemptId || state?.sessionId} />
     {state?.clarification && !rejected && <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">{state.clarification}</div>}
     {rejected && <OutOfScopeNotice message={state.clarification || '该问题不属于 zero2Agent 复习范围。'} />}
     {state?.error && <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-900">{state.error}</div>}

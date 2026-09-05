@@ -68,17 +68,26 @@ export async function routeAI(
       return null;
     }
     try {
-      const controller = signal ? undefined : new AbortController();
-      const timeout = controller ? setTimeout(() => controller.abort(), 60000) : undefined;
-      const result = await chatCompletion(
-        { name: provider, baseUrl: prov.baseUrl, apiKey: prov.apiKey, enabled: true },
-        model,
-        messages,
-        // 工具调用模式下关闭流式（client 内部也会强制非流式）
-        { stream: !!onToken && !tools, onToken: tools ? undefined : onToken, onReasoning, enableThinking, maxTokens, signal: signal ?? controller?.signal, tools },
-      );
-      if (timeout) clearTimeout(timeout);
-      return { content: result.content, model, provider, usage: result.usage, toolCalls: result.toolCalls };
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000);
+      const onExternalAbort = () => controller.abort();
+      if (signal) {
+        if (signal.aborted) controller.abort();
+        else signal.addEventListener('abort', onExternalAbort, { once: true });
+      }
+      try {
+        const result = await chatCompletion(
+          { name: provider, baseUrl: prov.baseUrl, apiKey: prov.apiKey, enabled: true },
+          model,
+          messages,
+          // 工具调用模式下关闭流式（client 内部也会强制非流式）
+          { stream: !!onToken && !tools, onToken: tools ? undefined : onToken, onReasoning, enableThinking, maxTokens, signal: controller.signal, tools },
+        );
+        return { content: result.content, model, provider, usage: result.usage, toolCalls: result.toolCalls };
+      } finally {
+        clearTimeout(timeout);
+        signal?.removeEventListener('abort', onExternalAbort);
+      }
     } catch (err) {
       if (signal?.aborted) throw err;
       lastError = `${provider}/${model}: ${(err as Error).message}`;
@@ -92,16 +101,25 @@ export async function routeAI(
     if (tried.has(key)) return null;
     tried.add(key);
     try {
-      const controller = signal ? undefined : new AbortController();
-      const timeout = controller ? setTimeout(() => controller.abort(), 60000) : undefined;
-      const result = await chatCompletion(
-        { name: profile.id, baseUrl: profile.baseUrl, apiKey: profile.apiKey, enabled: profile.enabled },
-        profile.modelId,
-        messages,
-        { stream: !!onToken && !tools, onToken: tools ? undefined : onToken, onReasoning, enableThinking, maxTokens, signal: signal ?? controller?.signal, tools },
-      );
-      if (timeout) clearTimeout(timeout);
-      return { content: result.content, model: profile.modelId, provider: profile.id, usage: result.usage, toolCalls: result.toolCalls };
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000);
+      const onExternalAbort = () => controller.abort();
+      if (signal) {
+        if (signal.aborted) controller.abort();
+        else signal.addEventListener('abort', onExternalAbort, { once: true });
+      }
+      try {
+        const result = await chatCompletion(
+          { name: profile.id, baseUrl: profile.baseUrl, apiKey: profile.apiKey, enabled: profile.enabled },
+          profile.modelId,
+          messages,
+          { stream: !!onToken && !tools, onToken: tools ? undefined : onToken, onReasoning, enableThinking, maxTokens, signal: controller.signal, tools },
+        );
+        return { content: result.content, model: profile.modelId, provider: profile.id, usage: result.usage, toolCalls: result.toolCalls };
+      } finally {
+        clearTimeout(timeout);
+        signal?.removeEventListener('abort', onExternalAbort);
+      }
     } catch (err) {
       if (signal?.aborted) throw err;
       lastError = `[${profile.id}/${profile.modelId}]: ${(err as Error).message}`;

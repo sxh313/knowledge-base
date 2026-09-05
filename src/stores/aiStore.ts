@@ -103,18 +103,20 @@ export const useAIStore = create<AIStore>((set) => ({
   },
 
   chat: async (messages, onToken, onReasoning) => {
-    activeController?.abort(); activeController = new AbortController();
+    activeController?.abort();
+    const controller = new AbortController();
+    activeController = controller;
     set({ isProcessing: true, error: null, streamingContent: '', stage: 'generating', timing: null });
     // 查找或创建 'qa' 任务类型的 AI 调用
     try {
       const streamToken = onToken ?? ((token: string) => set((state) => ({ streamingContent: state.streamingContent + token })));
-      const result = await routeAI('qa', messages, streamToken, undefined, activeController.signal, undefined, onReasoning);
+      const result = await routeAI('qa', messages, streamToken, undefined, controller.signal, undefined, onReasoning);
       const fullContent = result.content;
-      set({ isProcessing: false, streamingContent: fullContent, stage: 'idle' });
+      if (activeController === controller) set({ isProcessing: false, streamingContent: fullContent, stage: 'idle' });
       return fullContent;
     } catch (e) {
       const msg = (e as Error).message;
-      set({ isProcessing: false, error: activeController?.signal.aborted ? null : msg, stage: 'idle' });
+      if (activeController === controller) set({ isProcessing: false, error: controller.signal.aborted ? null : msg, stage: 'idle' });
       throw e;
     }
   },
@@ -122,7 +124,9 @@ export const useAIStore = create<AIStore>((set) => ({
   // ─── 底层 API（保持向后兼容） ───
 
   callAI: async (taskType, messages, onToken) => {
-    activeController?.abort(); activeController = new AbortController();
+    activeController?.abort();
+    const controller = new AbortController();
+    activeController = controller;
     set({ isProcessing: true, error: null, streamingContent: '', stage: 'generating', timing: null });
     try {
       // 前置检查：是否已配置任何 Provider
@@ -134,21 +138,23 @@ export const useAIStore = create<AIStore>((set) => ({
       }
 
       const streamToken = onToken ?? ((token: string) => set((state) => ({ streamingContent: state.streamingContent + token })));
-      const result = await routeAI(taskType, messages, streamToken, undefined, activeController.signal);
+      const result = await routeAI(taskType, messages, streamToken, undefined, controller.signal);
       const fullContent = result.content;
-      set({ isProcessing: false, streamingContent: fullContent, stage: 'idle' });
+      if (activeController === controller) set({ isProcessing: false, streamingContent: fullContent, stage: 'idle' });
       return fullContent;
     } catch (e) {
       const msg = (e as Error).message;
       // 如果已经是友好消息就直接用，否则转换
       const friendly = msg.includes('尚未配置') ? msg : friendlyAIError(e);
-      set({ isProcessing: false, error: activeController?.signal.aborted ? null : friendly, stage: 'idle' });
+      if (activeController === controller) set({ isProcessing: false, error: controller.signal.aborted ? null : friendly, stage: 'idle' });
       throw new Error(friendly);
     }
   },
 
   callDirect: async (providerName, modelName, messages, onToken, onReasoning, enableThinking) => {
-    activeController?.abort(); activeController = new AbortController();
+    activeController?.abort();
+    const controller = new AbortController();
+    activeController = controller;
     const settings = await getSettings();
     const provider = settings.aiProviders[providerName];
     if (!provider?.enabled || (providerNeedsApiKey(providerName) && !provider.apiKey)) {
@@ -163,12 +169,12 @@ export const useAIStore = create<AIStore>((set) => ({
         { name: providerName, baseUrl: provider.baseUrl, apiKey: provider.apiKey, enabled: true },
         modelName,
         messages,
-        { stream: true, maxTokens: 1536, enableThinking, onToken: onToken ?? ((token: string) => set((state) => ({ streamingContent: state.streamingContent + token }))), onReasoning, signal: activeController.signal },
+        { stream: true, maxTokens: 1536, enableThinking, onToken: onToken ?? ((token: string) => set((state) => ({ streamingContent: state.streamingContent + token }))), onReasoning, signal: controller.signal },
       );
-      set({ isProcessing: false, streamingContent: result.content, stage: 'idle' });
+      if (activeController === controller) set({ isProcessing: false, streamingContent: result.content, stage: 'idle' });
       return result.content;
     } catch (e) {
-      set({ isProcessing: false, error: activeController.signal.aborted ? null : (e as Error).message, stage: 'idle' });
+      if (activeController === controller) set({ isProcessing: false, error: controller.signal.aborted ? null : (e as Error).message, stage: 'idle' });
       throw e;
     }
   },

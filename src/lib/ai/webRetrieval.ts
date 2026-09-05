@@ -1,6 +1,7 @@
 import type { WebSearchSettings } from '../db/schema';
 import type { RetrievedChunk } from './retrieval';
 import { searchAndFetchWeb, type WebFetchedPage } from './webSearch';
+import { trimTextToTokenBudget } from './tokenBudget';
 
 const DEFAULT_WEB_SEARCH: WebSearchSettings = {
   enabled: false,
@@ -106,5 +107,6 @@ export async function retrieveWeb(question: string, settings?: Partial<WebSearch
 }
 
 export function formatWebContextForPrompt(chunks: RetrievedChunk[]): string {
-  return chunks.map((chunk, index) => `[W${index + 1}] ${chunk.title}\n网页：${chunk.sourceUrl || chunk.sourceId}\n摘录：\n${chunk.content.slice(0, 1200)}`).join('\n\n---\n\n').slice(0, 9000);
+  const formatted = chunks.map((chunk, index) => `[W${index + 1}] ${chunk.title}\n网页：${chunk.sourceUrl || chunk.sourceId}\n摘录：\n${chunk.content.slice(0, 1200)}`).join('\n\n---\n\n');
+  return trimTextToTokenBudget(formatted, 3000);
 }

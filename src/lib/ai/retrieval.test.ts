@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { extractTerms, rewriteQuery, buildRAGSystemPrompt, shouldRerank } from './retrieval';
+import { extractTerms, rewriteQuery, buildRAGSystemPrompt, shouldRerank, formatContextForPrompt } from './retrieval';
+import { estimateTokens } from './tokenBudget';
 
 describe('RAG query rewrite', () => {
   it('去掉口语化外壳并保留原问题的检索意图', () => {
@@ -26,5 +27,17 @@ describe('RAG query rewrite', () => {
   it('简单事实问题跳过额外的模型重排', () => {
     expect(shouldRerank('RAG 是什么', 8)).toBe(false);
     expect(shouldRerank('请比较传统 RAG 和 Agentic RAG 的检索决策、成本与适用场景', 8)).toBe(true);
+  });
+
+  it('最终 RAG 上下文遵守 token 上限', () => {
+    const chunks = Array.from({ length: 20 }, (_, index) => ({
+      source: 'personal' as const,
+      sourceId: `j${index}`,
+      chunkId: `c${index}`,
+      title: `文档 ${index}`,
+      content: '检索资料'.repeat(2000),
+      score: 1,
+    }));
+    expect(estimateTokens(formatContextForPrompt(chunks))).toBeLessThanOrEqual(4500);
   });
 });

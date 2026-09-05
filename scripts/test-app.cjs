@@ -11,7 +11,23 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
 ]);
 
-const ROUTES = ['/', '/ai', '/review', '/cards', '/stats', '/knowledge', '/tags', '/settings', '/inbox', '/search', '/trash', '/edit/new'];
+const ROUTES = [
+  '/',
+  '/ai',
+  '/agent',
+  '/stats',
+  '/settings',
+  '/tags',
+  '/manual',
+  '/inbox',
+  '/learning',
+  '/zero2-review',
+  '/source/zero2agent',
+  '/source/zero2leetcode',
+  '/search',
+  '/trash',
+  '/edit/new',
+];
 
 let failures = [];
 

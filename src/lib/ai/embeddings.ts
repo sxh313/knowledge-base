@@ -14,6 +14,11 @@ export interface EmbeddingResponse {
   dimension: number;
 }
 
+const QUERY_CACHE_TTL_MS = 10 * 60 * 1000;
+const QUERY_CACHE_LIMIT = 64;
+const queryCache = new Map<string, { vector: number[]; expiresAt: number }>();
+const queryInFlight = new Map<string, Promise<number[]>>();
+
 function normalise(vector: number[]): number[] {
   const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
   return norm > 0 ? vector.map((value) => value / norm) : vector;
@@ -85,7 +90,30 @@ export async function embedQuery(text: string, options: EmbeddingOptions = {}): 
   const settings = await getSettings();
   const profile = getEmbeddingProfile(settings);
   if (!profile) throw new Error('未配置可用的 Embedding 模型');
-  return (await embedTexts([queryTextFor(profile, text)], profile, options)).vectors[0] ?? [];
+  const input = queryTextFor(profile, text.trim());
+  const key = `${profile.id}\n${input}`;
+  const cached = queryCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    queryCache.delete(key);
+    queryCache.set(key, cached);
+    return cached.vector;
+  }
+  if (cached) queryCache.delete(key);
+  const running = queryInFlight.get(key);
+  if (running) return running;
+  const request = embedTexts([input], profile, options).then((result) => {
+    const vector = result.vectors[0] ?? [];
+    queryCache.set(key, { vector, expiresAt: Date.now() + QUERY_CACHE_TTL_MS });
+    while (queryCache.size > QUERY_CACHE_LIMIT) queryCache.delete(queryCache.keys().next().value as string);
+    return vector;
+  }).finally(() => queryInFlight.delete(key));
+  queryInFlight.set(key, request);
+  return request;
+}
+
+export function clearEmbeddingQueryCache(): void {
+  queryCache.clear();
+  queryInFlight.clear();
 }
 
 export async function testEmbeddingProfile(profile: AIModelProfile): Promise<{ dimension: number; model: string }> {
