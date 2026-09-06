@@ -18,6 +18,7 @@ import { describeConnectionError } from '../lib/ai/connectionError';
 import { searchAndFetchWeb } from '../lib/ai/webSearch';
 import { resolveAIBaseUrl } from '../lib/ai/localProxy';
 import DiagnosticsSection from '../components/settings/DiagnosticsSection';
+import DataManagementSection from '../components/settings/DataManagementSection';
 
 const isAndroidApp = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
 const isElectronApp = !!window.electronAPI?.isElectron;
@@ -77,8 +78,6 @@ export default function SettingsPage() {
   const providerOpenInitialized = useRef(false);
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
-  const [mdBusy, setMdBusy] = useState(false);
-  const [mdMsg, setMdMsg] = useState<string | null>(null);
   const [exportOut, setExportOut] = useState('');
   const [importText, setImportText] = useState('');
   const [vaultPwd, setVaultPwd] = useState('');
@@ -889,49 +888,7 @@ export default function SettingsPage() {
         </details>
       </section>
 
-      {/* 数据管理 */}
-      <section id="data-management" className="scroll-mt-6 space-y-3">
-        <h2 className="text-lg font-semibold">💾 数据管理</h2>
-        <p className="text-xs text-gray-400">JSON 备份包含文档、附件、对话、分类、版本、学习目标、业务偏好和 Agent 历史；不包含 API Key、GitHub Token 与设备级界面设置。</p>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <button className="btn-secondary" onClick={() => import('../lib/services/export').then(m => m.exportAllData())}>
-            📤 导出数据
-          </button>
-          <button className="btn-secondary" onClick={() => document.getElementById('import-file')?.click()}>
-            📥 导入数据
-          </button>
-          <button className="btn-secondary" onClick={() => import('../lib/services/export').then(m => m.exportJournalsAsMarkdownZip())} title="每篇文档导出为独立 .md（带 frontmatter），打包成 zip 下载">
-            📁 导出为 Markdown(.zip)
-          </button>
-          <button
-            className="btn-secondary"
-            disabled={mdBusy}
-            title="把每篇文档作为 .md 推送到 GitHub 仓库 docs/ 目录（专用文件夹）"
-            onClick={async () => {
-              const cfg = settings?.sync;
-              if (!cfg?.enabled || !cfg.token) { setMdMsg('请先在「云同步」里配置并启用'); return; }
-              setMdBusy(true); setMdMsg(null);
-              try {
-                const { pushJournalsAsMarkdown } = await import('../lib/sync/markdownSync');
-                const r = await pushJournalsAsMarkdown(cfg);
-                setMdMsg(`✅ 已推送 ${r.pushed} 篇文档到 GitHub docs/`);
-              } catch (e) { setMdMsg(`❌ ${(e as Error).message}`); }
-              finally { setMdBusy(false); }
-            }}
-          >
-            {mdBusy ? '推送中...' : '☁️ 推送文档为 Markdown 到 GitHub'}
-          </button>
-          <input id="import-file" type="file" accept=".json" className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) {
-                void import('../lib/services/export').then((m) => m.importData(file)).then(() => setMdMsg('数据导入成功，索引已重建')).catch((error) => setMdMsg(`导入失败：${error instanceof Error ? error.message : '文件格式错误'}`));
-              }
-              e.target.value = '';
-            }} />
-        </div>
-        {mdMsg && <p className="text-xs text-gray-500">{mdMsg}</p>}
-      </section>
+      <DataManagementSection sync={settings.sync} />
 
       {/* 关于与更新 */}
       <section id="about-updates" className="scroll-mt-6 space-y-3">

@@ -63,10 +63,11 @@ export async function saveGoalTasks(tasks: LearningTask[]): Promise<LearningTask
   const existing = await db.learningTasks.bulkGet(tasks.map((task) => task.id));
   const merged = tasks.map((task, index) => {
     const current = existing[index];
+    if (current?.deletedAt) return current;
     return current ? { ...task, date: current.date, status: current.status, createdAt: current.createdAt, updatedAt: current.updatedAt } : task;
   });
   await db.learningTasks.bulkPut(merged);
-  return merged.sort((a, b) => a.date.localeCompare(b.date));
+  return merged.filter((task) => !task.deletedAt).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export async function listLearningTasks(goalId?: string): Promise<LearningTask[]> {
@@ -87,6 +88,11 @@ export async function createTasksForGoal(goal: LearningGoal, sourceIds: string[]
   return saveGoalTasks(buildGoalTasks(goal, sourceIds, topics));
 }
 
+export async function deleteLearningTask(id: string): Promise<void> {
+  const now = Date.now();
+  await db.learningTasks.update(id, { deletedAt: now, updatedAt: now });
+}
+
 export async function replaceTasksForGoal(goalId: string, tasks: LearningTask[]): Promise<LearningTask[]> {
   await migrateLegacyLearningData();
   const existing = await db.learningTasks.where('goalId').equals(goalId).toArray();
@@ -94,8 +100,10 @@ export async function replaceTasksForGoal(goalId: string, tasks: LearningTask[])
   const replacementIds = new Set(tasks.map((task) => task.id));
   const retired = existing.filter((task) => !replacementIds.has(task.id) && task.status === 'todo').map((task) => ({ ...task, deletedAt: now, updatedAt: now }));
   if (retired.length) await db.learningTasks.bulkPut(retired);
-  await db.learningTasks.bulkPut(tasks);
-  return tasks.sort((a, b) => a.date.localeCompare(b.date));
+  const existingById = new Map(existing.map((task) => [task.id, task]));
+  const merged = tasks.map((task) => existingById.get(task.id)?.deletedAt ? existingById.get(task.id)! : task);
+  await db.learningTasks.bulkPut(merged);
+  return merged.filter((task) => !task.deletedAt).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export async function createAgentCourseGoal(input: Pick<LearningGoal, 'title' | 'dailyMinutes' | 'deadline' | 'level'>): Promise<{ goal: LearningGoal; tasks: LearningTask[] }> {

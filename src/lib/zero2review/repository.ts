@@ -173,6 +173,11 @@ export async function updateReviewTask(id: string, patch: Partial<Pick<Zero2Revi
   await db.zero2ReviewTasks.update(id, { ...patch, updatedAt: Date.now() });
 }
 
+export async function softDeleteReviewTask(id: string): Promise<void> {
+  const now = Date.now();
+  await db.zero2ReviewTasks.update(id, { deletedAt: now, updatedAt: now });
+}
+
 /** 已完成/跳过任务不可被重新规划覆盖；只更新仍待执行的同 id 任务。 */
 export async function saveReviewTasksPreservingCompleted(tasks: Zero2ReviewTask[]): Promise<void> {
   if (!tasks.length) return;
@@ -180,6 +185,7 @@ export async function saveReviewTasksPreservingCompleted(tasks: Zero2ReviewTask[
   const existing = await db.zero2ReviewTasks.bulkGet(ids);
   const safe = tasks.map((task, index) => {
     const old = existing[index];
+    if (old?.deletedAt) return old;
     if (old && old.status !== 'todo') return old;
     return { ...task, updatedAt: Date.now(), createdAt: old?.createdAt ?? Date.now() };
   });

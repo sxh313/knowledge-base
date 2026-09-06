@@ -1,7 +1,8 @@
 import type { Zero2ReviewTask } from '../../lib/db/schema';
 import ReviewTopicLink from './ReviewTopicLink';
+import { Trash2 } from 'lucide-react';
 
-export default function TodayTaskList({ tasks, onSkip, onFinish }: { tasks: Zero2ReviewTask[]; onSkip: (id: string) => void; onFinish: (id: string) => void }) {
+export default function TodayTaskList({ tasks, onSkip, onFinish, onDelete }: { tasks: Zero2ReviewTask[]; onSkip: (id: string) => void; onFinish: (id: string) => void; onDelete: (id: string) => void }) {
   const completed = tasks.filter((task) => task.status === 'done').length;
   const progress = tasks.length ? Math.round((completed / tasks.length) * 100) : 0;
   return (
@@ -27,6 +28,7 @@ export default function TodayTaskList({ tasks, onSkip, onFinish }: { tasks: Zero
             <button className="btn-ghost text-xs" onClick={() => onSkip(task.id)}>跳过</button>
             <button className="btn-ghost text-xs" onClick={() => onFinish(task.id)}>完成</button>
           </>}
+          <button className="btn-ghost h-8 w-8 p-0 text-red-500" onClick={() => { if (window.confirm('删除这项复习任务？重新生成计划也不会恢复它。')) onDelete(task.id); }} aria-label="删除复习任务" title="删除任务" type="button"><Trash2 className="h-3.5 w-3.5" /></button>
         </div>
       ))}
     </section>

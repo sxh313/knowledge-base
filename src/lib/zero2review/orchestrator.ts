@@ -6,7 +6,7 @@ import { evaluateZero2Answer } from './evaluator';
 import { createUnknownMastery, applyEvaluation, recordInterest, recomputeMasteryFromAttempts } from './mastery';
 import { buildDailyPlan } from './planner';
 import { getPrerequisites, listTopicsByPathPrefix } from './catalog';
-import { createReviewPlan, createReviewSession, getActiveReviewPlan, getLatestReviewMessage, getTopicMastery, listLearningMemories, listReviewTasks, listTopicMastery, listTopicAttempts, recordAttemptAndMastery, saveAcceptedExchangeAndMastery, saveAcceptedMessage, saveLearningMemory, saveReviewTasksPreservingCompleted, saveTopicMastery, updateAttemptScore, updateReviewTask } from './repository';
+import { createReviewPlan, createReviewSession, getActiveReviewPlan, getLatestReviewMessage, getTopicMastery, listLearningMemories, listReviewTasks, listTopicMastery, listTopicAttempts, recordAttemptAndMastery, saveAcceptedExchangeAndMastery, saveAcceptedMessage, saveLearningMemory, saveReviewTasksPreservingCompleted, saveTopicMastery, softDeleteReviewTask, updateAttemptScore, updateReviewTask } from './repository';
 import type { Zero2AdaptivePolicy, Zero2EvaluationDraft, Zero2ReviewQuestion, Zero2ReviewStage, Zero2TutorResponse } from './types';
 import { buildAdaptivePolicy } from './adaptivePolicy';
 import type { Zero2ReviewTask } from '../db/schema';
@@ -141,6 +141,7 @@ export async function restoreZero2Session(sessionId: string): Promise<Orchestrat
 }
 export async function skipTask(taskId: string): Promise<void> { await updateReviewTask(taskId, { status: 'skipped' }); }
 export async function finishTask(taskId: string): Promise<void> { await updateReviewTask(taskId, { status: 'done' }); }
+export async function deleteTask(taskId: string): Promise<void> { await softDeleteReviewTask(taskId); }
 
 export async function correctAttemptScore(topicId: string, attemptId: string, score: 0 | 1 | 2 | 3 | 4): Promise<void> {
   await updateAttemptScore(attemptId, score);

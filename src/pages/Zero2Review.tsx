@@ -14,7 +14,7 @@ import LearningMemoryPanel from '../components/zero2review/LearningMemoryPanel';
 function today() { return new Date().toISOString().slice(0, 10); }
 
 export default function Zero2Review() {
-  const { state, tasks, mastery, planStatus, loadingReview, startAutomaticReview, finishTask, skipTask, rebuildPlan, pausePlan, resumePlan, refreshDashboard } = useZero2ReviewStore();
+  const { state, tasks, mastery, planStatus, loadingReview, startAutomaticReview, finishTask, skipTask, deleteTask, rebuildPlan, pausePlan, resumePlan, refreshDashboard } = useZero2ReviewStore();
   const [dailyMinutes, setDailyMinutes] = useState(30);
   const initialized = useRef(false);
   useEffect(() => {
@@ -48,7 +48,7 @@ export default function Zero2Review() {
     {rejected && <OutOfScopeNotice message={state.clarification || '该问题不属于 zero2Agent 复习范围。'} />}
     {state?.error && <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-900">{state.error}</div>}
     <ReviewConversation response={state?.response} />
-    <div className="grid gap-4 lg:grid-cols-2"><TodayTaskList tasks={tasks} onSkip={(id) => void skipTask(id)} onFinish={(id) => void finishTask(id)} /><MasteryPanel mastery={mastery} /></div>
+    <div className="grid gap-4 lg:grid-cols-2"><TodayTaskList tasks={tasks} onSkip={(id) => void skipTask(id)} onFinish={(id) => void finishTask(id)} onDelete={(id) => void deleteTask(id)} /><MasteryPanel mastery={mastery} /></div>
     <ReviewPlanPanel tasks={tasks} dailyMinutes={dailyMinutes} planStatus={planStatus} onRebuild={generatePlan} onPause={() => void pausePlan()} onResume={() => void resumePlan()} />
   </div>;
 }

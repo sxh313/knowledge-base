@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bell, BookOpen, Check, Clock3, ListChecks, Plus, Target } from 'lucide-react';
+import { Bell, BookOpen, Check, Clock3, ListChecks, Plus, Target, Trash2 } from 'lucide-react';
 import {
   createAgentCourseGoal,
   createLearningGoal,
   createTasksForGoal,
+  deleteLearningTask,
   listLearningGoals,
   listLearningTasks,
   updateLearningTask,
@@ -46,6 +47,13 @@ export default function LearningGoals() {
     const status = task.status === 'done' ? 'todo' : 'done';
     await updateLearningTask(task.id, { status });
     setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status } : item));
+  };
+
+  const removeTask = async (task: LearningTask) => {
+    if (!window.confirm(`删除任务“${task.title}”？删除后重新生成计划也不会恢复该任务。`)) return;
+    await deleteLearningTask(task.id);
+    setTasks((current) => current.filter((item) => item.id !== task.id));
+    showToast('success', '任务已删除');
   };
 
   const addGoal = async () => {
@@ -118,7 +126,7 @@ export default function LearningGoals() {
             <div className="space-y-2">
               {plan.map((task) => (
                 <article key={task.id} className="rounded-lg border border-[var(--color-border)] px-3 py-3 text-sm">
-                  <div className="flex gap-2"><span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${task.status === 'done' ? 'bg-emerald-500' : 'bg-[var(--color-primary)]'}`} /><div className="min-w-0 flex-1"><div className={`font-medium ${task.status === 'done' ? 'text-[var(--color-text-tertiary)] line-through' : ''}`}>{task.title}</div><div className="mt-1 text-xs text-[var(--color-text-secondary)]">{task.date} · 约 {task.minutes} 分钟 · 内容只读</div><p className="mt-2 text-xs text-[var(--color-text-secondary)]">{task.summary}</p><p className="mt-2 rounded-md bg-[var(--color-surface-2)] px-2 py-1.5 text-xs text-[var(--color-text-secondary)]"><b>课程练习：</b>{task.exercise}</p><p className="mt-2 rounded-md border border-[var(--color-border)] px-2 py-1.5 text-xs text-[var(--color-text-secondary)]"><b>复习提示：</b>{task.quizPrompt}</p>{task.sourceRefs?.length ? <div className="mt-2 flex flex-wrap gap-2">{task.sourceRefs.map((source) => <a key={source.path} className="inline-flex items-center gap-1 text-xs text-[var(--color-primary)] hover:underline" href={sourceHref(source)} target={source.sourceUrl ? '_blank' : undefined} rel={source.sourceUrl ? 'noreferrer' : undefined}><BookOpen className="h-3 w-3" />{source.title}</a>)}</div> : null}</div><button className="btn-ghost h-8 shrink-0 px-2 text-xs" onClick={() => void finish(task)} title="标记完成" type="button"><Check className="h-3.5 w-3.5" />{task.status === 'done' ? '已完成' : '完成'}</button></div>
+                  <div className="flex gap-2"><span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${task.status === 'done' ? 'bg-emerald-500' : 'bg-[var(--color-primary)]'}`} /><div className="min-w-0 flex-1"><div className={`font-medium ${task.status === 'done' ? 'text-[var(--color-text-tertiary)] line-through' : ''}`}>{task.title}</div><div className="mt-1 text-xs text-[var(--color-text-secondary)]">{task.date} · 约 {task.minutes} 分钟 · 内容只读</div><p className="mt-2 text-xs text-[var(--color-text-secondary)]">{task.summary}</p><p className="mt-2 rounded-md bg-[var(--color-surface-2)] px-2 py-1.5 text-xs text-[var(--color-text-secondary)]"><b>课程练习：</b>{task.exercise}</p><p className="mt-2 rounded-md border border-[var(--color-border)] px-2 py-1.5 text-xs text-[var(--color-text-secondary)]"><b>复习提示：</b>{task.quizPrompt}</p>{task.sourceRefs?.length ? <div className="mt-2 flex flex-wrap gap-2">{task.sourceRefs.map((source) => <a key={source.path} className="inline-flex items-center gap-1 text-xs text-[var(--color-primary)] hover:underline" href={sourceHref(source)} target={source.sourceUrl ? '_blank' : undefined} rel={source.sourceUrl ? 'noreferrer' : undefined}><BookOpen className="h-3 w-3" />{source.title}</a>)}</div> : null}</div><div className="flex shrink-0 items-center gap-1"><button className="btn-ghost h-8 px-2 text-xs" onClick={() => void finish(task)} title="标记完成" type="button"><Check className="h-3.5 w-3.5" />{task.status === 'done' ? '已完成' : '完成'}</button><button className="btn-ghost h-8 w-8 p-0 text-red-500" onClick={() => void removeTask(task)} aria-label={`删除任务 ${task.title}`} title="删除任务" type="button"><Trash2 className="h-3.5 w-3.5" /></button></div></div>
                 </article>
               ))}
             </div>

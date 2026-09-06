@@ -10,6 +10,9 @@ export const QUALITY_THRESHOLDS = {
   ragCitationWhitelistBlockRate: 1,
   agentIntentAccuracy: 0.75,
   agentPlanSafetyAccuracy: 1,
+  retrievalRecallAtK: 0.9,
+  retrievalCitationCoverage: 0.9,
+  retrievalUnsupportedAnswerRate: 0,
 } as const;
 
 const average = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
