@@ -6,6 +6,7 @@ import Heatmap from '../components/Heatmap';
 import { getCardsDueToday } from '../lib/db/cards';
 import { listDueTopicMastery, listTopicMastery } from '../lib/zero2review/repository';
 import { getTopicCandidates } from '../lib/zero2review/catalog';
+import { listUnifiedLearningTasks, summarizeLearningTasks, type LearningTaskSummary } from '../lib/learning/taskModel';
 
 interface DailyCount {
   date: string;
@@ -21,6 +22,7 @@ export default function Stats() {
   const [weakTopics, setWeakTopics] = useState<{ id: string; title: string; mastery: number | null; evidenceCount: number }[]>([]);
   const [dueCardCount, setDueCardCount] = useState(0);
   const [dueTopicCount, setDueTopicCount] = useState(0);
+  const [learningSummary, setLearningSummary] = useState<LearningTaskSummary | null>(null);
 
   useEffect(() => {
     loadStats();
@@ -28,15 +30,17 @@ export default function Stats() {
 
   async function loadStats() {
     setLoading(true);
-    const [journals, dueCards, dueTopics] = await Promise.all([
+    const [journals, dueCards, dueTopics, learningTasks] = await Promise.all([
       getActiveJournalsForStats(),
       getCardsDueToday(),
       listDueTopicMastery(),
+      listUnifiedLearningTasks(),
     ]);
 
     setTotalJournals(journals.length);
     setDueCardCount(dueCards.length);
     setDueTopicCount(dueTopics.length);
+    setLearningSummary(summarizeLearningTasks(learningTasks, new Date().toISOString().slice(0, 10)));
 
     // Daily counts (last 30 days)
     const counts: Record<string, number> = {};
@@ -106,6 +110,7 @@ export default function Stats() {
         </div>
         <div className="stat-card"><BookOpen className="h-5 w-5 text-[var(--color-primary)]" /><div><p className="text-xl font-bold text-[var(--color-text)]">{weekCount}</p><p className="text-xs text-[var(--color-text-secondary)]">本周记录</p></div></div>
         <div className="stat-card"><CalendarDays className="h-5 w-5 text-[var(--color-accent)]" /><div><p className="text-xl font-bold text-[var(--color-text)]">{streak}</p><p className="text-xs text-[var(--color-text-secondary)]">连续学习天</p></div></div>
+        <div className="stat-card"><Brain className="h-5 w-5 text-[var(--color-primary)]" /><div><p className="text-xl font-bold text-[var(--color-text)]">{learningSummary ? `${Math.round(learningSummary.completionRate * 100)}%` : '0%'}</p><p className="text-xs text-[var(--color-text-secondary)]">任务完成率</p></div></div>
       </div>
 
       <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.55fr)]">
@@ -148,7 +153,7 @@ export default function Stats() {
           {weakTopics.map((topic) => <button key={topic.id} className="rounded-lg border border-[var(--color-border)] p-3 text-left transition-colors hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-hover)]" onClick={() => navigate('/zero2-review')} type="button"><span className="block truncate text-sm font-medium text-[var(--color-text)]">{topic.title}</span><span className="mt-1 block text-xs text-[var(--color-text-secondary)]">{topic.mastery == null ? '掌握度未知' : `掌握度 ${Math.round(topic.mastery * 100)}%`} · {topic.evidenceCount} 条证据</span></button>)}
         </div>
       </div>}
-      {(dueCardCount > 0 || dueTopicCount > 0) && <div className="card border-[var(--color-primary)]/25">
+      {(dueCardCount > 0 || dueTopicCount > 0 || (learningSummary?.due ?? 0) > 0) && <div className="card border-[var(--color-primary)]/25">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div><h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-text)]"><Brain className="h-4 w-4 text-[var(--color-primary)]" />今天的最小行动</h2><p className="mt-1 text-xs text-[var(--color-text-secondary)]">先完成到期内容，再开始新的学习主题。</p></div>
           <button className="btn-primary inline-flex items-center gap-1 text-xs" onClick={() => navigate('/zero2-review')} type="button">进入复习 <ArrowRight className="h-3.5 w-3.5" /></button>
@@ -156,6 +161,7 @@ export default function Stats() {
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {dueTopicCount > 0 && <div className="flex items-center gap-2 rounded-md bg-[var(--color-surface-2)] px-3 py-2 text-xs"><Brain className="h-3.5 w-3.5 text-[var(--color-primary)]" /><span>有 {dueTopicCount} 个课程主题待复习</span></div>}
           {dueCardCount > 0 && <div className="flex items-center gap-2 rounded-md bg-[var(--color-surface-2)] px-3 py-2 text-xs"><Clock3 className="h-3.5 w-3.5 text-[var(--color-accent)]" /><span>有 {dueCardCount} 张知识卡片到期</span></div>}
+          {(learningSummary?.due ?? 0) > 0 && <div className="flex items-center gap-2 rounded-md bg-[var(--color-surface-2)] px-3 py-2 text-xs"><CalendarDays className="h-3.5 w-3.5 text-[var(--color-info)]" /><span>{learningSummary?.due} 项学习任务到期{learningSummary?.overdue ? `，其中 ${learningSummary.overdue} 项逾期` : ''} · 约 {learningSummary?.estimatedMinutesDue} 分钟</span></div>}
         </div>
       </div>}
     </div>

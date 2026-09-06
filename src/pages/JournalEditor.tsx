@@ -14,6 +14,8 @@ import RichTextEditor from '../components/RichTextEditor';
 import AIChatPanel from '../components/AIChatPanel';
 import DocumentSidebar from '../components/DocumentSidebar';
 import DocTree from '../components/DocTree';
+import { buildDocumentChunks } from '../lib/indexing/documents';
+import { createTextAnchor, isTextAnchor } from '../lib/ai/sourceAnchor';
 
 type EditMode = 'rich' | 'markdown';
 type SelectionAIAction = 'translate' | 'explain' | 'polish';
@@ -171,11 +173,17 @@ export default function JournalEditor() {
     }
   }, [currentEntry, id]);
 
-  // 引用定位：个人文档引用带 offset 时，打开编辑器后自动切到 Markdown 并选中原文范围。
+  // 引用定位优先使用内容锚点；旧引用继续兼容 offset。
   useEffect(() => {
     const raw = searchParams.get('offset');
-    const start = raw == null ? NaN : Number(raw);
-    if (!Number.isFinite(start) || !content || !currentEntry || currentEntry.id !== id) return;
+    const anchor = searchParams.get('anchor');
+    let start = raw == null ? NaN : Number(raw);
+    if (!content || !currentEntry || currentEntry.id !== id) return;
+    if (isTextAnchor(anchor)) {
+      const matched = buildDocumentChunks({ ...currentEntry, content }).find((chunk) => createTextAnchor(chunk.content) === anchor);
+      if (matched) start = matched.startOffset;
+    }
+    if (!Number.isFinite(start)) return;
     setMode('markdown');
     const timer = window.setTimeout(() => {
       const textarea = markdownRef.current;

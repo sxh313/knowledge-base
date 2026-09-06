@@ -10,6 +10,7 @@ import { routeBoundAI } from './router';
 import { syncPersonalChunkEmbeddings } from './personalEmbeddings';
 import { trimTextToTokenBudget } from './tokenBudget';
 import { recordDiagnostic } from '../observability/diagnostics';
+import { createTextAnchor } from './sourceAnchor';
 
 export type KnowledgeScope =
   | { kind: 'all' } // 兼容旧调用：仅个人文档
@@ -168,6 +169,19 @@ function scoreText(haystack: string, terms: string[]): number {
   }, 0);
 }
 
+/** Deterministic lexical ranker used by offline retrieval quality gates. */
+export function rankLexicalChunks(question: string, chunks: RetrievedChunk[], topK: number): RetrievedChunk[] {
+  const terms = extractTerms(`${question} ${rewriteQuery(question)}`);
+  return chunks
+    .map((chunk) => ({
+      ...chunk,
+      score: scoreText(chunk.content, terms) + scoreText(chunk.heading ?? '', terms) * 2 + scoreText(chunk.title, terms) * 3,
+    }))
+    .filter((chunk) => chunk.score > 0)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, Math.max(0, topK));
+}
+
 function zero2LeetcodeBundle(): Promise<Zero2AgentBundle> {
   if (!zero2LeetcodeBundlePromise) {
     const url = `${import.meta.env.BASE_URL || '/'}zero2leetcode-kb.json`;
@@ -307,6 +321,8 @@ async function retrievePersonal(question: string, scope: KnowledgeScope, topK: n
         content: c.content,
         score: 0,
         sourceContentHash: journalHashes.get(c.journalId),
+        sourceAnchor: createTextAnchor(c.content),
+        localUrl: `/edit/${c.journalId}?offset=${c.startOffset}&anchor=${encodeURIComponent(createTextAnchor(c.content))}`,
       },
       lexicalScore,
       matchedTerms,

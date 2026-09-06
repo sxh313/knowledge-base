@@ -256,10 +256,25 @@ export async function rebuildBrokenLinkSources(): Promise<void> {
   });
 }
 
-export async function rebuildDocumentIndexes(journalId?: string): Promise<void> {
+export interface IndexRebuildProgress {
+  completed: number;
+  total: number;
+  phase: 'preparing' | 'writing' | 'search';
+}
+
+export async function rebuildDocumentIndexes(
+  journalId?: string,
+  onProgress?: (progress: IndexRebuildProgress) => void,
+): Promise<void> {
   const allEntries = await db.journals.toArray();
   const targets = journalId ? allEntries.filter((entry) => entry.id === journalId) : allEntries;
-  const preparedTargets = await Promise.all(targets.map(prepareJournalEntry));
+  const total = Math.max(1, targets.length * 2 + 1);
+  const preparedTargets: JournalEntry[] = [];
+  onProgress?.({ completed: 0, total, phase: 'preparing' });
+  for (const entry of targets) {
+    preparedTargets.push(await prepareJournalEntry(entry));
+    onProgress?.({ completed: preparedTargets.length, total, phase: 'preparing' });
+  }
   const preparedById = new Map(preparedTargets.map((entry) => [entry.id, entry]));
   const entriesForResolution = allEntries.map((entry) => preparedById.get(entry.id) ?? entry);
 
@@ -268,7 +283,8 @@ export async function rebuildDocumentIndexes(journalId?: string): Promise<void> 
       await db.documentLinks.clear();
       await db.documentChunks.clear();
     }
-    for (const entry of preparedTargets) {
+    for (let index = 0; index < preparedTargets.length; index += 1) {
+      const entry = preparedTargets[index];
       await db.journals.put(entry);
       await db.documentLinks.where('sourceId').equals(entry.id).delete();
       await db.documentChunks.where('journalId').equals(entry.id).delete();
@@ -276,10 +292,13 @@ export async function rebuildDocumentIndexes(journalId?: string): Promise<void> 
       const chunks = buildDocumentChunks(entry);
       if (links.length) await db.documentLinks.bulkPut(links);
       if (chunks.length) await db.documentChunks.bulkPut(chunks);
+      onProgress?.({ completed: targets.length + index + 1, total, phase: 'writing' });
     }
   });
+  onProgress?.({ completed: total - 1, total, phase: 'search' });
   await rebuildSearchIndex();
   invalidatePersonalChunkIndex();
+  onProgress?.({ completed: total, total, phase: 'search' });
 }
 
 /** Rebuild the full outgoing-link graph when target titles or deletion state change. */

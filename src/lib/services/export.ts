@@ -125,8 +125,15 @@ export async function exportAllData() {
   URL.revokeObjectURL(url);
 }
 
-export async function importData(file: File) {
+export interface ImportProgress {
+  completed: number;
+  total: number;
+  message: string;
+}
+
+export async function importData(file: File, onProgress?: (progress: ImportProgress) => void) {
   if (file.size > 120 * 1024 * 1024) throw new Error('备份文件超过 120MB 上限');
+  onProgress?.({ completed: 0, total: 100, message: '正在读取备份' });
   const text = await file.text();
   let data: Record<string, unknown>;
   try {
@@ -135,6 +142,20 @@ export async function importData(file: File) {
     throw new Error('文件内容不是有效的 JSON 格式');
   }
   validateBackupPayload(data);
+  onProgress?.({ completed: 8, total: 100, message: '备份格式校验通过' });
+  const imports: Array<[unknown, { bulkPut: (rows: never[]) => Promise<unknown> }]> = [
+    [data.journals, db.journals], [data.notes, db.notes], [data.cards, db.cards], [data.graphNodes, db.graphNodes],
+    [data.graphEdges, db.graphEdges], [data.aiConversations, db.aiConversations], [data.journalVersions, db.journalVersions],
+    [data.attachments, db.attachments], [data.savedSearches, db.savedSearches], [data.propertyDefinitions, db.propertyDefinitions],
+    [data.categories, db.categories], [data.syncConflicts, db.syncConflicts], [data.agentSessions, db.agentSessions],
+    [data.agentMessages, db.agentMessages], [data.agentRuns, db.agentRuns], [data.agentAuditLogs, db.agentAuditLogs],
+    [data.agentRunEvents, db.agentRunEvents], [data.agentStates, db.agentStates], [data.agentExecutionReceipts, db.agentExecutionReceipts],
+    [data.memoryItems, db.memoryItems], [data.userPreferences, db.userPreferences], [data.learningGoals, db.learningGoals],
+    [data.learningTasks, db.learningTasks], [data.zero2ReviewSessions, db.zero2ReviewSessions],
+    [data.zero2ReviewMessages, db.zero2ReviewMessages], [data.zero2Mastery, db.zero2Mastery],
+    [data.zero2ReviewPlans, db.zero2ReviewPlans], [data.zero2ReviewTasks, db.zero2ReviewTasks],
+    [data.zero2ReviewAttempts, db.zero2ReviewAttempts], [data.zero2LearningMemories, db.zero2LearningMemories],
+  ];
   await db.transaction(
     'rw',
     [
@@ -149,42 +170,16 @@ export async function importData(file: File) {
       db.zero2LearningMemories,
     ],
     async () => {
-      const put = async (value: unknown, table: { bulkPut: (rows: never[]) => Promise<unknown> }) => {
+      for (let index = 0; index < imports.length; index += 1) {
+        const [value, table] = imports[index];
         if (Array.isArray(value) && value.length > 0) await table.bulkPut(value as never[]);
-      };
-      await put(data.journals, db.journals);
-      await put(data.notes, db.notes);
-      await put(data.cards, db.cards);
-      await put(data.graphNodes, db.graphNodes);
-      await put(data.graphEdges, db.graphEdges);
-      await put(data.aiConversations, db.aiConversations);
-      await put(data.journalVersions, db.journalVersions);
-      await put(data.attachments, db.attachments);
-      await put(data.savedSearches, db.savedSearches);
-      await put(data.propertyDefinitions, db.propertyDefinitions);
-      await put(data.categories, db.categories);
-      await put(data.syncConflicts, db.syncConflicts);
-      await put(data.agentSessions, db.agentSessions);
-      await put(data.agentMessages, db.agentMessages);
-      await put(data.agentRuns, db.agentRuns);
-      await put(data.agentAuditLogs, db.agentAuditLogs);
-      await put(data.agentRunEvents, db.agentRunEvents);
-      await put(data.agentStates, db.agentStates);
-      await put(data.agentExecutionReceipts, db.agentExecutionReceipts);
-      await put(data.memoryItems, db.memoryItems);
-      await put(data.userPreferences, db.userPreferences);
-      await put(data.learningGoals, db.learningGoals);
-      await put(data.learningTasks, db.learningTasks);
-      await put(data.zero2ReviewSessions, db.zero2ReviewSessions);
-      await put(data.zero2ReviewMessages, db.zero2ReviewMessages);
-      await put(data.zero2Mastery, db.zero2Mastery);
-      await put(data.zero2ReviewPlans, db.zero2ReviewPlans);
-      await put(data.zero2ReviewTasks, db.zero2ReviewTasks);
-      await put(data.zero2ReviewAttempts, db.zero2ReviewAttempts);
-      await put(data.zero2LearningMemories, db.zero2LearningMemories);
+        onProgress?.({ completed: 8 + Math.round(((index + 1) / imports.length) * 57), total: 100, message: '正在写入本地数据' });
+      }
     },
   );
-  await rebuildDocumentIndexes();
+  await rebuildDocumentIndexes(undefined, ({ completed, total }) => {
+    onProgress?.({ completed: 65 + Math.round((completed / total) * 35), total: 100, message: '正在重建文档索引' });
+  });
 }
 
 function blobToDataUrl(blob: Blob): Promise<string> {
