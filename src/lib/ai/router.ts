@@ -1,6 +1,7 @@
 import type { ChatMessage, ToolCall, ToolDefinition } from './client';
 import { chatCompletion } from './client';
 import { getSettings } from '../db/queries';
+import { recordDiagnostic } from '../observability/diagnostics';
 import { MODEL_MAP, TASK_MODELS, PROVIDER_FALLBACK_MODELS, providerNeedsApiKey, type ModelEntry, type TaskType, type ProviderName } from './providers';
 import type { AIModelBindings, AIModelProfile } from '../db/schema';
 
@@ -35,6 +36,7 @@ export async function routeAI(
   tools?: ToolDefinition[],
   onReasoning?: (token: string) => void,
 ): Promise<RouteResult> {
+  const startedAt = performance.now();
   const settings = await getSettings();
   // 将设置页选择的模型放在任务专属 fallback 链最前面，避免 UI 选择与实际调用脱节。
   const preferredKey = task === 'codeReview' || task === 'codeExplain'
@@ -156,7 +158,9 @@ export async function routeAI(
     if (res) return res;
   }
 
-  throw new Error(`All AI endpoints failed. Last error: ${lastError}`);
+  const message = `All AI endpoints failed. Last error: ${lastError}`;
+  recordDiagnostic({ category: 'ai', operation: `route:${task}`, outcome: signal?.aborted ? 'cancelled' : 'failure', message, durationMs: performance.now() - startedAt });
+  throw new Error(message);
 }
 
 /** 使用设置页“角色绑定”的模型；找不到自定义配置时仍走原有 fallback。 */

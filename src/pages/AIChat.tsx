@@ -15,7 +15,7 @@ import {
   type QueryRewriteResult,
 } from '../lib/ai/retrieval';
 import { answerGroundedQuestion } from '../lib/ai/groundedAnswer';
-import { getConversations, getConversation, upsertConversation, deleteConversation, deleteAllConversations } from '../lib/db/queries';
+import { getConversations, getConversation, upsertConversation, deleteConversation, deleteAllConversations } from '../lib/db/repositories/conversations';
 import { useSyncStore } from '../stores/syncStore';
 import { useViewModeStore } from '../stores/viewModeStore';
 import type { AIConversation } from '../lib/db/schema';
@@ -27,6 +27,7 @@ import { formatSearchContextForPrompt, readSearchAIContext, searchContextToChunk
 import { IconButton, Textarea } from '../components/ui';
 import type { AIStage, AITimingMetrics } from '../lib/ai/performance';
 import { validateRAGAnswer } from '../lib/ai/answerValidation';
+import { recordDiagnostic } from '../lib/observability/diagnostics';
 import Select, { type SelectOption } from '../components/ui/Select';
 import Agent from './Agent';
 
@@ -404,6 +405,7 @@ export default function AIChat() {
       const totalMs = Math.round(performance.now() - requestStartedRef.current);
       const generationMs = Math.max(0, totalMs - (timingRef.current.retrievalMs ?? 0) - (timingRef.current.rerankMs ?? 0) - (timingRef.current.webSearchMs ?? 0));
       timingRef.current = { ...timingRef.current, generationMs, totalMs };
+      recordDiagnostic({ category: 'ai', operation: 'chat', outcome: 'success', message: `scope=${scope.kind}; 首Token=${timingRef.current.firstTokenMs ?? 'n/a'}ms`, durationMs: totalMs });
       // 请求成功后清掉本次/上次遗留的错误，避免底部继续显示“回答生成失败”。
       useAIStore.setState({ timing: timingRef.current, isProcessing: false, stage: 'idle', error: null });
       useAIStore.setState({ streamingContent: '' });
@@ -411,6 +413,7 @@ export default function AIChat() {
       groundedControllerRef.current = null;
       const message = error instanceof Error ? error.message : '模型服务没有返回有效回答';
       useAIStore.setState({ streamingContent: '', isProcessing: false, stage: 'idle', error: message });
+      recordDiagnostic({ category: 'ai', operation: 'chat', outcome: groundedCancelledRef.current ? 'cancelled' : 'failure', message, durationMs: Math.round(performance.now() - requestStartedRef.current) });
       setIsGroundedStreaming(false);
     }
   };

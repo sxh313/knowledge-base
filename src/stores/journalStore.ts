@@ -8,11 +8,13 @@ import {
   getJournal,
   getAllJournals,
   duplicateJournal,
+} from '../lib/db/repositories/journals';
+import {
   getCategories,
   createCategory as createCategoryRecord,
   renameCategory as renameCategoryRecord,
   deleteCategory as deleteCategoryRecord,
-} from '../lib/db/queries';
+} from '../lib/db/repositories/categories';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 

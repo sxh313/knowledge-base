@@ -6,8 +6,9 @@ import { useJournalStore } from './stores/journalStore';
 import { useThemeStore } from './stores/themeStore';
 import { useSyncStore } from './stores/syncStore';
 import { buildSearchIndex } from './lib/search/fuse';
-import { ensureIndexesRebuilt } from './lib/db/queries';
+import { bootstrapApplication } from './lib/app/bootstrap';
 import { checkDailyLearningReminder } from './lib/agent/learningReminder';
+import { recordDiagnostic } from './lib/observability/diagnostics';
 
 import Layout from './components/Layout';
 import CommandPalette from './components/CommandPalette';
@@ -53,17 +54,8 @@ export default function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   useEffect(() => {
-    loadSettings();
-    // 先加载列表让用户尽快看到内容；派生索引重建在后台执行，不阻塞首屏
-    loadAll();
-    (async () => {
-      try {
-        const rebuilt = await ensureIndexesRebuilt();
-        // 若后台重建了派生索引（chunks/links/hash），刷新列表以触发搜索索引重建
-        if (rebuilt) loadAll();
-      } catch { /* 忽略重建错误 */ }
-    })();
-  }, []);
+    void bootstrapApplication({ loadSettings, loadAllJournals: loadAll }).catch(() => undefined);
+  }, [loadSettings, loadAll]);
 
   // 自动云同步：启用后，打开应用 / 切回标签页 / 恢复联网时自动同步一次
   useEffect(() => {
@@ -80,9 +72,16 @@ export default function App() {
   }, [syncEnabled, doSync]);
 
   useEffect(() => {
-    void checkDailyLearningReminder().catch(() => undefined);
     const timer = window.setInterval(() => { void checkDailyLearningReminder().catch(() => undefined); }, 60_000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const onError = (event: ErrorEvent) => recordDiagnostic({ category: 'ui', operation: 'uncaught-error', outcome: 'failure', message: event.error?.message || event.message });
+    const onRejection = (event: PromiseRejectionEvent) => recordDiagnostic({ category: 'ui', operation: 'unhandled-rejection', outcome: 'failure', message: event.reason instanceof Error ? event.reason.message : String(event.reason) });
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => { window.removeEventListener('error', onError); window.removeEventListener('unhandledrejection', onRejection); };
   }, []);
 
 

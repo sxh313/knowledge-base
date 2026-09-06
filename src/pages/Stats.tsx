@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db } from '../lib/db/schema';
-import { CalendarDays, BookOpen } from 'lucide-react';
+import { ArrowRight, CalendarDays, BookOpen, Brain, Clock3 } from 'lucide-react';
+import { getActiveJournalsForStats } from '../lib/db/repositories/stats';
 import Heatmap from '../components/Heatmap';
-import { listTopicMastery } from '../lib/zero2review/repository';
+import { getCardsDueToday } from '../lib/db/cards';
+import { listDueTopicMastery, listTopicMastery } from '../lib/zero2review/repository';
 import { getTopicCandidates } from '../lib/zero2review/catalog';
 
 interface DailyCount {
@@ -18,6 +19,8 @@ export default function Stats() {
   const [dailyData, setDailyData] = useState<DailyCount[]>([]);
   const [subjectStats, setSubjectStats] = useState<{ subject: string; count: number }[]>([]);
   const [weakTopics, setWeakTopics] = useState<{ id: string; title: string; mastery: number | null; evidenceCount: number }[]>([]);
+  const [dueCardCount, setDueCardCount] = useState(0);
+  const [dueTopicCount, setDueTopicCount] = useState(0);
 
   useEffect(() => {
     loadStats();
@@ -25,9 +28,15 @@ export default function Stats() {
 
   async function loadStats() {
     setLoading(true);
-    const journals = await db.journals.filter(j => !j.deletedAt).toArray();
+    const [journals, dueCards, dueTopics] = await Promise.all([
+      getActiveJournalsForStats(),
+      getCardsDueToday(),
+      listDueTopicMastery(),
+    ]);
 
     setTotalJournals(journals.length);
+    setDueCardCount(dueCards.length);
+    setDueTopicCount(dueTopics.length);
 
     // Daily counts (last 30 days)
     const counts: Record<string, number> = {};
@@ -137,6 +146,16 @@ export default function Stats() {
         <div className="mb-3 flex items-center justify-between gap-2"><div><h2 className="text-sm font-semibold text-[var(--color-text)]">下一条航线</h2><p className="mt-1 text-xs text-[var(--color-text-secondary)]">优先补齐掌握度较低或证据不足的主题。</p></div><button className="btn-primary text-xs" onClick={() => navigate('/zero2-review')} type="button">进入训练</button></div>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {weakTopics.map((topic) => <button key={topic.id} className="rounded-lg border border-[var(--color-border)] p-3 text-left transition-colors hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-hover)]" onClick={() => navigate('/zero2-review')} type="button"><span className="block truncate text-sm font-medium text-[var(--color-text)]">{topic.title}</span><span className="mt-1 block text-xs text-[var(--color-text-secondary)]">{topic.mastery == null ? '掌握度未知' : `掌握度 ${Math.round(topic.mastery * 100)}%`} · {topic.evidenceCount} 条证据</span></button>)}
+        </div>
+      </div>}
+      {(dueCardCount > 0 || dueTopicCount > 0) && <div className="card border-[var(--color-primary)]/25">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-text)]"><Brain className="h-4 w-4 text-[var(--color-primary)]" />今天的最小行动</h2><p className="mt-1 text-xs text-[var(--color-text-secondary)]">先完成到期内容，再开始新的学习主题。</p></div>
+          <button className="btn-primary inline-flex items-center gap-1 text-xs" onClick={() => navigate('/zero2-review')} type="button">进入复习 <ArrowRight className="h-3.5 w-3.5" /></button>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {dueTopicCount > 0 && <div className="flex items-center gap-2 rounded-md bg-[var(--color-surface-2)] px-3 py-2 text-xs"><Brain className="h-3.5 w-3.5 text-[var(--color-primary)]" /><span>有 {dueTopicCount} 个课程主题待复习</span></div>}
+          {dueCardCount > 0 && <div className="flex items-center gap-2 rounded-md bg-[var(--color-surface-2)] px-3 py-2 text-xs"><Clock3 className="h-3.5 w-3.5 text-[var(--color-accent)]" /><span>有 {dueCardCount} 张知识卡片到期</span></div>}
         </div>
       </div>}
     </div>

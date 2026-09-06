@@ -4,7 +4,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import type { ProviderName } from '../lib/ai/providers';
 import { DEFAULT_BASE_URLS, providerNeedsApiKey } from '../lib/ai/providers';
 import type { AISettings, WebSearchSettings } from '../lib/db/schema';
-import { fetchAvailableModels } from '../lib/db/queries';
+import { fetchAvailableModels } from '../lib/db/repositories/settings';
 import type { SyncConfig } from '../lib/db/schema';
 import { useSyncStore } from '../stores/syncStore';
 import { useUpdateStore, manualCheck, applyUpdate } from '../stores/updateStore';
@@ -17,6 +17,7 @@ import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, D
 import { describeConnectionError } from '../lib/ai/connectionError';
 import { searchAndFetchWeb } from '../lib/ai/webSearch';
 import { resolveAIBaseUrl } from '../lib/ai/localProxy';
+import DiagnosticsSection from '../components/settings/DiagnosticsSection';
 
 const isAndroidApp = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
 const isElectronApp = !!window.electronAPI?.isElectron;
@@ -159,15 +160,18 @@ export default function SettingsPage() {
       const timeout = setTimeout(() => controller.abort(), 10000);
       const headers: Record<string, string> = {};
       if (prov.apiKey.trim()) headers.Authorization = `Bearer ${prov.apiKey.trim()}`;
-      const res = await fetch(`${resolveAIBaseUrl(prov.baseUrl || DEFAULT_BASE_URLS[key])}/models`, {
-        headers,
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const data = await res.json();
-      const count = Array.isArray(data.data) ? data.data.length : 0;
-      setApiTestResults(prev => ({ ...prev, [key]: { status: 'ok', msg: `可用（${count} 个模型）` } }));
+      try {
+        const res = await fetch(`${resolveAIBaseUrl(prov.baseUrl || DEFAULT_BASE_URLS[key])}/models`, {
+          headers,
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        const data = await res.json();
+        const count = Array.isArray(data.data) ? data.data.length : 0;
+        setApiTestResults(prev => ({ ...prev, [key]: { status: 'ok', msg: `可用（${count} 个模型）` } }));
+      } finally {
+        clearTimeout(timeout);
+      }
     } catch (error) {
       setApiTestResults(prev => ({ ...prev, [key]: { status: 'fail', msg: describeConnectionError(error, prov.baseUrl || DEFAULT_BASE_URLS[key]) } }));
     }
@@ -838,6 +842,8 @@ export default function SettingsPage() {
 
       <SyncSettingsSection config={settings.sync!} status={syncStatus} errorMessage={syncErrorMessage} testing={syncTesting} testMessage={syncMsg} onUpdate={updateSync} onTest={handleTestConn} onPull={pullOnly} onSync={doSync} />
 
+      <DiagnosticsSection />
+
       {/* 密钥迁移（跨设备，基于主密码加密） */}
       <section id="key-migration" className="scroll-mt-6 space-y-3">
         <details className="settings-disclosure card group">
@@ -918,7 +924,10 @@ export default function SettingsPage() {
           <input id="import-file" type="file" accept=".json" className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (file) import('../lib/services/export').then(m => m.importData(file));
+              if (file) {
+                void import('../lib/services/export').then((m) => m.importData(file)).then(() => setMdMsg('数据导入成功，索引已重建')).catch((error) => setMdMsg(`导入失败：${error instanceof Error ? error.message : '文件格式错误'}`));
+              }
+              e.target.value = '';
             }} />
         </div>
         {mdMsg && <p className="text-xs text-gray-500">{mdMsg}</p>}

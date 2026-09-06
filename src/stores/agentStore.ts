@@ -5,7 +5,7 @@
 import { create } from 'zustand';
 import type { ChatMessage } from '../lib/ai/client';
 import { routeAI } from '../lib/ai/router';
-import { getJournal } from '../lib/db/queries';
+import { getAllJournals, getJournal } from '../lib/db/repositories/journals';
 import { formatContextForPrompt, retrieve, type RetrievedChunk } from '../lib/ai/retrieval';
 import { buildAgentSystemPrompt } from '../lib/agent/prompt';
 import { previewPlan, applyPlan, undoRun, type UndoInfo } from '../lib/agent/executor';
@@ -27,7 +27,6 @@ import {
   HIGH_IMPACT_TYPES,
 } from '../lib/agent/tools';
 import { AGENT_TOOL_DEFINITIONS, mapToolCallsToOps } from '../lib/agent/toolDefinitions';
-import { db } from '../lib/db/schema';
 import type { JournalEntry, AgentSession, AgentRun, AgentRunEvent } from '../lib/db/schema';
 import { calculateContentHash } from '../lib/indexing/documents';
 import {
@@ -125,7 +124,7 @@ async function resolveJournalForPermission(op: AgentOp): Promise<JournalEntry | 
     if (byId && !byId.deletedAt) return byId;
   }
   if (op.title) {
-    const all = await db.journals.filter((j) => !j.deletedAt).toArray();
+    const all = await getAllJournals();
     const exact = all.find((j) => j.title.trim().toLowerCase() === op.title!.trim().toLowerCase());
     if (exact) return exact;
   }

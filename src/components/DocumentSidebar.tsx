@@ -2,13 +2,7 @@ import { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { List, Link2, FileText, AlertCircle, ArrowUpRight } from 'lucide-react';
 import DocOutline from './DocOutline';
 import { useJournalStore } from '../stores/journalStore';
-import {
-  getBacklinks,
-  getBrokenOutgoingLinks,
-  updateJournal,
-  createJournal,
-  type BacklinkInfo,
-} from '../lib/db/queries';
+import { getBacklinks, getBrokenOutgoingLinks, updateJournal, createJournal, type BacklinkInfo } from '../lib/db/repositories/journals';
 import type { DocumentLink } from '../lib/db/schema';
 import { linkifyFirstMention } from '../lib/markdownUtils';
 

@@ -115,6 +115,8 @@ export interface PersistedCitation {
   headingPath?: string[];
   sourceAnchor?: string;
   localUrl?: string;
+  /** Hash of the source content when the citation was created. */
+  sourceContentHash?: string;
 }
 
 export interface AIConversationMessage {
@@ -575,7 +577,7 @@ export interface LearningTask {
   title: string;
   minutes: number;
   sourceIds: string[];
-  sourceRefs?: { title: string; path: string; sourceUrl?: string; localPath?: string }[];
+  sourceRefs?: { title: string; path: string; sourceUrl?: string; localPath?: string; sourceId?: string }[];
   summary?: string;
   exercise?: string;
   learningStage?: 'reading' | 'practice' | 'review' | 'done';

@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Search, Star, Trash2, Bookmark, Filter, Sparkles, RotateCcw } from 'lucide-react';
 import { searchDocuments, type SearchResult } from '../lib/search/searchDocuments';
 import { parseQuery } from '../lib/search/queryParser';
-import { getSavedSearches, saveSavedSearch, deleteSavedSearch } from '../lib/db/queries';
+import { getSavedSearches, saveSavedSearch, deleteSavedSearch } from '../lib/db/repositories/search';
 import { useJournalStore } from '../stores/journalStore';
 import type { SavedSearch } from '../lib/db/schema';
 import { buildSearchAIContext, saveSearchAIContext } from '../lib/ai/searchContext';

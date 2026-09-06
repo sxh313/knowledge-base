@@ -8,6 +8,7 @@ import type { SyncConfig, JournalEntry } from '../db/schema';
 import { rebuildDocumentIndexes } from '../indexing/documents';
 import { pushJournalsAsMarkdown, pushConversationsAsMarkdown } from './markdownSync';
 import { mergeData, type FullData } from './merge';
+import { createSingleFlight } from './singleFlight';
 
 const API = 'https://api.github.com';
 
@@ -20,18 +21,9 @@ function applyZero2HistoryBoundary(data: FullData, enabled: boolean): FullData {
   return safe;
 }
 
-// 模块级同步锁：防止 syncNow / pullFromCloud 被并发调用（自动同步 + 手动同步同时触发时，
-// 后到的请求直接跳过，避免 Git Data API 分支引用竞态导致 404 / 覆盖丢失）
-let syncLock = false;
-async function withSyncLock<T>(fn: () => Promise<T>): Promise<T | null> {
-  if (syncLock) return null; // 已有同步在进行，跳过本次
-  syncLock = true;
-  try {
-    return await fn();
-  } finally {
-    syncLock = false;
-  }
-}
+// 模块级 single-flight：自动同步和手动同步并发触发时共享同一次请求，
+// 避免 Git Data API 分支引用竞态，也避免调用方把“跳过”误判为“已完成”。
+const withSyncLock = createSingleFlight();
 
 // UTF-8 安全的 base64 编解码（GitHub Contents API 要求 base64）
 function b64encode(str: string): string {
@@ -368,7 +360,7 @@ export interface PullResult {
   baselineHashes: Record<string, string>;
 }
 
-export async function pullFromCloud(cfg: SyncConfig): Promise<PullResult | null> {
+export async function pullFromCloud(cfg: SyncConfig): Promise<PullResult> {
   return withSyncLock(async () => {
     const local = await collectAllData(cfg.syncAgentData, cfg.syncZero2ReviewHistory);
     const remote = await ghGet(cfg);
@@ -396,7 +388,14 @@ export async function testConnection(cfg: SyncConfig): Promise<{ ok: boolean; me
     if (!cfg.owner || !cfg.repo || !cfg.token) {
       return { ok: false, message: '请填写用户名、仓库名和 Token' };
     }
-    const res = await fetch(`${API}/repos/${cfg.owner}/${cfg.repo}`, { headers: authHeaders(cfg.token) });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    let res: Response;
+    try {
+      res = await fetch(`${API}/repos/${cfg.owner}/${cfg.repo}`, { headers: authHeaders(cfg.token), signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
     if (res.status === 404) return { ok: false, message: '仓库不存在，请先在 GitHub 创建私有仓库' };
     if (res.status === 401 || res.status === 403) return { ok: false, message: 'Token 无效或权限不足（需 repo 权限）' };
     if (!res.ok) return { ok: false, message: `HTTP ${res.status}` };

@@ -30,6 +30,7 @@ export interface Zero2SourceReference {
   sourceUrl?: string;
   sourceAnchor?: string;
   localUrl?: string;
+  sourceContentHash?: string;
   /** 已召回的原文片段，打开溯源弹窗时可立即展示。 */
   content?: string;
 }
