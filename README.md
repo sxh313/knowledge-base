@@ -2,7 +2,7 @@
 
 > 本地优先的 AI 学习笔记、知识整理与复习应用。一次代码库可构建为 Web/PWA、Windows 桌面应用和 Android 应用。
 
-当前版本：**v1.6.25**
+当前版本：**v1.6.26**
 
 知屿将文档、卡片、复习进度、Agent 会话与同步元数据默认保存在当前设备的 IndexedDB。只有用户主动配置 AI 服务、联网搜索或 GitHub 同步时，相关请求才会离开设备。
 
@@ -63,6 +63,7 @@ npm run dev
 | `npm test` | 运行 Vitest 单元测试，覆盖 Agent、RAG、FSRS、同步和复习核心逻辑。 |
 | `npm run typecheck` | 只执行 TypeScript 项目引用检查。 |
 | `npm run check:release` | 核对版本、CHANGELOG、schema 和冒烟路由的一致性。 |
+| `npm run report:build` | 输出构建体积、资源数量和预缓存候选体积。 |
 | `npm run check` | 按发布顺序执行类型检查、测试和 Web 生产构建。 |
 | `npm run build` | 类型检查并构建 Web/PWA 生产包到 `dist/`。 |
 | `npm run electron:dev` | 同时启动 Vite 和 Electron，调试桌面端。 |
@@ -253,7 +254,7 @@ public/zero2agent/ 原始课程 Markdown
 
 ## 本地数据模型
 
-Dexie 数据库当前 schema 版本为 **12**。
+Dexie 数据库当前 schema 版本为 **14**。
 
 | 数据域 | 表 | 保存什么 |
 | --- | --- | --- |

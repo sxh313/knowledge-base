@@ -2,6 +2,7 @@ import { db, type DocumentChunk, type DocumentLink, type JournalEntry } from '..
 import { extractWikilinks, markdownToPlainText } from '../markdownUtils';
 import { rebuildSearchIndex, updateSearchEntry } from '../search/fuse';
 import { invalidatePersonalChunkIndex, replacePersonalJournalChunks } from '../ai/personalIndex';
+import { recordDiagnostic } from '../observability/diagnostics';
 
 const CHUNK_TARGET_LENGTH = 650;
 const CHUNK_MAX_LENGTH = 800;
@@ -227,7 +228,10 @@ export async function persistJournalWithIndexes(entry: JournalEntry): Promise<Jo
   // 搜索索引增量更新（仅更新当前文档，避免每次自动保存都全表 rebuild 的开销）
   updateSearchEntry(prepared);
   // 向量索引是可重建派生数据；保存先返回，后台仅为当前文档增量更新。
-  void import('../ai/personalEmbeddings').then(({ syncPersonalChunkEmbeddings }) => syncPersonalChunkEmbeddings([prepared.id])).catch((error) => console.warn('Personal embedding index update skipped:', (error as Error).message));
+  void import('../ai/personalEmbeddings').then(({ syncPersonalChunkEmbeddings }) => syncPersonalChunkEmbeddings([prepared.id])).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    recordDiagnostic({ category: 'indexing', operation: 'personal-embedding', outcome: 'failure', message });
+  });
   return prepared;
 }
 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { recordDiagnostic } from '../lib/observability/diagnostics';
 
 interface AppErrorBoundaryProps {
   children: React.ReactNode;
@@ -21,6 +22,7 @@ export default class AppErrorBoundary extends React.Component<
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('Unhandled application render error', error, info.componentStack);
+    recordDiagnostic({ category: 'ui', operation: 'render', outcome: 'failure', message: error.message });
   }
 
   private reset = () => {

@@ -1,8 +1,28 @@
 import { db, type JournalEntry } from '../db/schema';
-import { getAttachment } from '../db/queries';
+import { getAttachment } from '../db/repositories/attachments';
 import { rebuildDocumentIndexes } from '../indexing/documents';
 import { markdownToHtml } from '../markdownUtils';
 import JSZip from 'jszip';
+
+const BACKUP_ARRAY_FIELDS = [
+  'journals', 'notes', 'cards', 'graphNodes', 'graphEdges', 'aiConversations', 'journalVersions', 'attachments',
+  'savedSearches', 'propertyDefinitions', 'categories', 'syncConflicts', 'agentSessions', 'agentMessages',
+  'agentRuns', 'agentAuditLogs', 'agentRunEvents', 'agentStates', 'agentExecutionReceipts', 'memoryItems',
+  'userPreferences', 'learningGoals', 'learningTasks', 'zero2ReviewSessions', 'zero2ReviewMessages',
+  'zero2Mastery', 'zero2ReviewPlans', 'zero2ReviewTasks', 'zero2ReviewAttempts', 'zero2LearningMemories',
+] as const;
+
+export function validateBackupPayload(data: unknown): asserts data is Record<string, unknown> {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('备份根对象格式错误');
+  const record = data as Record<string, unknown>;
+  if (!Array.isArray(record.journals)) throw new Error('备份缺少 journals 数组');
+  if (record.version !== undefined && (typeof record.version !== 'number' || record.version < 1 || record.version > 20)) {
+    throw new Error('备份版本号无效');
+  }
+  for (const field of BACKUP_ARRAY_FIELDS) {
+    if (record[field] !== undefined && !Array.isArray(record[field])) throw new Error(`备份字段 ${field} 格式错误`);
+  }
+}
 
 /**
  * 把 markdown 中 attachment://<id> 的图片引用解析为可渲染的 dataUrl。
@@ -81,6 +101,10 @@ export async function exportAllData() {
     agentMessages: await db.agentMessages.toArray(),
     agentRuns: await db.agentRuns.toArray(),
     agentAuditLogs: await db.agentAuditLogs.toArray(),
+    agentRunEvents: await db.agentRunEvents.toArray(),
+    agentStates: await db.agentStates.toArray(),
+    agentExecutionReceipts: await db.agentExecutionReceipts.toArray(),
+    memoryItems: await db.memoryItems.toArray(),
     userPreferences: await db.userPreferences.toArray(),
     learningGoals: await db.learningGoals.toArray(),
     learningTasks: await db.learningTasks.toArray(),
@@ -90,6 +114,7 @@ export async function exportAllData() {
     zero2ReviewPlans: await db.zero2ReviewPlans.toArray(),
     zero2ReviewTasks: await db.zero2ReviewTasks.toArray(),
     zero2ReviewAttempts: await db.zero2ReviewAttempts.toArray(),
+    zero2LearningMemories: await db.zero2LearningMemories.toArray(),
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -101,6 +126,7 @@ export async function exportAllData() {
 }
 
 export async function importData(file: File) {
+  if (file.size > 120 * 1024 * 1024) throw new Error('备份文件超过 120MB 上限');
   const text = await file.text();
   let data: Record<string, unknown>;
   try {
@@ -108,6 +134,7 @@ export async function importData(file: File) {
   } catch {
     throw new Error('文件内容不是有效的 JSON 格式');
   }
+  validateBackupPayload(data);
   await db.transaction(
     'rw',
     [
@@ -115,9 +142,11 @@ export async function importData(file: File) {
       db.aiConversations, db.journalVersions, db.attachments, db.savedSearches,
       db.propertyDefinitions, db.categories, db.syncConflicts,
       db.agentSessions, db.agentMessages, db.agentRuns, db.agentAuditLogs,
+      db.agentRunEvents, db.agentStates, db.agentExecutionReceipts, db.memoryItems,
       db.userPreferences, db.learningGoals, db.learningTasks,
       db.zero2ReviewSessions, db.zero2ReviewMessages, db.zero2Mastery,
       db.zero2ReviewPlans, db.zero2ReviewTasks, db.zero2ReviewAttempts,
+      db.zero2LearningMemories,
     ],
     async () => {
       const put = async (value: unknown, table: { bulkPut: (rows: never[]) => Promise<unknown> }) => {
@@ -139,6 +168,10 @@ export async function importData(file: File) {
       await put(data.agentMessages, db.agentMessages);
       await put(data.agentRuns, db.agentRuns);
       await put(data.agentAuditLogs, db.agentAuditLogs);
+      await put(data.agentRunEvents, db.agentRunEvents);
+      await put(data.agentStates, db.agentStates);
+      await put(data.agentExecutionReceipts, db.agentExecutionReceipts);
+      await put(data.memoryItems, db.memoryItems);
       await put(data.userPreferences, db.userPreferences);
       await put(data.learningGoals, db.learningGoals);
       await put(data.learningTasks, db.learningTasks);
@@ -148,6 +181,7 @@ export async function importData(file: File) {
       await put(data.zero2ReviewPlans, db.zero2ReviewPlans);
       await put(data.zero2ReviewTasks, db.zero2ReviewTasks);
       await put(data.zero2ReviewAttempts, db.zero2ReviewAttempts);
+      await put(data.zero2LearningMemories, db.zero2LearningMemories);
     },
   );
   await rebuildDocumentIndexes();

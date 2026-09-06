@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { getCardsDueToday } from '../lib/db/cards';
 import { listDueTopicMastery } from '../lib/zero2review/repository';
 import type { JournalEntry } from '../lib/db/schema';
-import { ensureAgentCoursePlan, listLearningTasks, type LearningTask } from '../lib/agent/learning';
+import { listLearningGoals, listLearningTasks, type LearningTask } from '../lib/agent/learning';
 import { learningLocalDate } from '../lib/agent/coursePlanner';
 
 interface Props { entries: JournalEntry[] }
@@ -16,7 +16,9 @@ export default function TodayActionPanel({ entries }: Props) {
   const [todayTask, setTodayTask] = useState<LearningTask | null>(null);
   useEffect(() => {
     let active = true;
-    void Promise.all([getCardsDueToday(), listDueTopicMastery(), ensureAgentCoursePlan().then((goal) => listLearningTasks(goal.id))]).then(([cards, topics, tasks]) => {
+    void Promise.all([getCardsDueToday(), listDueTopicMastery(), listLearningGoals()]).then(async ([cards, topics, goals]) => {
+      const courseGoal = goals.find((goal) => goal.planKind === 'agent-course');
+      const tasks = courseGoal ? await listLearningTasks(courseGoal.id) : [];
       if (!active) return;
       setDueCards(cards.length);
       setDueTopics(topics.length);

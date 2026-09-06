@@ -73,7 +73,7 @@ export function buildAgentCourseTasks(goal: LearningGoal, documents: CourseDocum
       title: `第 ${index + 1} 天 · ${primary.module} · ${primary.title}`,
       minutes: goal.dailyMinutes,
       sourceIds: unit.map((doc) => doc.id),
-      sourceRefs: unit.map((doc) => ({ title: doc.title, path: doc.path, sourceUrl: doc.sourceUrl, localPath: doc.localPath })),
+      sourceRefs: unit.map((doc) => ({ title: doc.title, path: doc.path, sourceUrl: doc.sourceUrl, localPath: doc.localPath, sourceId: doc.id })),
       summary: unit.length === 1 ? `阅读并理解「${primary.title}」的核心概念与实现思路。` : `完成 ${unit.length} 个连续小节：${unit.map((doc) => doc.title).join('、')}。`,
       exercise: exerciseFor(unit),
       learningStage: 'reading' as const,

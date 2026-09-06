@@ -1,6 +1,7 @@
 // 自动化测试:逐个加载知识库各页面路由,检测渲染错误
 // 用法: npx electron scripts/test-app.cjs
 const { app, BrowserWindow, protocol, net } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
@@ -11,23 +12,10 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
 ]);
 
-const ROUTES = [
-  '/',
-  '/ai',
-  '/agent',
-  '/stats',
-  '/settings',
-  '/tags',
-  '/manual',
-  '/inbox',
-  '/learning',
-  '/zero2-review',
-  '/source/zero2agent',
-  '/source/zero2leetcode',
-  '/search',
-  '/trash',
-  '/edit/new',
-];
+// Keep smoke coverage aligned with the route declarations in App.tsx.
+const appSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'App.tsx'), 'utf8');
+const ROUTES = [...new Set([...appSource.matchAll(/<Route\s+path="([^"]+)"/g)]
+  .map((match) => match[1].replace('/:id', '/new')))];
 
 let failures = [];
 

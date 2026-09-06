@@ -9,6 +9,7 @@ import type { AIStage } from './performance';
 import { routeBoundAI } from './router';
 import { syncPersonalChunkEmbeddings } from './personalEmbeddings';
 import { trimTextToTokenBudget } from './tokenBudget';
+import { recordDiagnostic } from '../observability/diagnostics';
 
 export type KnowledgeScope =
   | { kind: 'all' } // 兼容旧调用：仅个人文档
@@ -44,6 +45,8 @@ export interface RetrievedChunk {
   sourceAnchor?: string;
   /** 应用内来源查看器地址，优先于直接打开静态 Markdown。 */
   localUrl?: string;
+  /** Personal document hash captured at retrieval time; used to detect stale citations. */
+  sourceContentHash?: string;
 }
 
 interface Zero2AgentDocument {
@@ -260,6 +263,7 @@ async function retrievePersonal(question: string, scope: KnowledgeScope, topK: n
   void syncPersonalChunkEmbeddings(journals.map((journal) => journal.id))
     .catch((error) => console.warn('Personal vector retrieval skipped:', (error as Error).message));
   const journalIds = journals.map((journal) => journal.id);
+  const journalHashes = new Map(journals.map((journal) => [journal.id, journal.contentHash]));
   const chunks = await getPersonalChunks(journalIds);
   const lexicalCandidateIds = await findPersonalChunkIds(terms, journalIds);
   let queryVector: number[] | null = null;
@@ -302,6 +306,7 @@ async function retrievePersonal(question: string, scope: KnowledgeScope, topK: n
         heading: c.heading,
         content: c.content,
         score: 0,
+        sourceContentHash: journalHashes.get(c.journalId),
       },
       lexicalScore,
       matchedTerms,
@@ -449,10 +454,14 @@ export async function retrieve(question: string, scope: KnowledgeScope, topK = 8
   const candidateTopK = wantsRerank
     ? Math.max(topK, Math.min(50, retrievalSettings.candidateTopK))
     : topK;
-  const reportRetrieval = () => trace?.onTiming?.({ retrievalMs: Math.round(performance.now() - startedAt) });
+  const reportRetrieval = (candidateCount: number) => {
+    const retrievalMs = Math.round(performance.now() - startedAt);
+    trace?.onTiming?.({ retrievalMs });
+    recordDiagnostic({ category: 'ai', operation: `retrieval:${scope.kind}`, outcome: 'success', message: `候选 ${candidateCount}，目标 ${topK}`, durationMs: retrievalMs });
+  };
   if (scope.kind === 'zero2agent') {
     const candidates = await retrieveBuiltInKnowledge(question, candidateTopK, 'zero2agent', scope, false, retrievalQuery);
-    reportRetrieval();
+    reportRetrieval(candidates.length);
     if (!wantsRerank) return candidates.slice(0, topK);
     trace?.onStage?.('reranking');
     const rerankStartedAt = performance.now();
@@ -462,7 +471,7 @@ export async function retrieve(question: string, scope: KnowledgeScope, topK = 8
   }
   if (scope.kind === 'zero2leetcode') {
     const candidates = await retrieveBuiltInKnowledge(question, candidateTopK, 'zero2leetcode', scope, true, retrievalQuery);
-    reportRetrieval();
+    reportRetrieval(candidates.length);
     if (!wantsRerank) return candidates.slice(0, topK);
     trace?.onStage?.('reranking');
     const rerankStartedAt = performance.now();
@@ -476,8 +485,8 @@ export async function retrieve(question: string, scope: KnowledgeScope, topK = 8
       retrieveBuiltInKnowledge(question, candidateTopK, 'zero2agent', undefined, false, retrievalQuery),
       retrieveBuiltInKnowledge(question, candidateTopK, 'zero2leetcode', undefined, true, retrievalQuery),
     ]);
-    reportRetrieval();
     const merged = [...personal, ...zero2Agent, ...zero2Leetcode].sort((a, b) => b.score - a.score);
+    reportRetrieval(merged.length);
     if (!wantsRerank) return selectPerDocument(merged, topK);
     trace?.onStage?.('reranking');
     const rerankStartedAt = performance.now();
@@ -486,7 +495,7 @@ export async function retrieve(question: string, scope: KnowledgeScope, topK = 8
     return selectPerDocument(reranked, topK);
   }
   const candidates = await retrievePersonal(question, scope, candidateTopK, retrievalQuery);
-  reportRetrieval();
+  reportRetrieval(candidates.length);
   if (!wantsRerank) return candidates.slice(0, topK);
   trace?.onStage?.('reranking');
   const rerankStartedAt = performance.now();

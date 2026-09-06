@@ -21,7 +21,7 @@ import {
   Lightbulb, Languages, Sparkles, BookOpen, Search, PaintRoller, MoreHorizontal, AlignCenter,
 } from 'lucide-react';
 import { markdownToHtml, htmlToMarkdown } from '../lib/markdownUtils';
-import { putAttachment, getAttachment } from '../lib/db/queries';
+import { putAttachment, getAttachment } from '../lib/db/repositories/attachments';
 import { useJournalStore } from '../stores/journalStore';
 import { getSlashCommands, type SlashCommandItem } from './tiptap/slashCommand';
 import { Callout } from './tiptap/callout';

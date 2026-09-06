@@ -12,10 +12,10 @@ const TAVILY_ENDPOINT = 'https://api.tavily.com/search';
 const TAVILY_TIMEOUT_MS = 12000;
 const MAX_CONTENT_CHARS = 12000;
 
-function timeoutSignal(timeoutMs: number): AbortSignal {
+function timeoutSignal(timeoutMs: number): { signal: AbortSignal; cancel: () => void } {
   const controller = new AbortController();
-  setTimeout(() => controller.abort(), timeoutMs);
-  return controller.signal;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return { signal: controller.signal, cancel: () => clearTimeout(timer) };
 }
 
 export async function searchTavily(
@@ -26,21 +26,27 @@ export async function searchTavily(
 ): Promise<FetchedWebPage[]> {
   const key = apiKey.trim();
   if (!key) return [];
-  const response = await fetch(TAVILY_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify({
-      query,
-      max_results: Math.max(1, Math.min(10, limit)),
-      search_depth: 'advanced',
-      include_answer: false,
-      include_raw_content: true,
-    }),
-    signal: timeoutSignal(TAVILY_TIMEOUT_MS),
-  });
+  const timeout = timeoutSignal(TAVILY_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(TAVILY_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        query,
+        max_results: Math.max(1, Math.min(10, limit)),
+        search_depth: 'advanced',
+        include_answer: false,
+        include_raw_content: true,
+      }),
+      signal: timeout.signal,
+    });
+  } finally {
+    timeout.cancel();
+  }
   if (!response.ok) throw new Error(`Tavily search failed: HTTP ${response.status}`);
   const data = await response.json() as { results?: TavilyResult[] };
   return (data.results ?? []).slice(0, fetchLimit).map((item) => {

@@ -22,12 +22,17 @@ const architecture = read('docs/架构说明.md');
 if (!new RegExp(`schema 版本为 ${schemaVersion}`).test(architecture)) {
   failures.push(`docs/架构说明.md 未同步 schema v${schemaVersion}`);
 }
+if (!new RegExp(`schema 版本为 \\*\\*${schemaVersion}\\*\\*`).test(read('README.md'))) {
+  failures.push(`README.md 未同步 schema v${schemaVersion}`);
+}
 
 const routeScript = read('scripts/test-app.cjs');
-const requiredRoutes = ['/', '/ai', '/agent', '/learning', '/zero2-review', '/source/zero2agent', '/source/zero2leetcode', '/edit/new'];
+const appSource = read('src/App.tsx');
+const requiredRoutes = ['/', '/ai', '/agent', '/learning', '/zero2-review', '/source/zero2agent', '/source/zero2leetcode', '/edit/:id'];
 for (const route of requiredRoutes) {
-  if (!routeScript.includes(`'${route}'`)) failures.push(`scripts/test-app.cjs 缺少冒烟路由 ${route}`);
+  if (!appSource.includes(`path="${route}"`)) failures.push(`App.tsx 缺少必须路由 ${route}`);
 }
+if (!routeScript.includes('appSource.matchAll')) failures.push('scripts/test-app.cjs 未从 App.tsx 自动提取路由');
 
 if (failures.length) {
   console.error(['发布一致性检查失败：', ...failures.map((failure) => `- ${failure}`)].join('\n'));

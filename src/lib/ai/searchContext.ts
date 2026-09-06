@@ -9,6 +9,7 @@ export interface SearchAIContextItem {
   snippet: string;
   contentExcerpt: string;
   source: 'personal';
+  sourceContentHash?: string;
 }
 
 export interface SearchAIContext {
@@ -35,6 +36,7 @@ export function buildSearchAIContext(query: string, results: SearchResult[]): Se
     snippet: snippet || item.contentPlain.slice(0, 180),
     contentExcerpt: item.contentPlain.slice(0, MAX_EXCERPT),
     source: 'personal' as const,
+    sourceContentHash: item.contentHash,
   }));
   let used = 0;
   const items = candidates.filter((item) => {
@@ -73,6 +75,7 @@ export function searchContextToChunks(context: SearchAIContext): RetrievedChunk[
     score: 1,
     confidence: 1,
     localUrl: `/edit/${item.journalId}`,
+    sourceContentHash: item.sourceContentHash,
   }));
 }
 

@@ -8,7 +8,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { useSyncStore } from '../stores/syncStore';
 import { buildMessages } from '../lib/ai/prompts';
 import { markdownToHtml } from '../lib/markdownUtils';
-import { saveVersion, getVersions } from '../lib/db/queries';
+import { saveVersion, getVersions } from '../lib/db/repositories/journals';
 import type { JournalVersion } from '../lib/db/schema';
 import RichTextEditor from '../components/RichTextEditor';
 import AIChatPanel from '../components/AIChatPanel';

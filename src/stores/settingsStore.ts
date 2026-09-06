@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { AppSettings, AISettings } from '../lib/db/schema';
-import { getSettings, updateSettings, updateAIProviders } from '../lib/db/queries';
+import { getSettings, updateSettings, updateAIProviders } from '../lib/db/repositories/settings';
 
 interface SettingsStore {
   settings: AppSettings | null;

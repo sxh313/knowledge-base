@@ -88,6 +88,7 @@ function RiskBadge({ risk }: { risk?: AgentOp['risk'] }) {
 }
 
 type PlanRiskFilter = 'all' | 'low' | 'medium' | 'high' | 'failed';
+type RunStatusFilter = 'all' | 'planned' | 'running' | 'success' | 'partial' | 'failed' | 'interrupted' | 'rolled_back';
 
 function formatSeconds(durationMs: number) {
   return `${(Math.max(0, durationMs) / 1000).toFixed(durationMs >= 10000 ? 1 : 2)} 秒`;
@@ -529,6 +530,7 @@ export default function Agent() {
   // Agent 的会话历史是辅助信息；首次进入时优先让用户看到任务入口和输入区。
   const [showSessions, setShowSessions] = useState(false);
   const [showRuns, setShowRuns] = useState(false);
+  const [runStatusFilter, setRunStatusFilter] = useState<RunStatusFilter>('all');
   const [showSkills, setShowSkills] = useState(false);
   const [showPermissions, setShowPermissions] = useState(false);
   const [showComposerSettings, setShowComposerSettings] = useState(false);
@@ -733,6 +735,7 @@ export default function Agent() {
     rolled_back: { label: '已撤销', color: 'text-gray-500' },
   };
   const skillState = getSkillRegistryState();
+  const visibleRuns = runStatusFilter === 'all' ? runs : runs.filter((run) => run.status === runStatusFilter);
   const updatePreference = async (patch: Partial<AgentPreferences>) => setPreferences(await saveAgentPreferences(patch));
 
   return (
@@ -1083,15 +1086,18 @@ export default function Agent() {
         <aside className="w-80 shrink-0 flex flex-col agent-workspace-runs">
           <div className="soft-divider p-2 flex items-center justify-between">
             <span className="text-xs font-semibold text-[var(--color-text-secondary)]">运行历史</span>
-            <button className="btn-ghost text-xs p-1 rounded hover:bg-[var(--color-surface-2)]" onClick={() => setShowRuns(false)}>
-              <X className="h-3.5 w-3.5" />
-            </button>
+            <div className="flex items-center gap-1">
+              <Select className="w-24" size="compact" value={runStatusFilter} onChange={(value) => setRunStatusFilter(value as RunStatusFilter)} ariaLabel="运行状态筛选" options={[{ value: 'all', label: '全部' }, { value: 'planned', label: '待确认' }, { value: 'running', label: '执行中' }, { value: 'success', label: '成功' }, { value: 'partial', label: '部分成功' }, { value: 'failed', label: '失败' }, { value: 'interrupted', label: '已中断' }, { value: 'rolled_back', label: '已撤销' }]} />
+              <button className="btn-ghost text-xs p-1 rounded hover:bg-[var(--color-surface-2)]" onClick={() => setShowRuns(false)} aria-label="关闭运行历史" title="关闭运行历史">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-2">
-            {runs.length === 0 && (
-              <div className="text-xs text-[var(--color-text-tertiary)] text-center py-6">暂无运行记录</div>
+            {visibleRuns.length === 0 && (
+              <div className="text-xs text-[var(--color-text-tertiary)] text-center py-6">当前筛选没有运行记录</div>
             )}
-            {runs.map((r) => {
+            {visibleRuns.map((r) => {
               const meta = RUN_STATUS_META[r.status] ?? RUN_STATUS_META.planned;
               const opCount = (r.operations ?? []).length;
               return (

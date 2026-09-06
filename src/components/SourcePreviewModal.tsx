@@ -4,7 +4,7 @@ import MarkdownContent from './MarkdownContent';
 import { useFocusTrap } from '../lib/ui/useFocusTrap';
 import type { RetrievedChunk } from '../lib/ai/retrieval';
 import type { Zero2SourceReference } from '../lib/zero2review/types';
-import { getJournal } from '../lib/db/queries';
+import { getJournal } from '../lib/db/repositories/journals';
 
 export type PreviewCitation = RetrievedChunk | Zero2SourceReference;
 
@@ -25,6 +25,7 @@ export default function SourcePreviewModal({ citation, onClose }: Props) {
   const [matchedContent, setMatchedContent] = useState('');
   const [fullSource, setFullSource] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [stale, setStale] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   useFocusTrap(!!citation, dialogRef, closeRef);
@@ -36,11 +37,16 @@ export default function SourcePreviewModal({ citation, onClose }: Props) {
     setMatchedContent(matched);
     setContent(matched || '正在加载对应原文…');
     setFullSource(false);
+    setStale(false);
 
     if (isRetrieved(citation) && citation.source === 'personal' && citation.journalId) {
       void getJournal(citation.journalId).then((journal) => {
         if (!active) return;
-        if (journal?.content) { setContent(journal.content); setFullSource(true); }
+        if (journal?.content) {
+          if (citation.sourceContentHash && journal.contentHash !== citation.sourceContentHash) setStale(true);
+          setContent(journal.content);
+          setFullSource(true);
+        }
       }).catch(() => { /* 保留命中的分块 */ });
       return () => { active = false; };
     }
@@ -94,6 +100,7 @@ export default function SourcePreviewModal({ citation, onClose }: Props) {
         <button ref={closeRef} className="btn-ghost h-9 w-9 p-0" onClick={onClose} aria-label="关闭" title="关闭" type="button"><X className="h-5 w-5" /></button>
       </header>
       <div className="source-modal-meta"><span>{citation.source === 'zero2agent' ? 'zero2Agent 原文' : citation.source === 'zero2leetcode' ? '刷题知识库原文' : citation.source === 'web' ? '联网来源' : '个人文档'}</span>{citation.path && <span className="truncate">{citation.path}</span>}{isRetrieved(citation) && citation.offset?.start != null && <span>位置 {citation.offset.start}</span>}</div>
+      {stale && <p className="mx-4 mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">原文已在回答后更新，当前展示的是文档现版本；引用片段可能与当时略有不同。</p>}
       <div className="source-modal-content"><div className="source-modal-highlight"><MarkdownContent>{content}</MarkdownContent></div></div>
       <footer className="source-modal-actions"><button className="btn-secondary text-xs" onClick={() => { setContent(fullSource ? matchedContent : content); setFullSource((value) => !value); }} disabled={!matchedContent || citation.source === 'web'} type="button">{fullSource ? '查看命中片段' : '查看完整原文'}</button><button className="btn-secondary text-xs" onClick={() => void copy()} type="button">{copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}{copied ? '已复制' : fullSource ? '复制完整原文' : '复制片段'}</button>{localUrl && <a className="btn-secondary text-xs" href={localUrl}>在来源页查看</a>}{sourceUrl && <a className="btn-primary text-xs" href={sourceUrl} target="_blank" rel="noreferrer"><ExternalLink className="h-3.5 w-3.5" />打开网页原文</a>}</footer>
     </section>

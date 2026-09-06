@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { AlertTriangle, Check, GitCompare, Copy, Trash2 } from 'lucide-react';
-import { getSyncConflicts, resolveSyncConflict, deleteSyncConflict } from '../lib/db/queries';
+import { getSyncConflicts, resolveSyncConflict, deleteSyncConflict } from '../lib/db/repositories/conflicts';
 import type { SyncConflict } from '../lib/db/schema';
 
 interface SyncConflictsProps {
