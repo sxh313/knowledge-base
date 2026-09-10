@@ -60,7 +60,16 @@ export default function JournalEditor() {
   }, [content]);
   const [mode, setMode] = useState<EditMode>(isMobile ? 'markdown' : 'rich');
   const [showAIPanel, setShowAIPanel] = useState(false);
-  const [showDocList, setShowDocList] = useState(false);
+  // 文档列表默认常驻，并记住用户手动收起的选择；切换文档时编辑页不再丢失列表。
+  const [showDocList, setShowDocList] = useState<boolean>(() => {
+    const saved = localStorage.getItem('editor-doctree-visible');
+    return saved === null ? true : saved === '1';
+  });
+  const toggleDocList = () => setShowDocList((visible) => {
+    const next = !visible;
+    localStorage.setItem('editor-doctree-visible', next ? '1' : '0');
+    return next;
+  });
   // 右侧文档侧栏（大纲/反链/提及）显示开关，持久化
   const [showSidebar, setShowSidebar] = useState<boolean>(() => {
     const saved = localStorage.getItem('editor-sidebar-visible');
@@ -392,7 +401,7 @@ export default function JournalEditor() {
         <button className="btn-ghost p-1.5" onClick={() => navigate('/')} title="返回">
           <ArrowLeft className="h-4 w-4" />
         </button>
-        <button className={`btn-ghost p-1.5 ${showDocList ? 'text-[var(--color-primary)] bg-[var(--color-primary-light)]' : ''}`} onClick={() => setShowDocList(s => !s)} title="显示/隐藏文档列表">
+        <button className={`btn-ghost p-1.5 ${showDocList ? 'text-[var(--color-primary)] bg-[var(--color-primary-light)]' : ''}`} onClick={toggleDocList} title="显示/隐藏文档列表">
           <PanelLeft className="h-4 w-4" />
         </button>
         <button
