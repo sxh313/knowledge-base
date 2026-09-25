@@ -146,7 +146,7 @@ async function updateRef(cfg: SyncConfig, sha: string): Promise<void> {
  */
 export async function pushJournalsAsMarkdown(cfg: SyncConfig): Promise<{ pushed: number; commitSha: string }> {
   if (!cfg?.token || !cfg.owner || !cfg.repo) throw new Error('未配置同步 Token/仓库');
-  const journals = await db.journals.filter((j) => !j.deletedAt).toArray();
+  const journals = await db.journals.filter((j) => !j.deletedAt && !j.localOnly).toArray();
   // 增量优化：若所有文档 contentHash 与上次同步基线一致，且无文档被删除，则跳过推送（避免无谓的 Git Data API 调用）
   const baseline = cfg.baselineHashes ?? {};
   const journalIds = new Set(journals.map((j) => j.id));
@@ -207,7 +207,8 @@ export async function pushConversationsAsMarkdown(cfg: SyncConfig): Promise<{ pu
   if (!cfg?.token || !cfg.owner || !cfg.repo) throw new Error('未配置同步 Token/仓库');
   const allConvs = await db.aiConversations.toArray();
   // 过滤软删除的对话（已删则不在 conversations/ 中生成 .md，下次推送会从远端移除）
-  const convs = allConvs.filter((c) => !c.deletedAt);
+  const localOnlyIds = new Set((await db.journals.filter((j) => j.localOnly === true).toArray()).map((j) => j.id));
+  const convs = allConvs.filter((c) => !c.deletedAt && (!c.journalId || !localOnlyIds.has(c.journalId)));
   const commitSha = await getBranchSha(cfg);
   const baseTreeSha = await getCommitTreeSha(cfg, commitSha);
   const existing = (await listTree(cfg, baseTreeSha)).filter((e) => e.path.startsWith(`${CONV_DIR}/`) && e.path.endsWith('.md'));

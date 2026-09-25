@@ -97,8 +97,17 @@ export async function collectAllData(syncAgentData = false, syncZero2ReviewHisto
     ]);
   }
   // 附件 Blob 无法直接 JSON 序列化，转成 dataUrl
+  const localOnlyJournalIds = new Set(journals.filter((j) => j.localOnly).map((j) => j.id));
+  const syncedJournals = journals.filter((j) => !j.localOnly);
+  const syncedJournalVersions = journalVersions.filter((v) => !localOnlyJournalIds.has(v.journalId));
+  const syncedAttachments = rawAttachments.filter((a) => !localOnlyJournalIds.has(a.journalId));
+  const syncedNotes = notes.filter((n) => !localOnlyJournalIds.has(n.journalId));
+  const syncedCards = cards.filter((c) => !c.journalId || !localOnlyJournalIds.has(c.journalId));
+  const syncedConversations = aiConversations.filter((c) => !c.journalId || !localOnlyJournalIds.has(c.journalId));
+  const syncedCategories = categories.filter((c) => syncedJournals.some((j) => j.subject === c.name));
+  const syncedGraphNodes = graphNodes.filter((node) => !(node.entryIds ?? []).some((id) => localOnlyJournalIds.has(id)));
   const attachments = await Promise.all(
-    rawAttachments.map(async (a) => ({
+    syncedAttachments.map(async (a) => ({
       ...a,
       blob: undefined,
       dataUrl: a.dataUrl ?? (a.blob ? await blobToDataUrl(a.blob).catch(() => undefined) : undefined),
@@ -107,8 +116,8 @@ export async function collectAllData(syncAgentData = false, syncZero2ReviewHisto
   return {
     version: 5,
     exportedAt: Date.now(),
-    journals, notes, cards, graphNodes, graphEdges, aiConversations,
-    savedSearches, journalVersions, propertyDefinitions, categories, attachments,
+    journals: syncedJournals, notes: syncedNotes, cards: syncedCards, graphNodes: syncedGraphNodes, graphEdges, aiConversations: syncedConversations,
+    savedSearches, journalVersions: syncedJournalVersions, propertyDefinitions, categories: syncedCategories, attachments,
     agentSessions, agentMessages, agentRuns, agentAuditLogs,
     userPreferences, learningGoals, learningTasks,
     zero2ReviewSessions, zero2Mastery, zero2ReviewPlans, zero2ReviewTasks,
@@ -288,6 +297,10 @@ async function pullAndMerge(cfg: SyncConfig, local: FullData, baseline: Record<s
 
   if (remote?.content) {
     const remoteData = applyZero2HistoryBoundary(JSON.parse(b64decode(remote.content)) as FullData, !!cfg.syncZero2ReviewHistory);
+    remoteData.journals = remoteData.journals.filter((j) => !local.journals.some((localJ) => {
+      const entry = localJ as JournalEntry;
+      return entry.localOnly && entry.id === (j as JournalEntry).id;
+    }));
     // 三方冲突检测（本地与远端相对基线都改变且不同）
     const conflictedIds = detectConflictedIds(local.journals, remoteData.journals, baseline);
     conflicts = await recordConflicts(local.journals, remoteData.journals, conflictedIds);
@@ -370,6 +383,10 @@ export async function pullFromCloud(cfg: SyncConfig): Promise<PullResult> {
     let baselineHashes: Record<string, string> = {};
     if (remote?.content) {
       const remoteData = applyZero2HistoryBoundary(JSON.parse(b64decode(remote.content)) as FullData, !!cfg.syncZero2ReviewHistory);
+      remoteData.journals = remoteData.journals.filter((j) => !local.journals.some((localJ) => {
+        const entry = localJ as JournalEntry;
+        return entry.localOnly && entry.id === (j as JournalEntry).id;
+      }));
       const conflictedIds = detectConflictedIds(local.journals, remoteData.journals, baseline);
       conflicts = await recordConflicts(local.journals, remoteData.journals, conflictedIds);
       const merged = keepLocalForConflicts(mergeData(local, remoteData), local, conflictedIds);

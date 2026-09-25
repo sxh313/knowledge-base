@@ -49,7 +49,16 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
   } = useJournalStore();
   const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(new Set());
   const [expandedTags, setExpandedTags] = useState(false);
-  const [showAllDocs, setShowAllDocs] = useState(false);
+  // 编辑器内的文档列表默认展开，并保留用户手动收起的选择。
+  const [showAllDocs, setShowAllDocs] = useState<boolean>(() => {
+    const saved = localStorage.getItem('doctree-all-documents-expanded');
+    return saved === null ? true : saved === '1';
+  });
+  const toggleAllDocs = () => setShowAllDocs((expanded) => {
+    const next = !expanded;
+    localStorage.setItem('doctree-all-documents-expanded', next ? '1' : '0');
+    return next;
+  });
   const [showFavorites, setShowFavorites] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
   // 右键/⋮菜单：主菜单 + “移动到”分类子菜单
@@ -194,7 +203,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
         label="全部文档"
         count={entries.length}
         expanded={showAllDocs}
-        onClick={() => setShowAllDocs(v => !v)}
+        onClick={toggleAllDocs}
       />
       {showAllDocs && (
         <div className="tree-nested ml-4 space-y-0.5 border-l border-[var(--color-border)]/70 pl-2">

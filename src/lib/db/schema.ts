@@ -41,6 +41,8 @@ export interface JournalEntry {
   createdAt: number;         // timestamp ms
   updatedAt: number;
   deletedAt?: number;
+  /** 仅保存在当前设备，不参与 GitHub/Markdown 云同步。 */
+  localOnly?: boolean;
 }
 
 export interface Note {

@@ -1072,6 +1072,34 @@
     border-radius: var(--radius-lg);
   }
 
+  /* 超宽屏采用左锚定的“写作台”：目录与正文成为连续工作区，
+     正文仍限制行宽，而表格、代码等内容可利用更大的画布。 */
+  @media (min-width: 1600px) {
+    .editor-toolbar {
+      width: min(calc(100% - 3rem), 104rem);
+      margin-left: 1.5rem;
+      margin-right: auto;
+    }
+    .editor-document-scroll {
+      padding: 1.25rem 1.5rem 3rem;
+    }
+    .editor-reading-column {
+      width: min(100%, 104rem);
+      max-width: none !important;
+      margin-left: 0 !important;
+      margin-right: auto !important;
+      padding-left: clamp(2rem, 3vw, 4.5rem) !important;
+      padding-right: clamp(2rem, 3vw, 4.5rem) !important;
+    }
+    .editor-reading-column > textarea:first-child {
+      max-width: min(100%, 76rem);
+    }
+    .editor-reading-column .prose-custom,
+    .editor-reading-column > textarea:last-child {
+      max-width: min(100%, 78rem);
+    }
+  }
+
   @media (max-width: 767px) {
     .ai-doubao-messages {
       padding-top: 1rem !important;

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Star, PanelLeft, PanelRight, Maximize, Download, FileCode, ChevronDown, ChevronUp, History, Trash2, Copy, Check, X, Loader2, Bot } from 'lucide-react';
+import { ArrowLeft, Star, PanelLeft, PanelRight, Maximize, Download, FileCode, ChevronDown, ChevronUp, History, Trash2, Copy, Check, X, Loader2, Bot, Shield } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
 import { useViewModeStore } from '../stores/viewModeStore';
@@ -38,6 +38,7 @@ export default function JournalEditor() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [localOnly, setLocalOnly] = useState(false);
   const [editorState, setEditorState] = useState<Record<string, unknown> | undefined>();
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
@@ -169,13 +170,14 @@ export default function JournalEditor() {
       initializedEntryIdRef.current = null;
       setCurrent(null);
       setTitle(''); setContent(''); setEditorState(undefined); setMode(isMobile ? 'markdown' : 'rich');
-      setTags([]); setTagInput('');
+      setTags([]); setTagInput(''); setLocalOnly(false);
     }
   }, [id]);
   useEffect(() => {
     if (currentEntry && currentEntry.id === id && initializedEntryIdRef.current !== currentEntry.id) {
       setTitle(currentEntry.title);
       setContent(currentEntry.content);
+      setLocalOnly(!!currentEntry.localOnly);
       setEditorState(currentEntry.editorState);
       setTags(currentEntry.tags ?? []);
       initializedEntryIdRef.current = currentEntry.id;
@@ -219,6 +221,7 @@ export default function JournalEditor() {
       tags,
       subject: currentEntry?.subject ?? '',
       sourceType: 'manual' as const,
+      localOnly,
     };
 
     if (isNew) {
@@ -232,7 +235,7 @@ export default function JournalEditor() {
     }
     setSaving(false);
     // 本地保存完成（编辑停顿约 3 秒自动存）。云同步独立：顶部☁️手动 / 编辑停顿 10s 自动
-  }, [title, content, editorState, tags, isNew, id, currentEntry]);
+  }, [title, content, editorState, tags, localOnly, isNew, id, currentEntry]);
 
   // 编辑停顿 10s 后自动同步（仅当启用且开启 autoSync）
   useEffect(() => {
@@ -496,6 +499,17 @@ export default function JournalEditor() {
         </button>
 
         <div className="flex-1" />
+        <button
+          className={`btn-ghost text-xs flex items-center gap-1 ${localOnly ? 'text-[var(--color-accent)] bg-[var(--color-primary-light)]' : ''}`}
+          onClick={async () => {
+            const next = !localOnly;
+            setLocalOnly(next);
+            if (currentEntry?.id) await update(currentEntry.id, { localOnly: next });
+          }}
+          title={localOnly ? '取消仅本地：允许同步此文档' : '设为仅本地：此文档不会上传到 GitHub'}
+        >
+          <Shield className="h-3.5 w-3.5" /> {localOnly ? '仅本地' : '设为仅本地'}
+        </button>
         {/* 置顶切换 */}
         {currentEntry?.id && (
           <button
