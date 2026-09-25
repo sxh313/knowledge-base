@@ -230,7 +230,7 @@ export interface SyncConfig {
   owner: string;        // GitHub 用户名，如 sxh313
   repo: string;         // 仓库名
   branch: string;       // 分支，默认 main
-  path: string;         // 数据文件路径，默认 data.json
+  path: string;         // 旧版聚合数据路径，仅用于首次迁移读取
   token: string;        // 用户自己的 Personal Access Token，仅存当前设备 IndexedDB
   autoSync: boolean;    // 编辑停顿后自动同步
   lastSyncAt?: number;

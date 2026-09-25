@@ -56,7 +56,10 @@ export default function SyncSettingsSection({ config, status, errorMessage, test
             <label className="text-xs text-gray-400">GitHub 用户名或组织<input className="input-field mt-1" value={config.owner} onChange={e => onUpdate({ owner: e.target.value.trim() })} placeholder="your-name" /></label>
             <label className="text-xs text-gray-400">私有仓库名<input className="input-field mt-1" value={config.repo} onChange={e => onUpdate({ repo: e.target.value.trim() })} placeholder="knowledge-base" /></label>
             <label className="text-xs text-gray-400">分支<input className="input-field mt-1" value={config.branch} onChange={e => onUpdate({ branch: e.target.value.trim() })} placeholder="main" /></label>
-            <label className="text-xs text-gray-400">数据文件路径<input className="input-field mt-1" value={config.path} onChange={e => onUpdate({ path: e.target.value.trim() })} placeholder="data.json" /></label>
+            <div className="text-xs text-gray-400 sm:col-span-2">
+              远程存储结构
+              <div className="input-field mt-1 text-[var(--color-text-secondary)]">documents-json/分类/标题--文档ID.json</div>
+            </div>
           </div>
           <div className="space-y-1"><div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400"><span>GitHub Fine-grained Token（仅授予该私有仓库 Contents 读写权限）</span><button type="button" className="btn-ghost inline-flex h-7 items-center gap-1 px-2 text-[11px]" onClick={() => void fillTokenFromClipboard()}><ClipboardPaste className="h-3 w-3" />从剪贴板填入</button></div><input type="password" className="input-field font-mono" value={config.token} onChange={e => onUpdate({ token: e.target.value.trim() })} placeholder="github_pat_..." autoComplete="off" /></div>
           {tokenMessage && <p className={`text-[11px] ${tokenMessage.startsWith('已填入') ? 'text-green-500' : 'text-amber-600 dark:text-amber-400'}`}><Check className="mr-1 inline h-3 w-3" />{tokenMessage}</p>}

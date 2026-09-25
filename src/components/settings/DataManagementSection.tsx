@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { CloudUpload, Download, FolderArchive, Loader2, Upload } from 'lucide-react';
+import { Download, FolderArchive, Loader2, Upload } from 'lucide-react';
 import type { SyncConfig } from '../../lib/db/schema';
 import type { ImportProgress } from '../../lib/services/export';
 
@@ -9,7 +9,7 @@ interface Props {
 
 export default function DataManagementSection({ sync }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState<'import' | 'markdown' | null>(null);
+  const [busy, setBusy] = useState<'import' | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
 
@@ -24,24 +24,6 @@ export default function DataManagementSection({ sync }: Props) {
       setMessage('数据导入成功，索引已重建');
     } catch (error) {
       setMessage(`导入失败：${error instanceof Error ? error.message : '文件格式错误'}`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const pushMarkdown = async () => {
-    if (!sync?.enabled || !sync.token) {
-      setMessage('请先在“云同步”中配置并启用');
-      return;
-    }
-    setBusy('markdown');
-    setMessage(null);
-    try {
-      const { pushJournalsAsMarkdown } = await import('../../lib/sync/markdownSync');
-      const result = await pushJournalsAsMarkdown(sync);
-      setMessage(`已推送 ${result.pushed} 篇文档到 GitHub docs/`);
-    } catch (error) {
-      setMessage(`推送失败：${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
       setBusy(null);
     }
@@ -63,15 +45,13 @@ export default function DataManagementSection({ sync }: Props) {
         <button className="btn-secondary inline-flex items-center justify-center gap-2" disabled={busy !== null} onClick={() => void import('../../lib/services/export').then((module) => module.exportJournalsAsMarkdownZip())} title="每篇文档导出为独立 Markdown 文件并打包下载" type="button">
           <FolderArchive className="h-4 w-4" />导出 Markdown
         </button>
-        <button className="btn-secondary inline-flex items-center justify-center gap-2" disabled={busy !== null} onClick={() => void pushMarkdown()} title="把每篇文档推送到 GitHub 仓库 docs/ 目录" type="button">
-          {busy === 'markdown' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}{busy === 'markdown' ? '正在推送' : '推送 Markdown 到 GitHub'}
-        </button>
         <input ref={inputRef} type="file" accept=".json,application/json" className="hidden" onChange={(event) => {
           const file = event.target.files?.[0];
           if (file) void importBackup(file);
           event.target.value = '';
         }} />
       </div>
+      {sync?.enabled && <p className="text-xs text-[var(--color-text-secondary)]">云同步会自动按分类生成独立 JSON；无需额外推送 Markdown 副本。</p>}
       {progress && busy === 'import' && (
         <div className="space-y-1.5" role="status" aria-live="polite">
           <div className="flex justify-between text-xs text-[var(--color-text-secondary)]"><span>{progress.message}</span><span>{progressPercent}%</span></div>

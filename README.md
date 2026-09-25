@@ -2,7 +2,7 @@
 
 > 本地优先的 AI 学习笔记、知识整理与复习应用。一次代码库可构建为 Web/PWA、Windows 桌面应用和 Android 应用。
 
-当前版本：**v1.6.30**
+当前版本：**v1.6.31**
 
 知屿将文档、卡片、复习进度、Agent 会话与同步元数据默认保存在当前设备的 IndexedDB。只有用户主动配置 AI 服务、联网搜索或 GitHub 同步时，相关请求才会离开设备。
 
@@ -97,9 +97,12 @@ Web 版调用同源 `/api/search`；本地开发由 Vite 中间件提供，Verce
 
 ### GitHub 同步
 
-在“设置 → 云同步”填写自己的 GitHub 用户名或组织、私有仓库、分支、数据路径及 Fine-grained Token。建议 Token 只授予目标仓库的 Contents 读写权限。
+在“设置 → 云同步”填写自己的 GitHub 用户名或组织、私有仓库、分支及 Fine-grained Token。建议 Token 只授予目标仓库的 Contents 读写权限。
 
-- 同步文件默认是 `data.json`，单文件上限为 95 MB。
+- 每篇文档独立保存为 `documents-json/分类/标题--文档ID.json`；未分类文档进入 `documents-json/未分类/`。
+- 文档 JSON 同时包含该文档的笔记、卡片、版本、附件和绑定对话；全局数据保存在 `documents-json/_meta/data.json`。
+- 旧版聚合 `data.json` 只在首次升级时读取；成功同步后会从当前分支移除，同时清理旧对话副本及可识别的旧同步 Markdown，不影响项目说明文档。
+- 标记为“仅本地”的文档及其关联内容不会生成任何远程文件。
 - 文档与多数业务实体采用 `updatedAt` 和 `deletedAt` 合并；删除会写入 tombstone，避免其他设备把已删数据复活。
 - 并发修改不会静默覆盖，而是创建同步冲突供用户处理。
 - Agent 运行记录和 zero2Agent 完整问答可能包含敏感内容，默认不同步，需在设置中显式开启。

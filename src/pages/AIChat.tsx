@@ -179,7 +179,7 @@ export default function AIChat() {
     await deleteConversation(id);
     if (currentId === id) handleNew();
     refreshConversations();
-    // 已启用云同步时立即同步,使远端(data.json + conversations/*.md)也删除该对话
+    // 已启用云同步时立即同步，使远端分类 JSON 也删除该对话。
     if (settings?.sync?.enabled && settings.sync.token) {
       try { await doSync(); } catch { /* 忽略同步错误,本地删除已完成 */ }
     }

@@ -6,7 +6,7 @@
 import { db } from '../db/schema';
 import type { SyncConfig, JournalEntry } from '../db/schema';
 import { rebuildDocumentIndexes } from '../indexing/documents';
-import { pushJournalsAsMarkdown, pushConversationsAsMarkdown } from './markdownSync';
+import { readRemoteSnapshot, writeRemoteSnapshot } from './categorizedJsonSync';
 import { mergeData, type FullData } from './merge';
 import { createSingleFlight } from './singleFlight';
 
@@ -24,22 +24,6 @@ function applyZero2HistoryBoundary(data: FullData, enabled: boolean): FullData {
 // 模块级 single-flight：自动同步和手动同步并发触发时共享同一次请求，
 // 避免 Git Data API 分支引用竞态，也避免调用方把“跳过”误判为“已完成”。
 const withSyncLock = createSingleFlight();
-
-// UTF-8 安全的 base64 编解码（GitHub Contents API 要求 base64）
-function b64encode(str: string): string {
-  return btoa(unescape(encodeURIComponent(str)));
-}
-function b64decode(b64: string): string {
-  let s = decodeURIComponent(escape(atob(b64.replace(/\s/g, ''))));
-  // 容错：历史遗留的「双重 base64 编码」数据（文件内容本身是 base64 字符串，以 {"version 的
-  // base64 前缀 eyJ2ZXJzaW9u 开头）。检测到则再解码一次，避免 JSON.parse 失败导致同步中断。
-  if (s.startsWith('eyJ2ZXJzaW9u')) {
-    try {
-      s = decodeURIComponent(escape(atob(s.replace(/\s/g, ''))));
-    } catch { /* 非双重编码，保持原样 */ }
-  }
-  return s;
-}
 
 // Blob → dataURL（附件序列化用；settings 不参与同步，因其含 API Key）
 function blobToDataUrl(blob: Blob): Promise<string> {
@@ -284,41 +268,6 @@ function authHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
 }
 
-interface RemoteFile { sha?: string; content?: string }
-
-async function ghGet(cfg: SyncConfig): Promise<RemoteFile | null> {
-  const url = `${API}/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.path}?ref=${encodeURIComponent(cfg.branch)}`;
-  const res = await fetch(url, { headers: authHeaders(cfg.token) });
-  if (res.status === 404) return null; // 远端还没有数据文件（首次同步）
-  if (!res.ok) throw new Error(`GitHub GET 失败: HTTP ${res.status}`);
-  return (await res.json()) as RemoteFile;
-}
-
-/**
- * 单次 PUT data.json。返回新文件 sha；若返回 null 表示 409（远端被其他设备/进程修改，
- * 需由调用方重新拉取远端并重新合并后再推送）。
- */
-async function ghPutOnce(cfg: SyncConfig, content: string, sha?: string): Promise<string | null> {
-  const url = `${API}/repos/${cfg.owner}/${cfg.repo}/contents/${cfg.path}`;
-  const res = await fetch(url, {
-    method: 'PUT',
-    headers: { ...authHeaders(cfg.token), 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message: `chore(sync): ${new Date().toISOString()}`,
-      content: b64encode(content),
-      branch: cfg.branch,
-      ...(sha ? { sha } : {}),
-    }),
-  });
-  if (res.status === 409) return null; // SHA 冲突 → 调用方重新拉取合并
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    throw new Error(`GitHub PUT 失败: HTTP ${res.status} ${t.slice(0, 160)}`);
-  }
-  const json = await res.json();
-  return json?.content?.sha as string;
-}
-
 export interface SyncResult {
   sha: string;
   pulled: number;   // 从远端拉取并合并的记录数
@@ -332,13 +281,13 @@ export interface SyncResult {
  * 返回 { merged, json, remoteSha, pulled, conflicts }，供推送使用。
  */
 async function pullAndMerge(cfg: SyncConfig, local: FullData, baseline: Record<string, string>) {
-  const remote = await ghGet(cfg);
+  const remote = await readRemoteSnapshot(cfg);
   let merged = local;
   let pulled = 0;
   let conflicts = 0;
 
-  if (remote?.content) {
-    const remoteData = applyZero2HistoryBoundary(JSON.parse(b64decode(remote.content)) as FullData, !!cfg.syncZero2ReviewHistory);
+  if (remote.data) {
+    const remoteData = applyZero2HistoryBoundary(remote.data, !!cfg.syncZero2ReviewHistory);
     const localOnlyIds = new Set((local.journals as JournalEntry[]).filter((entry) => entry.localOnly).map((entry) => entry.id));
     const safeRemoteData = removeLocalOnlyData(remoteData, localOnlyIds);
     // 三方冲突检测（本地与远端相对基线都改变且不同）
@@ -356,14 +305,8 @@ async function pullAndMerge(cfg: SyncConfig, local: FullData, baseline: Record<s
   }
 
   const localOnlyIds = new Set((merged.journals as JournalEntry[]).filter((entry) => entry.localOnly).map((entry) => entry.id));
-  const json = JSON.stringify(removeLocalOnlyData(merged, localOnlyIds));
-  // GitHub 单文件硬上限 100MB，留余量用 95MB 提前拦截，避免推送失败
-  const byteSize = new Blob([json]).size;
-  const MAX_BYTES = 95 * 1024 * 1024; // 95MB（预留余量）
-  if (byteSize > MAX_BYTES) {
-    throw new Error(`数据体积 ${(byteSize / 1024 / 1024).toFixed(1)}MB 超过 95MB 上限，已阻止上传。请在设置中清理旧数据（如 AI 对话历史）后再试。`);
-  }
-  return { merged, json, remoteSha: remote?.sha, pulled, conflicts };
+  const cloudData = removeLocalOnlyData(merged, localOnlyIds);
+  return { merged, cloudData, remoteCommitSha: remote.commitSha, pulled, conflicts };
 }
 
 /**
@@ -377,28 +320,24 @@ export async function syncNow(cfg: SyncConfig): Promise<SyncResult> {
     const baseline = cfg.baselineHashes ?? {};
 
     // 首次拉取合并
-    let { merged, json, remoteSha, pulled, conflicts } = await pullAndMerge(cfg, local, baseline);
+    let { merged, cloudData, remoteCommitSha, pulled, conflicts } = await pullAndMerge(cfg, local, baseline);
 
     // 推送：遇 409 重新拉取合并再推，最多 5 次（指数退避）
     let sha: string | null = null;
     for (let attempt = 0; attempt < 5; attempt++) {
-      sha = await ghPutOnce(cfg, json, remoteSha);
+      sha = await writeRemoteSnapshot(cfg, cloudData, remoteCommitSha);
       if (sha) break;
       // 409：远端被并发修改。等待后重新拉取远端并重新合并（基于最新远端，避免覆盖他人改动）
       await new Promise((r) => setTimeout(r, 800 * Math.pow(2, attempt)));
       // 使用上一轮合并结果作为新的本地快照，避免 409 重试时丢掉刚合并的数据。
       const again = await pullAndMerge(cfg, merged, baseline);
       merged = again.merged;
-      json = again.json;
-      remoteSha = again.remoteSha;
+      cloudData = again.cloudData;
+      remoteCommitSha = again.remoteCommitSha;
       pulled = again.pulled;
       conflicts = again.conflicts;
     }
-    if (!sha) throw new Error('GitHub PUT 失败: 多次重试后仍冲突，请稍后再试');
-
-    // 自动推送文档 + AI 对话为 Markdown（每篇/每条一个文件到 docs/ 和 conversations/）
-    try { await pushJournalsAsMarkdown(cfg); } catch { /* ignore */ }
-    try { await pushConversationsAsMarkdown(cfg); } catch { /* ignore */ }
+    if (!sha) throw new Error('GitHub 同步失败: 多次重试后分支仍有并发更新，请稍后再试');
     const localOnlyIds = new Set((merged.journals as JournalEntry[]).filter((entry) => entry.localOnly).map((entry) => entry.id));
     return { sha, pulled, pushed: true, conflicts, baselineHashes: buildBaseline(removeLocalOnlyData(merged, localOnlyIds).journals) };
   }) as Promise<SyncResult>;
@@ -418,13 +357,13 @@ export interface PullResult {
 export async function pullFromCloud(cfg: SyncConfig): Promise<PullResult> {
   return withSyncLock(async () => {
     const local = await collectAllData(cfg.syncAgentData, cfg.syncZero2ReviewHistory);
-    const remote = await ghGet(cfg);
+    const remote = await readRemoteSnapshot(cfg);
     const baseline = cfg.baselineHashes ?? {};
     let pulled = 0;
     let conflicts = 0;
     let baselineHashes: Record<string, string> = {};
-    if (remote?.content) {
-      const remoteData = applyZero2HistoryBoundary(JSON.parse(b64decode(remote.content)) as FullData, !!cfg.syncZero2ReviewHistory);
+    if (remote.data) {
+      const remoteData = applyZero2HistoryBoundary(remote.data, !!cfg.syncZero2ReviewHistory);
       const localOnlyIds = new Set((local.journals as JournalEntry[]).filter((entry) => entry.localOnly).map((entry) => entry.id));
       const safeRemoteData = removeLocalOnlyData(remoteData, localOnlyIds);
       const conflictedIds = detectConflictedIds(local.journals, safeRemoteData.journals, baseline);
@@ -435,7 +374,7 @@ export async function pullFromCloud(cfg: SyncConfig): Promise<PullResult> {
       pulled = safeRemoteData.journals.length + safeRemoteData.cards.length + safeRemoteData.notes.length;
       baselineHashes = buildBaseline(removeLocalOnlyData(merged, localOnlyIds).journals);
     }
-    return { pulled, conflicts, lastSyncSha: remote?.sha, baselineHashes };
+    return { pulled, conflicts, lastSyncSha: remote.commitSha, baselineHashes };
   });
 }
 
