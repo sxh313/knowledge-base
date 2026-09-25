@@ -97,17 +97,8 @@ export async function collectAllData(syncAgentData = false, syncZero2ReviewHisto
     ]);
   }
   // 附件 Blob 无法直接 JSON 序列化，转成 dataUrl
-  const localOnlyJournalIds = new Set(journals.filter((j) => j.localOnly).map((j) => j.id));
-  const syncedJournals = journals.filter((j) => !j.localOnly);
-  const syncedJournalVersions = journalVersions.filter((v) => !localOnlyJournalIds.has(v.journalId));
-  const syncedAttachments = rawAttachments.filter((a) => !localOnlyJournalIds.has(a.journalId));
-  const syncedNotes = notes.filter((n) => !localOnlyJournalIds.has(n.journalId));
-  const syncedCards = cards.filter((c) => !c.journalId || !localOnlyJournalIds.has(c.journalId));
-  const syncedConversations = aiConversations.filter((c) => !c.journalId || !localOnlyJournalIds.has(c.journalId));
-  const syncedCategories = categories.filter((c) => syncedJournals.some((j) => j.subject === c.name));
-  const syncedGraphNodes = graphNodes.filter((node) => !(node.entryIds ?? []).some((id) => localOnlyJournalIds.has(id)));
   const attachments = await Promise.all(
-    syncedAttachments.map(async (a) => ({
+    rawAttachments.map(async (a) => ({
       ...a,
       blob: undefined,
       dataUrl: a.dataUrl ?? (a.blob ? await blobToDataUrl(a.blob).catch(() => undefined) : undefined),
@@ -116,12 +107,63 @@ export async function collectAllData(syncAgentData = false, syncZero2ReviewHisto
   return {
     version: 5,
     exportedAt: Date.now(),
-    journals: syncedJournals, notes: syncedNotes, cards: syncedCards, graphNodes: syncedGraphNodes, graphEdges, aiConversations: syncedConversations,
-    savedSearches, journalVersions: syncedJournalVersions, propertyDefinitions, categories: syncedCategories, attachments,
+    journals, notes, cards, graphNodes, graphEdges, aiConversations,
+    savedSearches, journalVersions, propertyDefinitions, categories, attachments,
     agentSessions, agentMessages, agentRuns, agentAuditLogs,
     userPreferences, learningGoals, learningTasks,
     zero2ReviewSessions, zero2Mastery, zero2ReviewPlans, zero2ReviewTasks,
     zero2ReviewMessages, zero2ReviewAttempts, zero2LearningMemories,
+  };
+}
+
+interface JournalLinkedRow { journalId?: string }
+interface GraphNodeRow { id?: string; entryIds?: string[] }
+interface GraphEdgeRow { sourceId?: string; targetId?: string }
+interface ConversationRow extends JournalLinkedRow {
+  citations?: { journalId?: string }[];
+  messages?: { citations?: { journalId?: string }[] }[];
+}
+
+function conversationReferencesLocalOnly(row: unknown, localOnlyIds: Set<string>): boolean {
+  const conversation = row as ConversationRow;
+  if (conversation.journalId && localOnlyIds.has(conversation.journalId)) return true;
+  const citations = [
+    ...(conversation.citations ?? []),
+    ...(conversation.messages ?? []).flatMap((message) => message.citations ?? []),
+  ];
+  return citations.some((citation) => !!citation.journalId && localOnlyIds.has(citation.journalId));
+}
+
+/**
+ * 从同步快照中移除仅本地文档及其关联数据。
+ * 保留完整本机快照用于合并，只有写入 GitHub 的数据经过此清洗。
+ */
+export function removeLocalOnlyData(data: FullData, localOnlyIds: Set<string>): FullData {
+  if (localOnlyIds.size === 0) return data;
+  const journals = data.journals.filter((row) => !localOnlyIds.has((row as { id?: string }).id ?? ''));
+  const graphNodes = data.graphNodes.filter((row) => !((row as GraphNodeRow).entryIds ?? []).some((id) => localOnlyIds.has(id)));
+  const graphNodeIds = new Set(graphNodes.map((row) => (row as GraphNodeRow).id).filter(Boolean) as string[]);
+  const categoriesInUse = new Set(journals.map((row) => (row as JournalEntry).subject).filter(Boolean));
+  return {
+    ...data,
+    journals,
+    notes: data.notes.filter((row) => !localOnlyIds.has((row as JournalLinkedRow).journalId ?? '')),
+    cards: data.cards.filter((row) => !localOnlyIds.has((row as JournalLinkedRow).journalId ?? '')),
+    journalVersions: data.journalVersions.filter((row) => !localOnlyIds.has((row as JournalLinkedRow).journalId ?? '')),
+    attachments: data.attachments.filter((row) => !localOnlyIds.has((row as JournalLinkedRow).journalId ?? '')),
+    aiConversations: data.aiConversations.filter((row) => !conversationReferencesLocalOnly(row, localOnlyIds)),
+    categories: data.categories.filter((row) => categoriesInUse.has((row as { name?: string }).name ?? '')),
+    graphNodes,
+    graphEdges: data.graphEdges.filter((row) => {
+      const edge = row as GraphEdgeRow;
+      return (!edge.sourceId || graphNodeIds.has(edge.sourceId)) && (!edge.targetId || graphNodeIds.has(edge.targetId));
+    }),
+    // Agent 消息和运行快照可能包含完整正文，无法仅凭结构可靠判定来源。
+    // 设备上存在仅本地文档时，宁可不上传 Agent 历史，也不冒泄露正文的风险。
+    agentSessions: [],
+    agentMessages: [],
+    agentRuns: [],
+    agentAuditLogs: [],
   };
 }
 
@@ -297,25 +339,24 @@ async function pullAndMerge(cfg: SyncConfig, local: FullData, baseline: Record<s
 
   if (remote?.content) {
     const remoteData = applyZero2HistoryBoundary(JSON.parse(b64decode(remote.content)) as FullData, !!cfg.syncZero2ReviewHistory);
-    remoteData.journals = remoteData.journals.filter((j) => !local.journals.some((localJ) => {
-      const entry = localJ as JournalEntry;
-      return entry.localOnly && entry.id === (j as JournalEntry).id;
-    }));
+    const localOnlyIds = new Set((local.journals as JournalEntry[]).filter((entry) => entry.localOnly).map((entry) => entry.id));
+    const safeRemoteData = removeLocalOnlyData(remoteData, localOnlyIds);
     // 三方冲突检测（本地与远端相对基线都改变且不同）
-    const conflictedIds = detectConflictedIds(local.journals, remoteData.journals, baseline);
-    conflicts = await recordConflicts(local.journals, remoteData.journals, conflictedIds);
+    const conflictedIds = detectConflictedIds(local.journals, safeRemoteData.journals, baseline);
+    conflicts = await recordConflicts(local.journals, safeRemoteData.journals, conflictedIds);
     // 合并：冲突文档保留本地，其余按「较新」
-    merged = keepLocalForConflicts(mergeData(local, remoteData), local, conflictedIds);
+    merged = keepLocalForConflicts(mergeData(local, safeRemoteData), local, conflictedIds);
     await writeAllData(merged);
     // 同步完成后本地重建派生索引（双链/分块/搜索），派生数据不参与同步
     await rebuildDocumentIndexes();
     pulled =
-      remoteData.journals.length +
-      remoteData.cards.length +
-      remoteData.notes.length;
+      safeRemoteData.journals.length +
+      safeRemoteData.cards.length +
+      safeRemoteData.notes.length;
   }
 
-  const json = JSON.stringify(merged);
+  const localOnlyIds = new Set((merged.journals as JournalEntry[]).filter((entry) => entry.localOnly).map((entry) => entry.id));
+  const json = JSON.stringify(removeLocalOnlyData(merged, localOnlyIds));
   // GitHub 单文件硬上限 100MB，留余量用 95MB 提前拦截，避免推送失败
   const byteSize = new Blob([json]).size;
   const MAX_BYTES = 95 * 1024 * 1024; // 95MB（预留余量）
@@ -358,7 +399,8 @@ export async function syncNow(cfg: SyncConfig): Promise<SyncResult> {
     // 自动推送文档 + AI 对话为 Markdown（每篇/每条一个文件到 docs/ 和 conversations/）
     try { await pushJournalsAsMarkdown(cfg); } catch { /* ignore */ }
     try { await pushConversationsAsMarkdown(cfg); } catch { /* ignore */ }
-    return { sha, pulled, pushed: true, conflicts, baselineHashes: buildBaseline(merged.journals) };
+    const localOnlyIds = new Set((merged.journals as JournalEntry[]).filter((entry) => entry.localOnly).map((entry) => entry.id));
+    return { sha, pulled, pushed: true, conflicts, baselineHashes: buildBaseline(removeLocalOnlyData(merged, localOnlyIds).journals) };
   }) as Promise<SyncResult>;
 }
 
@@ -383,17 +425,15 @@ export async function pullFromCloud(cfg: SyncConfig): Promise<PullResult> {
     let baselineHashes: Record<string, string> = {};
     if (remote?.content) {
       const remoteData = applyZero2HistoryBoundary(JSON.parse(b64decode(remote.content)) as FullData, !!cfg.syncZero2ReviewHistory);
-      remoteData.journals = remoteData.journals.filter((j) => !local.journals.some((localJ) => {
-        const entry = localJ as JournalEntry;
-        return entry.localOnly && entry.id === (j as JournalEntry).id;
-      }));
-      const conflictedIds = detectConflictedIds(local.journals, remoteData.journals, baseline);
-      conflicts = await recordConflicts(local.journals, remoteData.journals, conflictedIds);
-      const merged = keepLocalForConflicts(mergeData(local, remoteData), local, conflictedIds);
+      const localOnlyIds = new Set((local.journals as JournalEntry[]).filter((entry) => entry.localOnly).map((entry) => entry.id));
+      const safeRemoteData = removeLocalOnlyData(remoteData, localOnlyIds);
+      const conflictedIds = detectConflictedIds(local.journals, safeRemoteData.journals, baseline);
+      conflicts = await recordConflicts(local.journals, safeRemoteData.journals, conflictedIds);
+      const merged = keepLocalForConflicts(mergeData(local, safeRemoteData), local, conflictedIds);
       await writeAllData(merged);
       await rebuildDocumentIndexes();
-      pulled = remoteData.journals.length + remoteData.cards.length + remoteData.notes.length;
-      baselineHashes = buildBaseline(merged.journals);
+      pulled = safeRemoteData.journals.length + safeRemoteData.cards.length + safeRemoteData.notes.length;
+      baselineHashes = buildBaseline(removeLocalOnlyData(merged, localOnlyIds).journals);
     }
     return { pulled, conflicts, lastSyncSha: remote?.sha, baselineHashes };
   });

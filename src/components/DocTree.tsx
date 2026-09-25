@@ -39,9 +39,11 @@ function SectionHeader({
 interface DocTreeProps {
   /** 移动端抽屉中使用：导航后关闭抽屉 */
   onNavigate?: () => void;
+  /** 编辑器内使用：切换路由前先保存当前文档。 */
+  beforeNavigate?: () => Promise<void>;
 }
 
-function DocTree({ onNavigate }: DocTreeProps = {}) {
+function DocTree({ onNavigate, beforeNavigate }: DocTreeProps = {}) {
   const navigate = useNavigate();
   const {
     entries, categories, setCurrent, currentEntry, remove, update, duplicate, togglePin,
@@ -140,13 +142,15 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
     });
   };
 
-  const handleDocClick = (entry: JournalEntry) => {
+  const handleDocClick = async (entry: JournalEntry) => {
+    await beforeNavigate?.();
     setCurrent(entry);
     navigate(`/edit/${entry.id}`);
     onNavigate?.();
   };
 
   const createDocumentInCategory = async (category: Category) => {
+    await beforeNavigate?.();
     const entry = await create({ title: '无标题', content: '', contentPlain: '', tags: [], subject: category.name, sourceType: 'manual' });
     setExpandedSubjects((previous) => new Set(previous).add(category.name));
     setCurrent(entry);
@@ -191,7 +195,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
       {/* 新建文档（始终可见的快捷入口） */}
       <button
         className="mb-1 flex min-h-10 items-center gap-2 w-full rounded-lg px-2.5 py-2 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-primary-light)] hover:text-[var(--color-primary)]"
-        onClick={() => { setCurrent(null); navigate('/edit/new'); onNavigate?.(); }}
+        onClick={async () => { await beforeNavigate?.(); setCurrent(null); navigate('/edit/new'); onNavigate?.(); }}
       >
         <Plus className="h-3.5 w-3.5 flex-shrink-0 text-[var(--color-primary)]" />
         <span className="text-xs">新建文档</span>
@@ -321,7 +325,7 @@ function DocTree({ onNavigate }: DocTreeProps = {}) {
       {/* 回收站入口 */}
       <button
         className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text-secondary)] transition-colors"
-        onClick={() => { navigate('/trash'); onNavigate?.(); }}
+        onClick={async () => { await beforeNavigate?.(); navigate('/trash'); onNavigate?.(); }}
       >
         <Trash2 className="h-3.5 w-3.5 flex-shrink-0" />
         <span className="text-xs">回收站</span>

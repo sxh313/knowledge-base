@@ -147,12 +147,13 @@ async function updateRef(cfg: SyncConfig, sha: string): Promise<void> {
 export async function pushJournalsAsMarkdown(cfg: SyncConfig): Promise<{ pushed: number; commitSha: string }> {
   if (!cfg?.token || !cfg.owner || !cfg.repo) throw new Error('未配置同步 Token/仓库');
   const journals = await db.journals.filter((j) => !j.deletedAt && !j.localOnly).toArray();
+  const hasLocalOnly = await db.journals.filter((j) => !j.deletedAt && j.localOnly === true).count() > 0;
   // 增量优化：若所有文档 contentHash 与上次同步基线一致，且无文档被删除，则跳过推送（避免无谓的 Git Data API 调用）
   const baseline = cfg.baselineHashes ?? {};
   const journalIds = new Set(journals.map((j) => j.id));
   const hasContentChange = journals.some((j) => (j.contentHash ?? '') !== (baseline[j.id] ?? ''));
   const hasRemoval = Object.keys(baseline).some((id) => !journalIds.has(id));
-  if (!hasContentChange && !hasRemoval) {
+  if (!hasContentChange && !hasRemoval && !hasLocalOnly) {
     return { pushed: 0, commitSha: '' };
   }
   const commitSha = await getBranchSha(cfg);
@@ -188,6 +189,14 @@ export async function pushJournalsAsMarkdown(cfg: SyncConfig): Promise<{ pushed:
 
 const CONV_DIR = 'conversations';
 
+function conversationReferencesJournalIds(c: AIConversation, journalIds: Set<string>): boolean {
+  if (c.journalId && journalIds.has(c.journalId)) return true;
+  return [
+    ...(c.citations ?? []),
+    ...c.messages.flatMap((message) => message.citations ?? []),
+  ].some((citation) => !!citation.journalId && journalIds.has(citation.journalId));
+}
+
 function conversationToMarkdown(c: AIConversation): string {
   const fm: string[] = ['---'];
   fm.push(`id: ${c.id}`);
@@ -208,7 +217,7 @@ export async function pushConversationsAsMarkdown(cfg: SyncConfig): Promise<{ pu
   const allConvs = await db.aiConversations.toArray();
   // 过滤软删除的对话（已删则不在 conversations/ 中生成 .md，下次推送会从远端移除）
   const localOnlyIds = new Set((await db.journals.filter((j) => j.localOnly === true).toArray()).map((j) => j.id));
-  const convs = allConvs.filter((c) => !c.deletedAt && (!c.journalId || !localOnlyIds.has(c.journalId)));
+  const convs = allConvs.filter((c) => !c.deletedAt && !conversationReferencesJournalIds(c, localOnlyIds));
   const commitSha = await getBranchSha(cfg);
   const baseTreeSha = await getCommitTreeSha(cfg, commitSha);
   const existing = (await listTree(cfg, baseTreeSha)).filter((e) => e.path.startsWith(`${CONV_DIR}/`) && e.path.endsWith('.md'));
