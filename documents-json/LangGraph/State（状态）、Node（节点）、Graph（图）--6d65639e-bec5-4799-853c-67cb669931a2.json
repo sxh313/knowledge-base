@@ -1,0 +1,1514 @@
+{
+  "version": 1,
+  "exportedAt": 1790417086642,
+  "journal": {
+    "id": "6d65639e-bec5-4799-853c-67cb669931a2",
+    "title": "State（状态）、Node（节点）、Graph（图）",
+    "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n>\n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n>\n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n>\n> **原则二：节点是纯的（尽量）**\n>\n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n>\n> **原则三：返回 dict，不是 State 对象**\n>\n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```\n\n> 运行图\n\n```\n# invoke：同步运行，返回最终 state\nresult = app.invoke({\"user_input\": \"hello\"})\nprint(result)\n\n# stream：流式运行，每个节点完成后返回一次\nfor chunk in app.stream({\"user_input\": \"hello\"}):\n    print(chunk)\n```\n\n> `invoke` 返回的是最终的完整 state 字典。`stream` 每次 yield 一个 `{node_name: state_update}` 的字典。\n\n## 完整示例\n\n```\nfrom typing import TypedDict\nfrom langgraph.graph import StateGraph, END\n\n# 1. 定义 State\nclass TextState(TypedDict):\n    raw_text: str\n    cleaned: str\n    word_count: int\n    summary: str\n\n# 2. 定义节点\ndef clean_node(state: TextState) -> dict:\n    \"\"\"清理文本：去掉多余空格\"\"\"\n    text = state[\"raw_text\"].strip()\n    return {\"cleaned\": text}\n\ndef count_node(state: TextState) -> dict:\n    \"\"\"统计词数\"\"\"\n    count = len(state[\"cleaned\"].split())\n    return {\"word_count\": count}\n\ndef summary_node(state: TextState) -> dict:\n    \"\"\"生成摘要（这里简化为截断）\"\"\"\n    text = state[\"cleaned\"]\n    summary = text[:50] + \"...\" if len(text) > 50 else text\n    return {\"summary\": summary}\n\n# 3. 组装图\ngraph = StateGraph(TextState)\ngraph.add_node(\"clean\", clean_node)\ngraph.add_node(\"count\", count_node)\ngraph.add_node(\"summarize\", summary_node)\n\ngraph.set_entry_point(\"clean\")\ngraph.add_edge(\"clean\", \"count\")\ngraph.add_edge(\"count\", \"summarize\")\ngraph.add_edge(\"summarize\", END)\n\napp = graph.compile()\n\n# 4. 运行\nresult = app.invoke({\n    \"raw_text\": \"  LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。  \",\n    \"cleaned\": \"\",\n    \"word_count\": 0,\n    \"summary\": \"\"\n})\n\nprint(\"清理后:\", result[\"cleaned\"])\nprint(\"词数:\", result[\"word_count\"])\nprint(\"摘要:\", result[\"summary\"])\n```\n\n> 输出：\n\n```\n清理后: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n词数: 17\n摘要: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n```\n\n## 可视化图结构\n\n<!-- code-note:LangGraph%20%E5%8F%AF%E4%BB%A5%E6%8A%8A%E5%9B%BE%E6%B8%B2%E6%9F%93%E6%88%90%20ASCII%20%E6%88%96%E5%9B%BE%E7%89%87 -->\n```\n# ASCII 可视化\nprint(app.get_graph().draw_ascii())\n\n# 输出大致如下：\n# +-----------+\n# | __start__ |\n# +-----------+\n#       |\n#     clean\n#       |\n#     count\n#       |\n#   summarize\n#       |\n# +---------+\n# | __end__ |\n# +---------+\n```\n\n## 小结\n\n> 三件套的关系：\n>\n> -   **State** 是数据，所有节点共享，TypedDict 定义结构\n>\n> -   **Node** 是操作，读 State 写 State，普通函数\n>\n> -   **Graph** 是流程，把节点用边连起来，`compile()` 后可运行\n>\n>\n> 记住这三条规则：\n>\n> 1.  节点只返回要修改的字段（dict），不返回完整 state\n>\n> 2.  边决定执行顺序，`END` 是终止信号\n>\n> 3.  `invoke` 传入的是初始 state（dict），返回的是最终 state（dict）\n>",
+    "editorState": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "LangGraph 的回答是：把执行流描述成一张图（Graph）。"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "table",
+          "content": [
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableHeader",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "维度"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableHeader",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "链式调用"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableHeader",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "LangGraph"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "分支逻辑"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "if-else 散落在代码里"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "marks": [
+                            {
+                              "type": "code"
+                            }
+                          ],
+                          "text": "add_conditional_edges"
+                        },
+                        {
+                          "type": "text",
+                          "text": " 集中管理"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "循环/重试"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "手写 while，状态容易乱"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "图里直接连回去"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "状态管理"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "变量传递，隐式依赖"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "TypedDict，显式且类型安全"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "可维护性"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "流程越复杂越难改"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "改节点不影响其他节点"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableRow",
+              "content": [
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "调试"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "print 大法"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "tableCell",
+                  "attrs": {
+                    "textAlign": null,
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "colwidth": null,
+                    "align": "left"
+                  },
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "可可视化图结构，节点独立测试"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "textAlign": null,
+            "level": 1,
+            "collapsed": false
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "三个核心概念：State（状态）、Node（节点）、Graph（图）"
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "textAlign": null,
+            "level": 2,
+            "collapsed": false
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "State（状态）：图的内存"
+            }
+          ]
+        },
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": null,
+            "note": ""
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "from typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]"
+            }
+          ]
+        },
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "节点返回 dict，不是完整 State，节点只需要返回要修改的字段："
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": null,
+            "note": ""
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "def my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state"
+            }
+          ]
+        },
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "LangGraph 会把返回的 dict "
+                },
+                {
+                  "type": "text",
+                  "marks": [
+                    {
+                      "type": "bold"
+                    }
+                  ],
+                  "text": "合并"
+                },
+                {
+                  "type": "text",
+                  "text": "进当前 state，未修改的字段保持不变。"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "用 Annotated + operator.add 追加列表"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "如果某个字段是列表，想追加而不是覆盖"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": null,
+            "note": ""
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "from typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str"
+            }
+          ]
+        },
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "这样每个节点返回的 "
+                },
+                {
+                  "type": "text",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ],
+                  "text": "{\"messages\": [\"新消息\"]}"
+                },
+                {
+                  "type": "text",
+                  "text": " 会被"
+                },
+                {
+                  "type": "text",
+                  "marks": [
+                    {
+                      "type": "bold"
+                    }
+                  ],
+                  "text": "追加"
+                },
+                {
+                  "type": "text",
+                  "text": "到列表里，而不是替换整个列表。"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "textAlign": null,
+            "level": 2,
+            "collapsed": false
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Node（节点）：图的操作单元"
+            }
+          ]
+        },
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "节点就是普通 Python 函数，签名固定"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": null,
+            "note": ""
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "def node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}"
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "textAlign": null,
+            "level": 3,
+            "collapsed": false
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "节点的几个原则"
+            }
+          ]
+        },
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "marks": [
+                    {
+                      "type": "bold"
+                    }
+                  ],
+                  "text": "原则一：节点只做一件事"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "marks": [
+                    {
+                      "type": "bold"
+                    }
+                  ],
+                  "text": "原则二：节点是纯的（尽量）"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "marks": [
+                    {
+                      "type": "bold"
+                    }
+                  ],
+                  "text": "原则三：返回 dict，不是 State 对象"
+                }
+              ]
+            },
+            {
+              "type": "codeBlock",
+              "attrs": {
+                "language": null,
+                "note": ""
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "# 正确\nreturn {\"field_a\": value_a, \"field_b\": value_b}\n# 错误——不要返回完整 state\nreturn state"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          }
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "textAlign": null,
+            "level": 2,
+            "collapsed": false
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Graph（图）：把节点连起来"
+            }
+          ]
+        },
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": null,
+            "note": "把节点和边组装起来，compile() 之后得到一个可执行的 app，用 invoke 运行"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "from langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()"
+            }
+          ]
+        },
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "运行图"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": null,
+            "note": ""
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "# invoke：同步运行，返回最终 state\nresult = app.invoke({\"user_input\": \"hello\"})\nprint(result)\n\n# stream：流式运行，每个节点完成后返回一次\nfor chunk in app.stream({\"user_input\": \"hello\"}):\n    print(chunk)"
+            }
+          ]
+        },
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ],
+                  "text": "invoke"
+                },
+                {
+                  "type": "text",
+                  "text": " 返回的是最终的完整 state 字典。"
+                },
+                {
+                  "type": "text",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ],
+                  "text": "stream"
+                },
+                {
+                  "type": "text",
+                  "text": " 每次 yield 一个 "
+                },
+                {
+                  "type": "text",
+                  "marks": [
+                    {
+                      "type": "code"
+                    }
+                  ],
+                  "text": "{node_name: state_update}"
+                },
+                {
+                  "type": "text",
+                  "text": " 的字典。"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "textAlign": null,
+            "level": 2,
+            "collapsed": false
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "完整示例"
+            }
+          ]
+        },
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": null,
+            "note": ""
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "from typing import TypedDict\nfrom langgraph.graph import StateGraph, END\n\n# 1. 定义 State\nclass TextState(TypedDict):\n    raw_text: str\n    cleaned: str\n    word_count: int\n    summary: str\n\n# 2. 定义节点\ndef clean_node(state: TextState) -> dict:\n    \"\"\"清理文本：去掉多余空格\"\"\"\n    text = state[\"raw_text\"].strip()\n    return {\"cleaned\": text}\n\ndef count_node(state: TextState) -> dict:\n    \"\"\"统计词数\"\"\"\n    count = len(state[\"cleaned\"].split())\n    return {\"word_count\": count}\n\ndef summary_node(state: TextState) -> dict:\n    \"\"\"生成摘要（这里简化为截断）\"\"\"\n    text = state[\"cleaned\"]\n    summary = text[:50] + \"...\" if len(text) > 50 else text\n    return {\"summary\": summary}\n\n# 3. 组装图\ngraph = StateGraph(TextState)\ngraph.add_node(\"clean\", clean_node)\ngraph.add_node(\"count\", count_node)\ngraph.add_node(\"summarize\", summary_node)\n\ngraph.set_entry_point(\"clean\")\ngraph.add_edge(\"clean\", \"count\")\ngraph.add_edge(\"count\", \"summarize\")\ngraph.add_edge(\"summarize\", END)\n\napp = graph.compile()\n\n# 4. 运行\nresult = app.invoke({\n    \"raw_text\": \"  LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。  \",\n    \"cleaned\": \"\",\n    \"word_count\": 0,\n    \"summary\": \"\"\n})\n\nprint(\"清理后:\", result[\"cleaned\"])\nprint(\"词数:\", result[\"word_count\"])\nprint(\"摘要:\", result[\"summary\"])"
+            }
+          ]
+        },
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "输出："
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": null,
+            "note": ""
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "清理后: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n词数: 17\n摘要: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。"
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "textAlign": null,
+            "level": 2,
+            "collapsed": false
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "可视化图结构"
+            }
+          ]
+        },
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": null,
+            "note": "LangGraph 可以把图渲染成 ASCII 或图片"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "# ASCII 可视化\nprint(app.get_graph().draw_ascii())\n\n# 输出大致如下：\n# +-----------+\n# | __start__ |\n# +-----------+\n#       |\n#     clean\n#       |\n#     count\n#       |\n#   summarize\n#       |\n# +---------+\n# | __end__ |\n# +---------+"
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": {
+            "textAlign": null,
+            "level": 2,
+            "collapsed": false
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "小结"
+            }
+          ]
+        },
+        {
+          "type": "blockquote",
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "三件套的关系："
+                }
+              ]
+            },
+            {
+              "type": "bulletList",
+              "content": [
+                {
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "marks": [
+                            {
+                              "type": "bold"
+                            }
+                          ],
+                          "text": "State"
+                        },
+                        {
+                          "type": "text",
+                          "text": " 是数据，所有节点共享，TypedDict 定义结构"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "marks": [
+                            {
+                              "type": "bold"
+                            }
+                          ],
+                          "text": "Node"
+                        },
+                        {
+                          "type": "text",
+                          "text": " 是操作，读 State 写 State，普通函数"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "marks": [
+                            {
+                              "type": "bold"
+                            }
+                          ],
+                          "text": "Graph"
+                        },
+                        {
+                          "type": "text",
+                          "text": " 是流程，把节点用边连起来，"
+                        },
+                        {
+                          "type": "text",
+                          "marks": [
+                            {
+                              "type": "code"
+                            }
+                          ],
+                          "text": "compile()"
+                        },
+                        {
+                          "type": "text",
+                          "text": " 后可运行"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "attrs": {
+                "textAlign": null
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "记住这三条规则："
+                }
+              ]
+            },
+            {
+              "type": "orderedList",
+              "attrs": {
+                "start": 1,
+                "type": null
+              },
+              "content": [
+                {
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "节点只返回要修改的字段（dict），不返回完整 state"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "边决定执行顺序，"
+                        },
+                        {
+                          "type": "text",
+                          "marks": [
+                            {
+                              "type": "code"
+                            }
+                          ],
+                          "text": "END"
+                        },
+                        {
+                          "type": "text",
+                          "text": " 是终止信号"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "attrs": {
+                        "textAlign": null
+                      },
+                      "content": [
+                        {
+                          "type": "text",
+                          "marks": [
+                            {
+                              "type": "code"
+                            }
+                          ],
+                          "text": "invoke"
+                        },
+                        {
+                          "type": "text",
+                          "text": " 传入的是初始 state（dict），返回的是最终 state（dict）"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          }
+        }
+      ]
+    },
+    "contentPlain": "LangGraph 的回答是：把执行流描述成一张图（Graph）。 维度 链式调用 LangGraph 分支逻辑 if-else 散落在代码里 add_conditional_edges 集中管理 循环/重试 手写 while，状态容易乱 图里直接连回去 状态管理 变量传递，隐式依赖 TypedDict，显式且类型安全 可维护性 流程越复杂越难改 改节点不影响其他节点 调试 print 大法 可可视化图结构，节点独立测试 三个核心概念：State（状态）、Node（节点）、Graph（图） State（状态）：图的内存 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构 from typing import TypedDict, List, Optional class MyState(TypedDict): # 用户输入 user_input: str # 中间结果 analysis: str # 最终输出 result: str # 可选字段 error: Optional[str] 节点返回 dict，不是完整 State，节点只需要返回要修改的字段： def my_node(state: MyState) -> dict: # 只返回要更新的字段 return {\"analysis\": \"positive\"} # 不需要返回完整的 state LangGraph 会把返回的 dict 合并 进当前 state，未修改的字段保持不变。 用 Annotated + operator.add 追加列表 如果某个字段是列表，想追加而不是覆盖 from typing import Annotated import operator class ChatState(TypedDict): messages: Annotated[List[str], operator.add] summary: str 这样每个节点返回的 {\"messages\": [\"新消息\"]} 会被 追加 到列表里，而不是替换整个列表。 Node（节点）：图的操作单元 节点就是普通 Python 函数，签名固定 def node_name(state: YourState) -> dict: # 读取状态 value = state[\"some_field\"] # 做处理 result = process(value) # 返回要更新的字段 return {\"another_field\": result} 节点的几个原则 原则一：节点只做一件事 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。 原则二：节点是纯的（尽量） 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。 原则三：返回 dict，不是 State 对象 # 正确 return {\"field_a\": value_a, \"field_b\": value_b} # 错误——不要返回完整 state return state Graph（图）：把节点连起来 from langgraph.graph import StateGraph, END, START # 1. 创建图，指定 State 类型 graph = StateGraph(MyState) # 2. 添加节点 graph.add_node(\"node_a\", function_a) graph.add_node(\"node_b\", function_b) graph.add_node(\"node_c\", function_c) # 3. 设置入口 graph.set_entry_point(\"node_a\") # 等价于：graph.add_edge(START, \"node_a\") # 4. 添加边 graph.add_edge(\"node_a\", \"node_b\") graph.add_edge(\"node_b\", \"node_c\") graph.add_edge(\"node_c\", END) # 5. 编译 app = graph.compile() 运行图 # invoke：同步运行，返回最终 state result = app.invoke({\"user_input\": \"hello\"}) print(result) # stream：流式运行，每个节点完成后返回一次 for chunk in app.stream({\"user_input\": \"hello\"}): print(chunk) invoke 返回的是最终的完整 state 字典。 stream 每次 yield 一个 {node_name: state_update} 的字典。 完整示例 from typing import TypedDict from langgraph.graph import StateGraph, END # 1. 定义 State class TextState(TypedDict): raw_text: str cleaned: str word_count: int summary: str # 2. 定义节点 def clean_node(state: TextState) -> dict: \"\"\"清理文本：去掉多余空格\"\"\" text = state[\"raw_text\"].strip() return {\"cleaned\": text} def count_node(state: TextState) -> dict: \"\"\"统计词数\"\"\" count = len(state[\"cleaned\"].split()) return {\"word_count\": count} def summary_node(state: TextState) -> dict: \"\"\"生成摘要（这里简化为截断）\"\"\" text = state[\"cleaned\"] summary = text[:50] + \"...\" if len(text) > 50 else text return {\"summary\": summary} # 3. 组装图 graph = StateGraph(TextState) graph.add_node(\"clean\", clean_node) graph.add_node(\"count\", count_node) graph.add_node(\"summarize\", summary_node) graph.set_entry_point(\"clean\") graph.add_edge(\"clean\", \"count\") graph.add_edge(\"count\", \"summarize\") graph.add_edge(\"summarize\", END) app = graph.compile() # 4. 运行 result = app.invoke({ \"raw_text\": \" LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。 \", \"cleaned\": \"\", \"word_count\": 0, \"summary\": \"\" }) print(\"清理后:\", result[\"cleaned\"]) print(\"词数:\", result[\"word_count\"]) print(\"摘要:\", result[\"summary\"]) 输出： 清理后: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。 词数: 17 摘要: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。 可视化图结构 # ASCII 可视化 print(app.get_graph().draw_ascii()) # 输出大致如下： # +-----------+ # | __start__ | # +-----------+ # | # clean # | # count # | # summarize # | # +---------+ # | __end__ | # +---------+ 小结 三件套的关系： State 是数据，所有节点共享，TypedDict 定义结构 Node 是操作，读 State 写 State，普通函数 Graph 是流程，把节点用边连起来， compile() 后可运行 记住这三条规则： 节点只返回要修改的字段（dict），不返回完整 state 边决定执行顺序， END 是终止信号 invoke 传入的是初始 state（dict），返回的是最终 state（dict）",
+    "tags": [],
+    "subject": "LangGraph",
+    "sourceType": "manual",
+    "aliases": [],
+    "status": "active",
+    "properties": {},
+    "createdAt": 1788511797358,
+    "updatedAt": 1790365428713,
+    "contentHash": "ffcc7df4cd7afab13229e0683ce448823c3ab4c95635c549fc8aec434da16f49",
+    "localOnly": false
+  },
+  "notes": [],
+  "cards": [],
+  "journalVersions": [
+    {
+      "id": "0c76f51a-f259-407f-ad60-301eb8e725e0",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n节点的几个原则\n\n**原则一：节点只做一件事**\n\n每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n\n**原则二：节点是纯的（尽量）**\n\n理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n\n**原则三：返回 dict，不是 State 对象**\n\n<!-- code-note:%E6%99%AE%E9%80%9A%E7%9A%84%20Python%20%E5%87%BD%E6%95%B0%EF%BC%8C%E7%AD%BE%E5%90%8D%E6%98%AF%20(state%3A%20State)%20-%3E%20dict%EF%BC%8C%E8%BF%94%E5%9B%9E%E7%9A%84%20dict%20%E4%BC%9A%E8%A2%AB%E5%90%88%E5%B9%B6%E8%BF%9B%E5%85%A8%E5%B1%80%20state%EF%BC%8C%E4%B8%8D%E9%9C%80%E8%A6%81%E8%BF%94%E5%9B%9E%E5%AE%8C%E6%95%B4%E7%9A%84%20state%20%E5%AF%B9%E8%B1%A1%E3%80%82 -->\n```\ndef analyze_node(state: AgentState) -> dict:\n    # 读取状态\n    text = state[\"user_input\"]\n    # 做处理\n    sentiment = \"positive\" if \"好\" in text else \"negative\"\n    # 返回要更新的字段\n    return {\"sentiment\": sentiment}\n```\n\n> ## 节点就是普通 Python 函数，签名固定：\n\n## Graph（图）\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END\n\ngraph = StateGraph(AgentState)\ngraph.add_node(\"analyze\", analyze_node)\ngraph.add_node(\"reply\", reply_node)\n\ngraph.set_entry_point(\"analyze\")\ngraph.add_edge(\"analyze\", \"reply\")\ngraph.add_edge(\"reply\", END)\n\napp = graph.compile()\n\nresult = app.invoke({\"user_input\": \"今天心情很好\"})\nprint(result)\n```",
+      "createdAt": 1788514576208
+    },
+    {
+      "id": "12bbc7a7-ff94-44ef-8d33-bdb078722977",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```",
+      "createdAt": 1788514980298
+    },
+    {
+      "id": "144763c2-2fe9-4c5c-b6a3-26647e2b1436",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "State（状态）、Node（节点）、Graph（图）",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```\n\n> 运行图\n\n```\n# invoke：同步运行，返回最终 state\nresult = app.invoke({\"user_input\": \"hello\"})\nprint(result)\n\n# stream：流式运行，每个节点完成后返回一次\nfor chunk in app.stream({\"user_input\": \"hello\"}):\n    print(chunk)\n```\n\n> `invoke` 返回的是最终的完整 state 字典。`stream` 每次 yield 一个 `{node_name: state_update}` 的字典。\n\n## 完整示例：\n\n```\nfrom typing import TypedDict\nfrom langgraph.graph import StateGraph, END\n\n# 1. 定义 State\nclass TextState(TypedDict):\n    raw_text: str\n    cleaned: str\n    word_count: int\n    summary: str\n\n# 2. 定义节点\ndef clean_node(state: TextState) -> dict:\n    \"\"\"清理文本：去掉多余空格\"\"\"\n    text = state[\"raw_text\"].strip()\n    return {\"cleaned\": text}\n\ndef count_node(state: TextState) -> dict:\n    \"\"\"统计词数\"\"\"\n    count = len(state[\"cleaned\"].split())\n    return {\"word_count\": count}\n\ndef summary_node(state: TextState) -> dict:\n    \"\"\"生成摘要（这里简化为截断）\"\"\"\n    text = state[\"cleaned\"]\n    summary = text[:50] + \"...\" if len(text) > 50 else text\n    return {\"summary\": summary}\n\n# 3. 组装图\ngraph = StateGraph(TextState)\ngraph.add_node(\"clean\", clean_node)\ngraph.add_node(\"count\", count_node)\ngraph.add_node(\"summarize\", summary_node)\n\ngraph.set_entry_point(\"clean\")\ngraph.add_edge(\"clean\", \"count\")\ngraph.add_edge(\"count\", \"summarize\")\ngraph.add_edge(\"summarize\", END)\n\napp = graph.compile()\n\n# 4. 运行\nresult = app.invoke({\n    \"raw_text\": \"  LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。  \",\n    \"cleaned\": \"\",\n    \"word_count\": 0,\n    \"summary\": \"\"\n})\n\nprint(\"清理后:\", result[\"cleaned\"])\nprint(\"词数:\", result[\"word_count\"])\nprint(\"摘要:\", result[\"summary\"])\n```\n\n> 输出：\n\n```\n清理后: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n词数: 17\n摘要: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n```\n\n## 可视化图结构\n\n<!-- code-note:LangGraph%20%E5%8F%AF%E4%BB%A5%E6%8A%8A%E5%9B%BE%E6%B8%B2%E6%9F%93%E6%88%90%20ASCII%20%E6%88%96%E5%9B%BE%E7%89%87 -->\n```\n# ASCII 可视化\nprint(app.get_graph().draw_ascii())\n\n# 输出大致如下：\n# +-----------+\n# | __start__ |\n# +-----------+\n#       |\n#     clean\n#       |\n#     count\n#       |\n#   summarize\n#       |\n# +---------+\n# | __end__ |\n# +---------+\n```\n\n## 小结",
+      "createdAt": 1788515258872
+    },
+    {
+      "id": "26346e5c-8970-4792-bc76-a77546769c7e",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "State（状态）、Node（节点）、Graph（图）",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```\n\n> 运行图\n\n```\n# invoke：同步运行，返回最终 state\nresult = app.invoke({\"user_input\": \"hello\"})\nprint(result)\n\n# stream：流式运行，每个节点完成后返回一次\nfor chunk in app.stream({\"user_input\": \"hello\"}):\n    print(chunk)\n```\n\n> `invoke` 返回的是最终的完整 state 字典。`stream` 每次 yield 一个 `{node_name: state_update}` 的字典。\n\n## 完整示例：\n\n```\nfrom typing import TypedDict\nfrom langgraph.graph import StateGraph, END\n\n# 1. 定义 State\nclass TextState(TypedDict):\n    raw_text: str\n    cleaned: str\n    word_count: int\n    summary: str\n\n# 2. 定义节点\ndef clean_node(state: TextState) -> dict:\n    \"\"\"清理文本：去掉多余空格\"\"\"\n    text = state[\"raw_text\"].strip()\n    return {\"cleaned\": text}\n\ndef count_node(state: TextState) -> dict:\n    \"\"\"统计词数\"\"\"\n    count = len(state[\"cleaned\"].split())\n    return {\"word_count\": count}\n\ndef summary_node(state: TextState) -> dict:\n    \"\"\"生成摘要（这里简化为截断）\"\"\"\n    text = state[\"cleaned\"]\n    summary = text[:50] + \"...\" if len(text) > 50 else text\n    return {\"summary\": summary}\n\n# 3. 组装图\ngraph = StateGraph(TextState)\ngraph.add_node(\"clean\", clean_node)\ngraph.add_node(\"count\", count_node)\ngraph.add_node(\"summarize\", summary_node)\n\ngraph.set_entry_point(\"clean\")\ngraph.add_edge(\"clean\", \"count\")\ngraph.add_edge(\"count\", \"summarize\")\ngraph.add_edge(\"summarize\", END)\n\napp = graph.compile()\n\n# 4. 运行\nresult = app.invoke({\n    \"raw_text\": \"  LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。  \",\n    \"cleaned\": \"\",\n    \"word_count\": 0,\n    \"summary\": \"\"\n})\n\nprint(\"清理后:\", result[\"cleaned\"])\nprint(\"词数:\", result[\"word_count\"])\nprint(\"摘要:\", result[\"summary\"])\n```\n\n> 输出：\n\n```\n清理后: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n词数: 17\n摘要: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n```\n\n## 可视化图结构\n\n<!-- code-note:LangGraph%20%E5%8F%AF%E4%BB%A5%E6%8A%8A%E5%9B%BE%E6%B8%B2%E6%9F%93%E6%88%90%20ASCII%20%E6%88%96%E5%9B%BE%E7%89%87 -->\n```\n# ASCII 可视化\nprint(app.get_graph().draw_ascii())\n\n# 输出大致如下：\n# +-----------+\n# | __start__ |\n# +-----------+\n#       |\n#     clean\n#       |\n#     count\n#       |\n#   summarize\n#       |\n# +---------+\n# | __end__ |\n# +---------+\n```\n\n## 小结\n\n> 三件套的关系：\n> \n> -   **State** 是数据，所有节点共享，TypedDict 定义结构\n>     \n> -   **Node** 是操作，读 State 写 State，普通函数\n>     \n> -   **Graph** 是流程，把节点用边连起来，`compile()` 后可运行\n>     \n> \n> 记住这三条规则：\n> \n> 1.  节点只返回要修改的字段（dict），不返回完整 state\n>     \n> 2.  边决定执行顺序，`END` 是终止信号\n>     \n> 3.  `invoke` 传入的是初始 state（dict），返回的是最终 state（dict）\n>",
+      "createdAt": 1788515270485
+    },
+    {
+      "id": "301a9486-c56c-4dd4-adb7-37275ac73796",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n\n> ```\n> # 正确return {\"field_a\": value_a, \"field_b\": value_b}# 错误——不要返回完整 statereturn state\n> ```\n\n<!-- code-note:%E6%99%AE%E9%80%9A%E7%9A%84%20Python%20%E5%87%BD%E6%95%B0%EF%BC%8C%E7%AD%BE%E5%90%8D%E6%98%AF%20(state%3A%20State)%20-%3E%20dict%EF%BC%8C%E8%BF%94%E5%9B%9E%E7%9A%84%20dict%20%E4%BC%9A%E8%A2%AB%E5%90%88%E5%B9%B6%E8%BF%9B%E5%85%A8%E5%B1%80%20state%EF%BC%8C%E4%B8%8D%E9%9C%80%E8%A6%81%E8%BF%94%E5%9B%9E%E5%AE%8C%E6%95%B4%E7%9A%84%20state%20%E5%AF%B9%E8%B1%A1%E3%80%82 -->\n```\ndef analyze_node(state: AgentState) -> dict:\n    # 读取状态\n    text = state[\"user_input\"]\n    # 做处理\n    sentiment = \"positive\" if \"好\" in text else \"negative\"\n    # 返回要更新的字段\n    return {\"sentiment\": sentiment}\n```\n\n> ## 节点就是普通 Python 函数，签名固定：\n\n## Graph（图）\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END\n\ngraph = StateGraph(AgentState)\ngraph.add_node(\"analyze\", analyze_node)\ngraph.add_node(\"reply\", reply_node)\n\ngraph.set_entry_point(\"analyze\")\ngraph.add_edge(\"analyze\", \"reply\")\ngraph.add_edge(\"reply\", END)\n\napp = graph.compile()\n\nresult = app.invoke({\"user_input\": \"今天心情很好\"})\nprint(result)\n```",
+      "createdAt": 1788514707811
+    },
+    {
+      "id": "37bd2280-f925-42ac-be09-f3a16306592c",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```\n\n> 运行图\n\n```\n# invoke：同步运行，返回最终 state\nresult = app.invoke({\"user_input\": \"hello\"})\nprint(result)\n\n# stream：流式运行，每个节点完成后返回一次\nfor chunk in app.stream({\"user_input\": \"hello\"}):\n    print(chunk)\n```\n\n> `invoke` 返回的是最终的完整 state 字典。`stream` 每次 yield 一个 `{node_name: state_update}` 的字典。",
+      "createdAt": 1788515040989
+    },
+    {
+      "id": "3a9922b2-3cfa-4a43-91c6-9dc0e77f2927",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n<!-- code-note:%E6%99%AE%E9%80%9A%E7%9A%84%20Python%20%E5%87%BD%E6%95%B0%EF%BC%8C%E7%AD%BE%E5%90%8D%E6%98%AF%20(state%3A%20State)%20-%3E%20dict%EF%BC%8C%E8%BF%94%E5%9B%9E%E7%9A%84%20dict%20%E4%BC%9A%E8%A2%AB%E5%90%88%E5%B9%B6%E8%BF%9B%E5%85%A8%E5%B1%80%20state%EF%BC%8C%E4%B8%8D%E9%9C%80%E8%A6%81%E8%BF%94%E5%9B%9E%E5%AE%8C%E6%95%B4%E7%9A%84%20state%20%E5%AF%B9%E8%B1%A1%E3%80%82 -->\n```\ndef analyze_node(state: AgentState) -> dict:\n    # 读取状态\n    text = state[\"user_input\"]\n    # 做处理\n    sentiment = \"positive\" if \"好\" in text else \"negative\"\n    # 返回要更新的字段\n    return {\"sentiment\": sentiment}\n```\n\n> ## 节点就是普通 Python 函数，签名固定：\n\n## Graph（图）\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END\n\ngraph = StateGraph(AgentState)\ngraph.add_node(\"analyze\", analyze_node)\ngraph.add_node(\"reply\", reply_node)\n\ngraph.set_entry_point(\"analyze\")\ngraph.add_edge(\"analyze\", \"reply\")\ngraph.add_edge(\"reply\", END)\n\napp = graph.compile()\n\nresult = app.invoke({\"user_input\": \"今天心情很好\"})\nprint(result)\n```",
+      "createdAt": 1788514728306
+    },
+    {
+      "id": "3de3217c-b49f-4900-8f0f-9c58ae3b859c",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n**维度**\n\n**链式调用**\n\n**LangGraph**\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n<!-- code-note:%E6%99%AE%E9%80%9A%E7%9A%84%20Python%20%E5%87%BD%E6%95%B0%EF%BC%8C%E7%AD%BE%E5%90%8D%E6%98%AF%20(state%3A%20State)%20-%3E%20dict%EF%BC%8C%E8%BF%94%E5%9B%9E%E7%9A%84%20dict%20%E4%BC%9A%E8%A2%AB%E5%90%88%E5%B9%B6%E8%BF%9B%E5%85%A8%E5%B1%80%20state%EF%BC%8C%E4%B8%8D%E9%9C%80%E8%A6%81%E8%BF%94%E5%9B%9E%E5%AE%8C%E6%95%B4%E7%9A%84%20state%20%E5%AF%B9%E8%B1%A1%E3%80%82 -->\n```\ndef analyze_node(state: AgentState) -> dict:\n    # 读取状态\n    text = state[\"user_input\"]\n    # 做处理\n    sentiment = \"positive\" if \"好\" in text else \"negative\"\n    # 返回要更新的字段\n    return {\"sentiment\": sentiment}\n```\n\n> ## 节点就是普通 Python 函数，签名固定：\n\n## Graph（图）\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END\n\ngraph = StateGraph(AgentState)\ngraph.add_node(\"analyze\", analyze_node)\ngraph.add_node(\"reply\", reply_node)\n\ngraph.set_entry_point(\"analyze\")\ngraph.add_edge(\"analyze\", \"reply\")\ngraph.add_edge(\"reply\", END)\n\napp = graph.compile()\n\nresult = app.invoke({\"user_input\": \"今天心情很好\"})\nprint(result)\n```",
+      "createdAt": 1788514371934
+    },
+    {
+      "id": "3ed02231-1bef-4995-86c2-77a2f4ed4403",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```\n\n> 运行图",
+      "createdAt": 1788515026630
+    },
+    {
+      "id": "54ef2254-5f30-4801-8dda-62c0c0ebc6d1",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "State（状态）、Node（节点）、Graph（图）",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```\n\n> 运行图\n\n```\n# invoke：同步运行，返回最终 state\nresult = app.invoke({\"user_input\": \"hello\"})\nprint(result)\n\n# stream：流式运行，每个节点完成后返回一次\nfor chunk in app.stream({\"user_input\": \"hello\"}):\n    print(chunk)\n```\n\n> `invoke` 返回的是最终的完整 state 字典。`stream` 每次 yield 一个 `{node_name: state_update}` 的字典。\n\n## 完整示例：\n\n```\nfrom typing import TypedDict\nfrom langgraph.graph import StateGraph, END\n\n# 1. 定义 State\nclass TextState(TypedDict):\n    raw_text: str\n    cleaned: str\n    word_count: int\n    summary: str\n\n# 2. 定义节点\ndef clean_node(state: TextState) -> dict:\n    \"\"\"清理文本：去掉多余空格\"\"\"\n    text = state[\"raw_text\"].strip()\n    return {\"cleaned\": text}\n\ndef count_node(state: TextState) -> dict:\n    \"\"\"统计词数\"\"\"\n    count = len(state[\"cleaned\"].split())\n    return {\"word_count\": count}\n\ndef summary_node(state: TextState) -> dict:\n    \"\"\"生成摘要（这里简化为截断）\"\"\"\n    text = state[\"cleaned\"]\n    summary = text[:50] + \"...\" if len(text) > 50 else text\n    return {\"summary\": summary}\n\n# 3. 组装图\ngraph = StateGraph(TextState)\ngraph.add_node(\"clean\", clean_node)\ngraph.add_node(\"count\", count_node)\ngraph.add_node(\"summarize\", summary_node)\n\ngraph.set_entry_point(\"clean\")\ngraph.add_edge(\"clean\", \"count\")\ngraph.add_edge(\"count\", \"summarize\")\ngraph.add_edge(\"summarize\", END)\n\napp = graph.compile()\n\n# 4. 运行\nresult = app.invoke({\n    \"raw_text\": \"  LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。  \",\n    \"cleaned\": \"\",\n    \"word_count\": 0,\n    \"summary\": \"\"\n})\n\nprint(\"清理后:\", result[\"cleaned\"])\nprint(\"词数:\", result[\"word_count\"])\nprint(\"摘要:\", result[\"summary\"])\n```\n\n> 输出：\n\n```\n清理后: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n词数: 17\n摘要: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n```\n\n## 可视化图结构\n\n<!-- code-note:LangGraph%20%E5%8F%AF%E4%BB%A5%E6%8A%8A%E5%9B%BE%E6%B8%B2%E6%9F%93%E6%88%90%20ASCII%20%E6%88%96%E5%9B%BE%E7%89%87 -->\n```\n# ASCII 可视化\nprint(app.get_graph().draw_ascii())\n\n# 输出大致如下：\n# +-----------+\n# | __start__ |\n# +-----------+\n#       |\n#     clean\n#       |\n#     count\n#       |\n#   summarize\n#       |\n# +---------+\n# | __end__ |\n# +---------+\n```",
+      "createdAt": 1788515216458
+    },
+    {
+      "id": "630c3ac2-f660-43d4-adcd-0020362e6a39",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```\n\n> 运行图\n\n```\n# invoke：同步运行，返回最终 state\nresult = app.invoke({\"user_input\": \"hello\"})\nprint(result)\n\n# stream：流式运行，每个节点完成后返回一次\nfor chunk in app.stream({\"user_input\": \"hello\"}):\n    print(chunk)\n```\n\n> `invoke` 返回的是最终的完整 state 字典。`stream` 每次 yield 一个 `{node_name: state_update}` 的字典。\n\n## 完整示例：\n\n```\nfrom typing import TypedDict\nfrom langgraph.graph import StateGraph, END\n\n# 1. 定义 State\nclass TextState(TypedDict):\n    raw_text: str\n    cleaned: str\n    word_count: int\n    summary: str\n\n# 2. 定义节点\ndef clean_node(state: TextState) -> dict:\n    \"\"\"清理文本：去掉多余空格\"\"\"\n    text = state[\"raw_text\"].strip()\n    return {\"cleaned\": text}\n\ndef count_node(state: TextState) -> dict:\n    \"\"\"统计词数\"\"\"\n    count = len(state[\"cleaned\"].split())\n    return {\"word_count\": count}\n\ndef summary_node(state: TextState) -> dict:\n    \"\"\"生成摘要（这里简化为截断）\"\"\"\n    text = state[\"cleaned\"]\n    summary = text[:50] + \"...\" if len(text) > 50 else text\n    return {\"summary\": summary}\n\n# 3. 组装图\ngraph = StateGraph(TextState)\ngraph.add_node(\"clean\", clean_node)\ngraph.add_node(\"count\", count_node)\ngraph.add_node(\"summarize\", summary_node)\n\ngraph.set_entry_point(\"clean\")\ngraph.add_edge(\"clean\", \"count\")\ngraph.add_edge(\"count\", \"summarize\")\ngraph.add_edge(\"summarize\", END)\n\napp = graph.compile()\n\n# 4. 运行\nresult = app.invoke({\n    \"raw_text\": \"  LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。  \",\n    \"cleaned\": \"\",\n    \"word_count\": 0,\n    \"summary\": \"\"\n})\n\nprint(\"清理后:\", result[\"cleaned\"])\nprint(\"词数:\", result[\"word_count\"])\nprint(\"摘要:\", result[\"summary\"])\n```\n\n> 输出：",
+      "createdAt": 1788515068093
+    },
+    {
+      "id": "68571cdb-1307-4091-8473-3eb952e075bf",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END\n\ngraph = StateGraph(AgentState)\ngraph.add_node(\"analyze\", analyze_node)\ngraph.add_node(\"reply\", reply_node)\n\ngraph.set_entry_point(\"analyze\")\ngraph.add_edge(\"analyze\", \"reply\")\ngraph.add_edge(\"reply\", END)\n\napp = graph.compile()\n\nresult = app.invoke({\"user_input\": \"今天心情很好\"})\nprint(result)\n```",
+      "createdAt": 1788514865388
+    },
+    {
+      "id": "6e1a3292-5da3-4781-87fc-a40b491fba61",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END\n\ngraph = StateGraph(AgentState)\ngraph.add_node(\"analyze\", analyze_node)\ngraph.add_node(\"reply\", reply_node)\n\ngraph.set_entry_point(\"analyze\")\ngraph.add_edge(\"analyze\", \"reply\")\ngraph.add_edge(\"reply\", END)\n\napp = graph.compile()\n\nresult = app.invoke({\"user_input\": \"今天心情很好\"})\nprint(result)\n```",
+      "createdAt": 1788514897677
+    },
+    {
+      "id": "781dd36b-aae9-409f-b0f5-fdf3e030dd98",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "State（状态）、Node（节点）、Graph（图）",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```\n\n> 运行图\n\n```\n# invoke：同步运行，返回最终 state\nresult = app.invoke({\"user_input\": \"hello\"})\nprint(result)\n\n# stream：流式运行，每个节点完成后返回一次\nfor chunk in app.stream({\"user_input\": \"hello\"}):\n    print(chunk)\n```\n\n> `invoke` 返回的是最终的完整 state 字典。`stream` 每次 yield 一个 `{node_name: state_update}` 的字典。\n\n## 完整示例：\n\n```\nfrom typing import TypedDict\nfrom langgraph.graph import StateGraph, END\n\n# 1. 定义 State\nclass TextState(TypedDict):\n    raw_text: str\n    cleaned: str\n    word_count: int\n    summary: str\n\n# 2. 定义节点\ndef clean_node(state: TextState) -> dict:\n    \"\"\"清理文本：去掉多余空格\"\"\"\n    text = state[\"raw_text\"].strip()\n    return {\"cleaned\": text}\n\ndef count_node(state: TextState) -> dict:\n    \"\"\"统计词数\"\"\"\n    count = len(state[\"cleaned\"].split())\n    return {\"word_count\": count}\n\ndef summary_node(state: TextState) -> dict:\n    \"\"\"生成摘要（这里简化为截断）\"\"\"\n    text = state[\"cleaned\"]\n    summary = text[:50] + \"...\" if len(text) > 50 else text\n    return {\"summary\": summary}\n\n# 3. 组装图\ngraph = StateGraph(TextState)\ngraph.add_node(\"clean\", clean_node)\ngraph.add_node(\"count\", count_node)\ngraph.add_node(\"summarize\", summary_node)\n\ngraph.set_entry_point(\"clean\")\ngraph.add_edge(\"clean\", \"count\")\ngraph.add_edge(\"count\", \"summarize\")\ngraph.add_edge(\"summarize\", END)\n\napp = graph.compile()\n\n# 4. 运行\nresult = app.invoke({\n    \"raw_text\": \"  LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。  \",\n    \"cleaned\": \"\",\n    \"word_count\": 0,\n    \"summary\": \"\"\n})\n\nprint(\"清理后:\", result[\"cleaned\"])\nprint(\"词数:\", result[\"word_count\"])\nprint(\"摘要:\", result[\"summary\"])\n```\n\n> 输出：\n\n```\n清理后: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n词数: 17\n摘要: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n```\n\n## 可视化图结构\n\n<!-- code-note:LangGraph%20%E5%8F%AF%E4%BB%A5%E6%8A%8A%E5%9B%BE%E6%B8%B2%E6%9F%93%E6%88%90%20ASCII%20%E6%88%96%E5%9B%BE%E7%89%87 -->\n```\n# ASCII 可视化\nprint(app.get_graph().draw_ascii())\n\n# 输出大致如下：\n# +-----------+\n# | __start__ |\n# +-----------+\n#       |\n#     clean\n#       |\n#     count\n#       |\n#   summarize\n#       |\n# +---------+\n# | __end__ |\n# +---------+\n```\n\n## 小结\n\n三件套的关系：\n\n-   **State** 是数据，所有节点共享，TypedDict 定义结构\n    \n-   **Node** 是操作，读 State 写 State，普通函数\n    \n-   **Graph** 是流程，把节点用边连起来，`compile()` 后可运行\n    \n\n记住这三条规则：\n\n1.  节点只返回要修改的字段（dict），不返回完整 state\n    \n2.  边决定执行顺序，`END` 是终止信号\n    \n3.  `invoke` 传入的是初始 state（dict），返回的是最终 state（dict）",
+      "createdAt": 1788515265985
+    },
+    {
+      "id": "7920c93c-6160-45a4-b65f-cc044f8ccb99",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```\n\n> 运行图\n\n```\n# invoke：同步运行，返回最终 state\nresult = app.invoke({\"user_input\": \"hello\"})\nprint(result)\n\n# stream：流式运行，每个节点完成后返回一次\nfor chunk in app.stream({\"user_input\": \"hello\"}):\n    print(chunk)\n```\n\n> `invoke` 返回的是最终的完整 state 字典。`stream` 每次 yield 一个 `{node_name: state_update}` 的字典。\n\n## 完整示例：\n\n```\nfrom typing import TypedDict\nfrom langgraph.graph import StateGraph, END\n\n# 1. 定义 State\nclass TextState(TypedDict):\n    raw_text: str\n    cleaned: str\n    word_count: int\n    summary: str\n\n# 2. 定义节点\ndef clean_node(state: TextState) -> dict:\n    \"\"\"清理文本：去掉多余空格\"\"\"\n    text = state[\"raw_text\"].strip()\n    return {\"cleaned\": text}\n\ndef count_node(state: TextState) -> dict:\n    \"\"\"统计词数\"\"\"\n    count = len(state[\"cleaned\"].split())\n    return {\"word_count\": count}\n\ndef summary_node(state: TextState) -> dict:\n    \"\"\"生成摘要（这里简化为截断）\"\"\"\n    text = state[\"cleaned\"]\n    summary = text[:50] + \"...\" if len(text) > 50 else text\n    return {\"summary\": summary}\n\n# 3. 组装图\ngraph = StateGraph(TextState)\ngraph.add_node(\"clean\", clean_node)\ngraph.add_node(\"count\", count_node)\ngraph.add_node(\"summarize\", summary_node)\n\ngraph.set_entry_point(\"clean\")\ngraph.add_edge(\"clean\", \"count\")\ngraph.add_edge(\"count\", \"summarize\")\ngraph.add_edge(\"summarize\", END)\n\napp = graph.compile()\n\n# 4. 运行\nresult = app.invoke({\n    \"raw_text\": \"  LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。  \",\n    \"cleaned\": \"\",\n    \"word_count\": 0,\n    \"summary\": \"\"\n})\n\nprint(\"清理后:\", result[\"cleaned\"])\nprint(\"词数:\", result[\"word_count\"])\nprint(\"摘要:\", result[\"summary\"])\n```",
+      "createdAt": 1788515062024
+    },
+    {
+      "id": "7ee50481-5eed-474e-b897-bcab28eb8997",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```\n\n> 运行图\n\n```\n# invoke：同步运行，返回最终 state\nresult = app.invoke({\"user_input\": \"hello\"})\nprint(result)\n\n# stream：流式运行，每个节点完成后返回一次\nfor chunk in app.stream({\"user_input\": \"hello\"}):\n    print(chunk)\n```\n\n> `invoke` 返回的是最终的完整 state 字典。`stream` 每次 yield 一个 `{node_name: state_update}` 的字典。\n\n## 完整示例：\n\n```\nfrom typing import TypedDict\nfrom langgraph.graph import StateGraph, END\n\n# 1. 定义 State\nclass TextState(TypedDict):\n    raw_text: str\n    cleaned: str\n    word_count: int\n    summary: str\n\n# 2. 定义节点\ndef clean_node(state: TextState) -> dict:\n    \"\"\"清理文本：去掉多余空格\"\"\"\n    text = state[\"raw_text\"].strip()\n    return {\"cleaned\": text}\n\ndef count_node(state: TextState) -> dict:\n    \"\"\"统计词数\"\"\"\n    count = len(state[\"cleaned\"].split())\n    return {\"word_count\": count}\n\ndef summary_node(state: TextState) -> dict:\n    \"\"\"生成摘要（这里简化为截断）\"\"\"\n    text = state[\"cleaned\"]\n    summary = text[:50] + \"...\" if len(text) > 50 else text\n    return {\"summary\": summary}\n\n# 3. 组装图\ngraph = StateGraph(TextState)\ngraph.add_node(\"clean\", clean_node)\ngraph.add_node(\"count\", count_node)\ngraph.add_node(\"summarize\", summary_node)\n\ngraph.set_entry_point(\"clean\")\ngraph.add_edge(\"clean\", \"count\")\ngraph.add_edge(\"count\", \"summarize\")\ngraph.add_edge(\"summarize\", END)\n\napp = graph.compile()\n\n# 4. 运行\nresult = app.invoke({\n    \"raw_text\": \"  LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。  \",\n    \"cleaned\": \"\",\n    \"word_count\": 0,\n    \"summary\": \"\"\n})\n\nprint(\"清理后:\", result[\"cleaned\"])\nprint(\"词数:\", result[\"word_count\"])\nprint(\"摘要:\", result[\"summary\"])\n```\n\n> 输出：\n\n```\n清理后: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n词数: 17\n摘要: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n```\n\n## 可视化图结构\n\n<!-- code-note:LangGraph%20%E5%8F%AF%E4%BB%A5%E6%8A%8A%E5%9B%BE%E6%B8%B2%E6%9F%93%E6%88%90%20ASCII%20%E6%88%96%E5%9B%BE%E7%89%87 -->\n```\n# ASCII 可视化\nprint(app.get_graph().draw_ascii())\n\n# 输出大致如下：\n# +-----------+\n# | __start__ |\n# +-----------+\n#       |\n#     clean\n#       |\n#     count\n#       |\n#   summarize\n#       |\n# +---------+\n# | __end__ |\n# +---------+\n```",
+      "createdAt": 1788515094892
+    },
+    {
+      "id": "9454de73-934c-4c4b-97ab-65234ca27ac3",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n\n<!-- code-note:%E6%99%AE%E9%80%9A%E7%9A%84%20Python%20%E5%87%BD%E6%95%B0%EF%BC%8C%E7%AD%BE%E5%90%8D%E6%98%AF%20(state%3A%20State)%20-%3E%20dict%EF%BC%8C%E8%BF%94%E5%9B%9E%E7%9A%84%20dict%20%E4%BC%9A%E8%A2%AB%E5%90%88%E5%B9%B6%E8%BF%9B%E5%85%A8%E5%B1%80%20state%EF%BC%8C%E4%B8%8D%E9%9C%80%E8%A6%81%E8%BF%94%E5%9B%9E%E5%AE%8C%E6%95%B4%E7%9A%84%20state%20%E5%AF%B9%E8%B1%A1%E3%80%82 -->\n```\ndef analyze_node(state: AgentState) -> dict:\n    # 读取状态\n    text = state[\"user_input\"]\n    # 做处理\n    sentiment = \"positive\" if \"好\" in text else \"negative\"\n    # 返回要更新的字段\n    return {\"sentiment\": sentiment}\n```\n\n> ## 节点就是普通 Python 函数，签名固定：\n\n## Graph（图）\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END\n\ngraph = StateGraph(AgentState)\ngraph.add_node(\"analyze\", analyze_node)\ngraph.add_node(\"reply\", reply_node)\n\ngraph.set_entry_point(\"analyze\")\ngraph.add_edge(\"analyze\", \"reply\")\ngraph.add_edge(\"reply\", END)\n\napp = graph.compile()\n\nresult = app.invoke({\"user_input\": \"今天心情很好\"})\nprint(result)\n```",
+      "createdAt": 1788514592111
+    },
+    {
+      "id": "957f4879-e68f-42ad-8cf3-cac46c050d99",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n<!-- code-note:%E6%99%AE%E9%80%9A%E7%9A%84%20Python%20%E5%87%BD%E6%95%B0%EF%BC%8C%E7%AD%BE%E5%90%8D%E6%98%AF%20(state%3A%20State)%20-%3E%20dict%EF%BC%8C%E8%BF%94%E5%9B%9E%E7%9A%84%20dict%20%E4%BC%9A%E8%A2%AB%E5%90%88%E5%B9%B6%E8%BF%9B%E5%85%A8%E5%B1%80%20state%EF%BC%8C%E4%B8%8D%E9%9C%80%E8%A6%81%E8%BF%94%E5%9B%9E%E5%AE%8C%E6%95%B4%E7%9A%84%20state%20%E5%AF%B9%E8%B1%A1%E3%80%82 -->\n```\ndef analyze_node(state: AgentState) -> dict:\n    # 读取状态\n    text = state[\"user_input\"]\n    # 做处理\n    sentiment = \"positive\" if \"好\" in text else \"negative\"\n    # 返回要更新的字段\n    return {\"sentiment\": sentiment}\n```\n\n> ## 节点就是普通 Python 函数，签名固定：\n\n## Graph（图）\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END\n\ngraph = StateGraph(AgentState)\ngraph.add_node(\"analyze\", analyze_node)\ngraph.add_node(\"reply\", reply_node)\n\ngraph.set_entry_point(\"analyze\")\ngraph.add_edge(\"analyze\", \"reply\")\ngraph.add_edge(\"reply\", END)\n\napp = graph.compile()\n\nresult = app.invoke({\"user_input\": \"今天心情很好\"})\nprint(result)\n```",
+      "createdAt": 1788514063222
+    },
+    {
+      "id": "98db781c-7a03-479d-aea2-e2690021d4f8",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```\n\n> 运行图\n\n```\n# invoke：同步运行，返回最终 state\nresult = app.invoke({\"user_input\": \"hello\"})\nprint(result)\n\n# stream：流式运行，每个节点完成后返回一次\nfor chunk in app.stream({\"user_input\": \"hello\"}):\n    print(chunk)\n```\n\n> `invoke` 返回的是最终的完整 state 字典。`stream` 每次 yield 一个 `{node_name: state_update}` 的字典。\n\n## 完整示例：\n\n```\nfrom typing import TypedDict\nfrom langgraph.graph import StateGraph, END\n\n# 1. 定义 State\nclass TextState(TypedDict):\n    raw_text: str\n    cleaned: str\n    word_count: int\n    summary: str\n\n# 2. 定义节点\ndef clean_node(state: TextState) -> dict:\n    \"\"\"清理文本：去掉多余空格\"\"\"\n    text = state[\"raw_text\"].strip()\n    return {\"cleaned\": text}\n\ndef count_node(state: TextState) -> dict:\n    \"\"\"统计词数\"\"\"\n    count = len(state[\"cleaned\"].split())\n    return {\"word_count\": count}\n\ndef summary_node(state: TextState) -> dict:\n    \"\"\"生成摘要（这里简化为截断）\"\"\"\n    text = state[\"cleaned\"]\n    summary = text[:50] + \"...\" if len(text) > 50 else text\n    return {\"summary\": summary}\n\n# 3. 组装图\ngraph = StateGraph(TextState)\ngraph.add_node(\"clean\", clean_node)\ngraph.add_node(\"count\", count_node)\ngraph.add_node(\"summarize\", summary_node)\n\ngraph.set_entry_point(\"clean\")\ngraph.add_edge(\"clean\", \"count\")\ngraph.add_edge(\"count\", \"summarize\")\ngraph.add_edge(\"summarize\", END)\n\napp = graph.compile()\n\n# 4. 运行\nresult = app.invoke({\n    \"raw_text\": \"  LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。  \",\n    \"cleaned\": \"\",\n    \"word_count\": 0,\n    \"summary\": \"\"\n})\n\nprint(\"清理后:\", result[\"cleaned\"])\nprint(\"词数:\", result[\"word_count\"])\nprint(\"摘要:\", result[\"summary\"])\n```\n\n> 输出：\n\n```\n清理后: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n词数: 17\n摘要: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n```\n\n## 可视化图结构",
+      "createdAt": 1788515080868
+    },
+    {
+      "id": "9d035408-82c1-4568-b0f9-070665ea5407",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n> ## 节点就是普通 Python 函数，签名固定：\n\n## Graph（图）\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END\n\ngraph = StateGraph(AgentState)\ngraph.add_node(\"analyze\", analyze_node)\ngraph.add_node(\"reply\", reply_node)\n\ngraph.set_entry_point(\"analyze\")\ngraph.add_edge(\"analyze\", \"reply\")\ngraph.add_edge(\"reply\", END)\n\napp = graph.compile()\n\nresult = app.invoke({\"user_input\": \"今天心情很好\"})\nprint(result)\n```",
+      "createdAt": 1788514850026
+    },
+    {
+      "id": "9e0b94a4-23b7-4182-b087-c00645ed34a2",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```\n\n> 运行图\n\n```\n# invoke：同步运行，返回最终 state\nresult = app.invoke({\"user_input\": \"hello\"})\nprint(result)\n\n# stream：流式运行，每个节点完成后返回一次\nfor chunk in app.stream({\"user_input\": \"hello\"}):\n    print(chunk)\n```\n\n> `invoke` 返回的是最终的完整 state 字典。`stream` 每次 yield 一个 `{node_name: state_update}` 的字典。\n\n## 完整示例：",
+      "createdAt": 1788515049613
+    },
+    {
+      "id": "a0573188-5bf6-4dd0-8243-ac21c1777938",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n节点的几个原则\n\n<!-- code-note:%E6%99%AE%E9%80%9A%E7%9A%84%20Python%20%E5%87%BD%E6%95%B0%EF%BC%8C%E7%AD%BE%E5%90%8D%E6%98%AF%20(state%3A%20State)%20-%3E%20dict%EF%BC%8C%E8%BF%94%E5%9B%9E%E7%9A%84%20dict%20%E4%BC%9A%E8%A2%AB%E5%90%88%E5%B9%B6%E8%BF%9B%E5%85%A8%E5%B1%80%20state%EF%BC%8C%E4%B8%8D%E9%9C%80%E8%A6%81%E8%BF%94%E5%9B%9E%E5%AE%8C%E6%95%B4%E7%9A%84%20state%20%E5%AF%B9%E8%B1%A1%E3%80%82 -->\n```\ndef analyze_node(state: AgentState) -> dict:\n    # 读取状态\n    text = state[\"user_input\"]\n    # 做处理\n    sentiment = \"positive\" if \"好\" in text else \"negative\"\n    # 返回要更新的字段\n    return {\"sentiment\": sentiment}\n```\n\n> ## 节点就是普通 Python 函数，签名固定：\n\n## Graph（图）\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END\n\ngraph = StateGraph(AgentState)\ngraph.add_node(\"analyze\", analyze_node)\ngraph.add_node(\"reply\", reply_node)\n\ngraph.set_entry_point(\"analyze\")\ngraph.add_edge(\"analyze\", \"reply\")\ngraph.add_edge(\"reply\", END)\n\napp = graph.compile()\n\nresult = app.invoke({\"user_input\": \"今天心情很好\"})\nprint(result)\n```",
+      "createdAt": 1788514571400
+    },
+    {
+      "id": "a70601c5-8dbb-4970-884f-5e48115d76b7",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确return {\"field_a\": value_a, \"field_b\": value_b}# 错误——不要返回完整 statereturn state\n> ```\n\n<!-- code-note:%E6%99%AE%E9%80%9A%E7%9A%84%20Python%20%E5%87%BD%E6%95%B0%EF%BC%8C%E7%AD%BE%E5%90%8D%E6%98%AF%20(state%3A%20State)%20-%3E%20dict%EF%BC%8C%E8%BF%94%E5%9B%9E%E7%9A%84%20dict%20%E4%BC%9A%E8%A2%AB%E5%90%88%E5%B9%B6%E8%BF%9B%E5%85%A8%E5%B1%80%20state%EF%BC%8C%E4%B8%8D%E9%9C%80%E8%A6%81%E8%BF%94%E5%9B%9E%E5%AE%8C%E6%95%B4%E7%9A%84%20state%20%E5%AF%B9%E8%B1%A1%E3%80%82 -->\n```\ndef analyze_node(state: AgentState) -> dict:\n    # 读取状态\n    text = state[\"user_input\"]\n    # 做处理\n    sentiment = \"positive\" if \"好\" in text else \"negative\"\n    # 返回要更新的字段\n    return {\"sentiment\": sentiment}\n```\n\n> ## 节点就是普通 Python 函数，签名固定：\n\n## Graph（图）\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END\n\ngraph = StateGraph(AgentState)\ngraph.add_node(\"analyze\", analyze_node)\ngraph.add_node(\"reply\", reply_node)\n\ngraph.set_entry_point(\"analyze\")\ngraph.add_edge(\"analyze\", \"reply\")\ngraph.add_edge(\"reply\", END)\n\napp = graph.compile()\n\nresult = app.invoke({\"user_input\": \"今天心情很好\"})\nprint(result)\n```",
+      "createdAt": 1788514713701
+    },
+    {
+      "id": "ac28094d-6f3f-47f3-818d-b2fb01ac1faa",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```\n\n> 运行图\n\n```\n# invoke：同步运行，返回最终 state\nresult = app.invoke({\"user_input\": \"hello\"})\nprint(result)\n\n# stream：流式运行，每个节点完成后返回一次\nfor chunk in app.stream({\"user_input\": \"hello\"}):\n    print(chunk)\n```",
+      "createdAt": 1788515031930
+    },
+    {
+      "id": "bbd92e27-d63b-49e0-823c-eb3b3a313789",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```\n\n> 运行图\n\n```\n# invoke：同步运行，返回最终 state\nresult = app.invoke({\"user_input\": \"hello\"})\nprint(result)\n\n# stream：流式运行，每个节点完成后返回一次\nfor chunk in app.stream({\"user_input\": \"hello\"}):\n    print(chunk)\n```\n\n> `invoke` 返回的是最终的完整 state 字典。`stream` 每次 yield 一个 `{node_name: state_update}` 的字典。\n\n## 完整示例：\n\n```\nfrom typing import TypedDict\nfrom langgraph.graph import StateGraph, END\n\n# 1. 定义 State\nclass TextState(TypedDict):\n    raw_text: str\n    cleaned: str\n    word_count: int\n    summary: str\n\n# 2. 定义节点\ndef clean_node(state: TextState) -> dict:\n    \"\"\"清理文本：去掉多余空格\"\"\"\n    text = state[\"raw_text\"].strip()\n    return {\"cleaned\": text}\n\ndef count_node(state: TextState) -> dict:\n    \"\"\"统计词数\"\"\"\n    count = len(state[\"cleaned\"].split())\n    return {\"word_count\": count}\n\ndef summary_node(state: TextState) -> dict:\n    \"\"\"生成摘要（这里简化为截断）\"\"\"\n    text = state[\"cleaned\"]\n    summary = text[:50] + \"...\" if len(text) > 50 else text\n    return {\"summary\": summary}\n\n# 3. 组装图\ngraph = StateGraph(TextState)\ngraph.add_node(\"clean\", clean_node)\ngraph.add_node(\"count\", count_node)\ngraph.add_node(\"summarize\", summary_node)\n\ngraph.set_entry_point(\"clean\")\ngraph.add_edge(\"clean\", \"count\")\ngraph.add_edge(\"count\", \"summarize\")\ngraph.add_edge(\"summarize\", END)\n\napp = graph.compile()\n\n# 4. 运行\nresult = app.invoke({\n    \"raw_text\": \"  LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。  \",\n    \"cleaned\": \"\",\n    \"word_count\": 0,\n    \"summary\": \"\"\n})\n\nprint(\"清理后:\", result[\"cleaned\"])\nprint(\"词数:\", result[\"word_count\"])\nprint(\"摘要:\", result[\"summary\"])\n```\n\n> 输出：\n\n```\n清理后: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n词数: 17\n摘要: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n```",
+      "createdAt": 1788515075507
+    },
+    {
+      "id": "cf4805b4-0af3-4a19-9f5c-b484e8ec478b",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n<!-- code-note:%E6%99%AE%E9%80%9A%E7%9A%84%20Python%20%E5%87%BD%E6%95%B0%EF%BC%8C%E7%AD%BE%E5%90%8D%E6%98%AF%20(state%3A%20State)%20-%3E%20dict%EF%BC%8C%E8%BF%94%E5%9B%9E%E7%9A%84%20dict%20%E4%BC%9A%E8%A2%AB%E5%90%88%E5%B9%B6%E8%BF%9B%E5%85%A8%E5%B1%80%20state%EF%BC%8C%E4%B8%8D%E9%9C%80%E8%A6%81%E8%BF%94%E5%9B%9E%E5%AE%8C%E6%95%B4%E7%9A%84%20state%20%E5%AF%B9%E8%B1%A1%E3%80%82 -->\n```\ndef analyze_node(state: AgentState) -> dict:\n    # 读取状态\n    text = state[\"user_input\"]\n    # 做处理\n    sentiment = \"positive\" if \"好\" in text else \"negative\"\n    # 返回要更新的字段\n    return {\"sentiment\": sentiment}\n```\n\n> ## 节点就是普通 Python 函数，签名固定：\n\n## Graph（图）\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END\n\ngraph = StateGraph(AgentState)\ngraph.add_node(\"analyze\", analyze_node)\ngraph.add_node(\"reply\", reply_node)\n\ngraph.set_entry_point(\"analyze\")\ngraph.add_edge(\"analyze\", \"reply\")\ngraph.add_edge(\"reply\", END)\n\napp = graph.compile()\n\nresult = app.invoke({\"user_input\": \"今天心情很好\"})\nprint(result)\n```",
+      "createdAt": 1788514468213
+    },
+    {
+      "id": "d5bffd52-21e4-4992-afe0-32d3fd7271ac",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "State（状态）、Node（节点）、Graph（图）",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 state\n> return state\n> ```\n\n## Graph（图）：把节点连起来\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END, START\n\n# 1. 创建图，指定 State 类型\ngraph = StateGraph(MyState)\n\n# 2. 添加节点\ngraph.add_node(\"node_a\", function_a)\ngraph.add_node(\"node_b\", function_b)\ngraph.add_node(\"node_c\", function_c)\n\n# 3. 设置入口\ngraph.set_entry_point(\"node_a\")\n# 等价于：graph.add_edge(START, \"node_a\")\n\n# 4. 添加边\ngraph.add_edge(\"node_a\", \"node_b\")\ngraph.add_edge(\"node_b\", \"node_c\")\ngraph.add_edge(\"node_c\", END)\n\n# 5. 编译\napp = graph.compile()\n```\n\n> 运行图\n\n```\n# invoke：同步运行，返回最终 state\nresult = app.invoke({\"user_input\": \"hello\"})\nprint(result)\n\n# stream：流式运行，每个节点完成后返回一次\nfor chunk in app.stream({\"user_input\": \"hello\"}):\n    print(chunk)\n```\n\n> `invoke` 返回的是最终的完整 state 字典。`stream` 每次 yield 一个 `{node_name: state_update}` 的字典。\n\n## 完整示例\n\n```\nfrom typing import TypedDict\nfrom langgraph.graph import StateGraph, END\n\n# 1. 定义 State\nclass TextState(TypedDict):\n    raw_text: str\n    cleaned: str\n    word_count: int\n    summary: str\n\n# 2. 定义节点\ndef clean_node(state: TextState) -> dict:\n    \"\"\"清理文本：去掉多余空格\"\"\"\n    text = state[\"raw_text\"].strip()\n    return {\"cleaned\": text}\n\ndef count_node(state: TextState) -> dict:\n    \"\"\"统计词数\"\"\"\n    count = len(state[\"cleaned\"].split())\n    return {\"word_count\": count}\n\ndef summary_node(state: TextState) -> dict:\n    \"\"\"生成摘要（这里简化为截断）\"\"\"\n    text = state[\"cleaned\"]\n    summary = text[:50] + \"...\" if len(text) > 50 else text\n    return {\"summary\": summary}\n\n# 3. 组装图\ngraph = StateGraph(TextState)\ngraph.add_node(\"clean\", clean_node)\ngraph.add_node(\"count\", count_node)\ngraph.add_node(\"summarize\", summary_node)\n\ngraph.set_entry_point(\"clean\")\ngraph.add_edge(\"clean\", \"count\")\ngraph.add_edge(\"count\", \"summarize\")\ngraph.add_edge(\"summarize\", END)\n\napp = graph.compile()\n\n# 4. 运行\nresult = app.invoke({\n    \"raw_text\": \"  LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。  \",\n    \"cleaned\": \"\",\n    \"word_count\": 0,\n    \"summary\": \"\"\n})\n\nprint(\"清理后:\", result[\"cleaned\"])\nprint(\"词数:\", result[\"word_count\"])\nprint(\"摘要:\", result[\"summary\"])\n```\n\n> 输出：\n\n```\n清理后: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n词数: 17\n摘要: LangGraph 是一个用于构建有状态 Agent 应用的框架，基于图结构描述执行流。\n```\n\n## 可视化图结构\n\n<!-- code-note:LangGraph%20%E5%8F%AF%E4%BB%A5%E6%8A%8A%E5%9B%BE%E6%B8%B2%E6%9F%93%E6%88%90%20ASCII%20%E6%88%96%E5%9B%BE%E7%89%87 -->\n```\n# ASCII 可视化\nprint(app.get_graph().draw_ascii())\n\n# 输出大致如下：\n# +-----------+\n# | __start__ |\n# +-----------+\n#       |\n#     clean\n#       |\n#     count\n#       |\n#   summarize\n#       |\n# +---------+\n# | __end__ |\n# +---------+\n```\n\n## 小结\n\n> 三件套的关系：\n> \n> -   **State** 是数据，所有节点共享，TypedDict 定义结构\n>     \n> -   **Node** 是操作，读 State 写 State，普通函数\n>     \n> -   **Graph** 是流程，把节点用边连起来，`compile()` 后可运行\n>     \n> \n> 记住这三条规则：\n> \n> 1.  节点只返回要修改的字段（dict），不返回完整 state\n>     \n> 2.  边决定执行顺序，`END` 是终止信号\n>     \n> 3.  `invoke` 传入的是初始 state（dict），返回的是最终 state（dict）\n>",
+      "createdAt": 1788515455550
+    },
+    {
+      "id": "dcc7b087-bb87-422c-97d5-8a793a189fa3",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n> **原则一：节点只做一件事**\n> \n> 每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n> \n> **原则二：节点是纯的（尽量）**\n> \n> 理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n> \n> **原则三：返回 dict，不是 State 对象**\n> \n> ```\n> # 正确\n> return {\"field_a\": value_a, \"field_b\": value_b}\n> # 错误——不要返回完整 statereturn state\n> ```\n\n<!-- code-note:%E6%99%AE%E9%80%9A%E7%9A%84%20Python%20%E5%87%BD%E6%95%B0%EF%BC%8C%E7%AD%BE%E5%90%8D%E6%98%AF%20(state%3A%20State)%20-%3E%20dict%EF%BC%8C%E8%BF%94%E5%9B%9E%E7%9A%84%20dict%20%E4%BC%9A%E8%A2%AB%E5%90%88%E5%B9%B6%E8%BF%9B%E5%85%A8%E5%B1%80%20state%EF%BC%8C%E4%B8%8D%E9%9C%80%E8%A6%81%E8%BF%94%E5%9B%9E%E5%AE%8C%E6%95%B4%E7%9A%84%20state%20%E5%AF%B9%E8%B1%A1%E3%80%82 -->\n```\ndef analyze_node(state: AgentState) -> dict:\n    # 读取状态\n    text = state[\"user_input\"]\n    # 做处理\n    sentiment = \"positive\" if \"好\" in text else \"negative\"\n    # 返回要更新的字段\n    return {\"sentiment\": sentiment}\n```\n\n> ## 节点就是普通 Python 函数，签名固定：\n\n## Graph（图）\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END\n\ngraph = StateGraph(AgentState)\ngraph.add_node(\"analyze\", analyze_node)\ngraph.add_node(\"reply\", reply_node)\n\ngraph.set_entry_point(\"analyze\")\ngraph.add_edge(\"analyze\", \"reply\")\ngraph.add_edge(\"reply\", END)\n\napp = graph.compile()\n\nresult = app.invoke({\"user_input\": \"今天心情很好\"})\nprint(result)\n```",
+      "createdAt": 1788514721932
+    },
+    {
+      "id": "e11b79f8-3f9e-4e79-992f-355736b3a0dd",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n<!-- code-note:%E6%99%AE%E9%80%9A%E7%9A%84%20Python%20%E5%87%BD%E6%95%B0%EF%BC%8C%E7%AD%BE%E5%90%8D%E6%98%AF%20(state%3A%20State)%20-%3E%20dict%EF%BC%8C%E8%BF%94%E5%9B%9E%E7%9A%84%20dict%20%E4%BC%9A%E8%A2%AB%E5%90%88%E5%B9%B6%E8%BF%9B%E5%85%A8%E5%B1%80%20state%EF%BC%8C%E4%B8%8D%E9%9C%80%E8%A6%81%E8%BF%94%E5%9B%9E%E5%AE%8C%E6%95%B4%E7%9A%84%20state%20%E5%AF%B9%E8%B1%A1%E3%80%82 -->\n```\ndef analyze_node(state: AgentState) -> dict:\n    # 读取状态\n    text = state[\"user_input\"]\n    # 做处理\n    sentiment = \"positive\" if \"好\" in text else \"negative\"\n    # 返回要更新的字段\n    return {\"sentiment\": sentiment}\n```\n\n> ## 节点就是普通 Python 函数，签名固定：\n\n## Graph（图）\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END\n\ngraph = StateGraph(AgentState)\ngraph.add_node(\"analyze\", analyze_node)\ngraph.add_node(\"reply\", reply_node)\n\ngraph.set_entry_point(\"analyze\")\ngraph.add_edge(\"analyze\", \"reply\")\ngraph.add_edge(\"reply\", END)\n\napp = graph.compile()\n\nresult = app.invoke({\"user_input\": \"今天心情很好\"})\nprint(result)\n```",
+      "createdAt": 1788514559003
+    },
+    {
+      "id": "f1714f14-fc64-479b-ab74-e316992c392b",
+      "journalId": "6d65639e-bec5-4799-853c-67cb669931a2",
+      "title": "LangGraph",
+      "content": "> LangGraph 的回答是：把执行流描述成一张图（Graph）。\n\n维度\n\n链式调用\n\nLangGraph\n\n分支逻辑\n\nif-else 散落在代码里\n\n`add_conditional_edges` 集中管理\n\n循环/重试\n\n手写 while，状态容易乱\n\n图里直接连回去\n\n状态管理\n\n变量传递，隐式依赖\n\nTypedDict，显式且类型安全\n\n可维护性\n\n流程越复杂越难改\n\n改节点不影响其他节点\n\n调试\n\nprint 大法\n\n可可视化图结构，节点独立测试\n\n# 三个核心概念：State（状态）、Node（节点）、Graph（图）\n\n## State（状态）：图的内存\n\n> 用 Python 的 TypedDict 定义，是整张图的“内存”，图里的每个节点都接收这个 state，修改后返回新的 state。LangGraph 用它来追踪状态的结构\n\n```\nfrom typing import TypedDict, List, Optional\n\nclass MyState(TypedDict):\n    # 用户输入\n    user_input: str\n    # 中间结果\n    analysis: str\n    # 最终输出\n    result: str\n    # 可选字段\n    error: Optional[str]\n```\n\n> 节点返回 dict，不是完整 State，节点只需要返回要修改的字段：\n\n```\ndef my_node(state: MyState) -> dict:\n    # 只返回要更新的字段\n    return {\"analysis\": \"positive\"}\n    # 不需要返回完整的 state\n```\n\n> LangGraph 会把返回的 dict **合并**进当前 state，未修改的字段保持不变。\n\n> 用 Annotated + operator.add 追加列表\n> \n> 如果某个字段是列表，想追加而不是覆盖\n\n```\nfrom typing import Annotated\nimport operator\n\nclass ChatState(TypedDict):\n    messages: Annotated[List[str], operator.add]\n    summary: str\n```\n\n> 这样每个节点返回的 `{\"messages\": [\"新消息\"]}` 会被**追加**到列表里，而不是替换整个列表。\n\n## Node（节点）：图的操作单元\n\n> 节点就是普通 Python 函数，签名固定\n\n```\ndef node_name(state: YourState) -> dict:\n    # 读取状态\n    value = state[\"some_field\"]\n    # 做处理\n    result = process(value)\n    # 返回要更新的字段\n    return {\"another_field\": result}\n```\n\n### 节点的几个原则\n\n**原则一：节点只做一件事**\n\n每个节点聚焦一个职责。不要把分析、调用 API、格式化输出都塞进一个节点。\n\n**原则二：节点是纯的（尽量）**\n\n理想情况下，节点的输出只依赖 state 输入，没有隐藏的全局状态。这样更容易测试和调试。\n\n**原则三：返回 dict，不是 State 对象**\n\n<!-- code-note:%E6%99%AE%E9%80%9A%E7%9A%84%20Python%20%E5%87%BD%E6%95%B0%EF%BC%8C%E7%AD%BE%E5%90%8D%E6%98%AF%20(state%3A%20State)%20-%3E%20dict%EF%BC%8C%E8%BF%94%E5%9B%9E%E7%9A%84%20dict%20%E4%BC%9A%E8%A2%AB%E5%90%88%E5%B9%B6%E8%BF%9B%E5%85%A8%E5%B1%80%20state%EF%BC%8C%E4%B8%8D%E9%9C%80%E8%A6%81%E8%BF%94%E5%9B%9E%E5%AE%8C%E6%95%B4%E7%9A%84%20state%20%E5%AF%B9%E8%B1%A1%E3%80%82 -->\n```\ndef analyze_node(state: AgentState) -> dict:\n    # 读取状态\n    text = state[\"user_input\"]\n    # 做处理\n    sentiment = \"positive\" if \"好\" in text else \"negative\"\n    # 返回要更新的字段\n    return {\"sentiment\": sentiment}\n```\n\n> ## 节点就是普通 Python 函数，签名固定：\n\n## Graph（图）\n\n<!-- code-note:%E6%8A%8A%E8%8A%82%E7%82%B9%E5%92%8C%E8%BE%B9%E7%BB%84%E8%A3%85%E8%B5%B7%E6%9D%A5%EF%BC%8Ccompile()%20%E4%B9%8B%E5%90%8E%E5%BE%97%E5%88%B0%E4%B8%80%E4%B8%AA%E5%8F%AF%E6%89%A7%E8%A1%8C%E7%9A%84%20app%EF%BC%8C%E7%94%A8%20invoke%20%E8%BF%90%E8%A1%8C -->\n```\nfrom langgraph.graph import StateGraph, END\n\ngraph = StateGraph(AgentState)\ngraph.add_node(\"analyze\", analyze_node)\ngraph.add_node(\"reply\", reply_node)\n\ngraph.set_entry_point(\"analyze\")\ngraph.add_edge(\"analyze\", \"reply\")\ngraph.add_edge(\"reply\", END)\n\napp = graph.compile()\n\nresult = app.invoke({\"user_input\": \"今天心情很好\"})\nprint(result)\n```",
+      "createdAt": 1788514579457
+    }
+  ],
+  "attachments": [],
+  "aiConversations": []
+}

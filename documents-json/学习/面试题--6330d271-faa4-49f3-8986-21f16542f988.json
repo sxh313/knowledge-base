@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "exportedAt": 1790417086641,
+  "journal": {
+    "id": "6330d271-faa4-49f3-8986-21f16542f988",
+    "title": "面试题",
+    "content": "",
+    "contentPlain": "",
+    "tags": [],
+    "subject": "学习",
+    "sourceType": "manual",
+    "aliases": [],
+    "status": "active",
+    "properties": {},
+    "createdAt": 1786602600526,
+    "updatedAt": 1787208171238,
+    "contentHash": "5c7963a1297805ef9b8c0c224eb4a39cfed4ec461c1319126ee8510f28eeba40"
+  },
+  "notes": [],
+  "cards": [],
+  "journalVersions": [
+    {
+      "id": "b0bb6173-1722-47fd-a13f-0f613eee41bb",
+      "journalId": "6330d271-faa4-49f3-8986-21f16542f988",
+      "title": "面试题",
+      "content": "# 浦口跑\n\n45",
+      "createdAt": 1786862932451
+    }
+  ],
+  "attachments": [],
+  "aiConversations": []
+}

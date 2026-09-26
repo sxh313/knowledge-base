@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "exportedAt": 1790417086642,
+  "journal": {
+    "id": "fae265e7-df5e-4030-8438-b19349abc398",
+    "title": "秋招",
+    "content": "**8.17　　cvte笔试 　　应用软件开发工程师**\n\n**8.18　　网易投　　　 AI Agent工程师（引擎方向）、AI应用工程师**\n\n**8.21**",
+    "contentPlain": "8.17 cvte笔试 应用软件开发工程师 8.18 网易投 AI Agent工程师（引擎方向）、AI应用工程师 8.21",
+    "tags": [],
+    "subject": "",
+    "sourceType": "manual",
+    "aliases": [],
+    "status": "active",
+    "properties": {},
+    "createdAt": 1786985936534,
+    "updatedAt": 1788508072359,
+    "contentHash": "802e6fa49388e74ed55dbce33f7b8edd1626b99cf2ece3c27f38f9d000344307",
+    "deletedAt": 1788508072359
+  },
+  "notes": [],
+  "cards": [],
+  "journalVersions": [
+    {
+      "id": "4a9976f8-a24f-4fe1-8b5a-5eac4a218131",
+      "journalId": "fae265e7-df5e-4030-8438-b19349abc398",
+      "title": "秋招",
+      "content": "**8.17　　cvte笔试 　　应用软件开发工程师**\n\n**8.18　　网易投　　　 AI Agent工程师（引擎方向）、AI应用工程师**",
+      "createdAt": 1786985940152
+    },
+    {
+      "id": "9092d109-3f0e-459b-a776-7c5dacba50b2",
+      "journalId": "fae265e7-df5e-4030-8438-b19349abc398",
+      "title": "秋招",
+      "content": "**8.17　　cvte笔试 　　应用软件开发工程师**\n\n**8.18　　网易投　　　 AI Agent工程师（引擎方向）、AI应用工程师**\n\n**8.21**",
+      "createdAt": 1787321219306
+    }
+  ],
+  "attachments": [],
+  "aiConversations": []
+}

@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "exportedAt": 1790417086642,
+  "journal": {
+    "id": "beae9fb5-3cf9-4dd2-ac69-bd1e94a9d018",
+    "title": "面试题目（远端副本）",
+    "content": "-   agent遇到哪些难点\n\n-   agent和传统大模型应用区别\n\n-   RAG的完整流程",
+    "contentPlain": "agent遇到哪些难点 agent和传统大模型应用区别 RAG的完整流程",
+    "tags": [],
+    "subject": "",
+    "sourceType": "manual",
+    "aliases": [],
+    "status": "active",
+    "properties": {},
+    "createdAt": 1786457281243,
+    "updatedAt": 1786457370428,
+    "contentHash": "234f57667383be585961459ae07b6d3adca82c73f0fc42e73fd1ead4748cc9e1",
+    "deletedAt": 1786457370428
+  },
+  "notes": [],
+  "cards": [],
+  "journalVersions": [
+    {
+      "id": "318ed0cd-c5e3-4fc2-8000-707bac02805d",
+      "journalId": "beae9fb5-3cf9-4dd2-ac69-bd1e94a9d018",
+      "title": "面试题目（远端副本）",
+      "content": "-   agent遇到哪些难点\n\n-   agent和传统大模型应用区别\n\n-   RAG的完整流程",
+      "createdAt": 1786457352280
+    }
+  ],
+  "attachments": [],
+  "aiConversations": []
+}

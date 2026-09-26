@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "exportedAt": 1790417086641,
+  "journal": {
+    "id": "6a586a45-608c-43d3-81cb-d0b756b18645",
+    "title": "11",
+    "content": "1112\n\n2313",
+    "contentPlain": "1112 2313",
+    "tags": [],
+    "subject": "",
+    "sourceType": "manual",
+    "aliases": [],
+    "status": "active",
+    "properties": {},
+    "createdAt": 1786457764543,
+    "updatedAt": 1786535858234,
+    "contentHash": "3236435269aa2186cb629214eb73f4d35825979b5e04e7e6c049f72e4e3494dd",
+    "deletedAt": 1786535858234
+  },
+  "notes": [],
+  "cards": [],
+  "journalVersions": [
+    {
+      "id": "43571312-ea53-42a0-9ef7-328426f62840",
+      "journalId": "6a586a45-608c-43d3-81cb-d0b756b18645",
+      "title": "11",
+      "content": "1112\n\n2313",
+      "createdAt": 1786457966627
+    },
+    {
+      "id": "9dd0b0bf-8156-4f60-9fcb-2b8d7fd9f630",
+      "journalId": "6a586a45-608c-43d3-81cb-d0b756b18645",
+      "title": "11",
+      "content": "111",
+      "createdAt": 1786457767725
+    }
+  ],
+  "attachments": [],
+  "aiConversations": []
+}

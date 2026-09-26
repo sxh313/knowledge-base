@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "exportedAt": 1790417086641,
+  "journal": {
+    "id": "3db2244b-938c-44e5-abec-123052a09176",
+    "title": "概念学习",
+    "content": "# 概念：\n\n## 📌 是什么（定义）\n\n## ❓ 为什么需要它（背景/动机）\n\n## 🔧 怎么用（示例）\n\n## ⚖️ 对比（相似概念区别）\n\n## ⚠️ 常见误区\n\n## 🔗 关联知识\n-",
+    "contentPlain": "概念： 📌 是什么（定义） ❓ 为什么需要它（背景/动机） 🔧 怎么用（示例） ⚖️ 对比（相似概念区别） ⚠️ 常见误区 🔗 关联知识",
+    "tags": [
+      "概念"
+    ],
+    "subject": "学习",
+    "sourceType": "manual",
+    "aliases": [],
+    "status": "active",
+    "properties": {},
+    "createdAt": 1786295164078,
+    "updatedAt": 1786295172765,
+    "contentHash": "4c2d5884409c199d74971a1f08decb83c123056c5c29f6ba0d6804deedf3d765",
+    "deletedAt": 1786295172765
+  },
+  "notes": [],
+  "cards": [],
+  "journalVersions": [
+    {
+      "id": "03e10aa7-ceec-4dea-bcee-e2d74be502ce",
+      "journalId": "3db2244b-938c-44e5-abec-123052a09176",
+      "title": "概念学习",
+      "content": "# 概念：\n\n## 📌 是什么（定义）\n\n## ❓ 为什么需要它（背景/动机）\n\n## 🔧 怎么用（示例）\n\n## ⚖️ 对比（相似概念区别）\n\n## ⚠️ 常见误区\n\n## 🔗 关联知识\n-",
+      "createdAt": 1786295167641
+    }
+  ],
+  "attachments": [],
+  "aiConversations": []
+}

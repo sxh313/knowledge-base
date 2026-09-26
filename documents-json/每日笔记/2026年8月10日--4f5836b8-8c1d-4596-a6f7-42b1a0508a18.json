@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "exportedAt": 1790417086641,
+  "journal": {
+    "id": "4f5836b8-8c1d-4596-a6f7-42b1a0508a18",
+    "title": "2026年8月10日",
+    "content": "# 2026年8月10日\n\n## 今日总结",
+    "contentPlain": "2026年8月10日 今日总结",
+    "tags": [
+      "日记"
+    ],
+    "subject": "每日笔记",
+    "sourceType": "manual",
+    "aliases": [],
+    "status": "active",
+    "properties": {},
+    "createdAt": 1786295173710,
+    "updatedAt": 1786295176796,
+    "contentHash": "364389b942138f8e04d2f19285fa8fafee8179655bb39d47fd6332a0e0571532",
+    "deletedAt": 1786295176768
+  },
+  "notes": [],
+  "cards": [],
+  "journalVersions": [
+    {
+      "id": "922f56db-839c-4bff-b602-e8be23d7ffb3",
+      "journalId": "4f5836b8-8c1d-4596-a6f7-42b1a0508a18",
+      "title": "2026年8月10日",
+      "content": "# 2026年8月10日\n\n## 今日总结",
+      "createdAt": 1786295176855
+    }
+  ],
+  "attachments": [],
+  "aiConversations": []
+}

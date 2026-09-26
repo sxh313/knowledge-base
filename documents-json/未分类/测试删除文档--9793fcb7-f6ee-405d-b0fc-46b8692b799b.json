@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "exportedAt": 1790417086642,
+  "journal": {
+    "id": "9793fcb7-f6ee-405d-b0fc-46b8692b799b",
+    "title": "测试删除文档",
+    "content": "",
+    "contentPlain": "",
+    "tags": [],
+    "subject": "",
+    "sourceType": "manual",
+    "aliases": [],
+    "status": "active",
+    "properties": {},
+    "createdAt": 1786459373945,
+    "updatedAt": 1786459436916,
+    "contentHash": "acafc58580f6f83b6267b70b06616942b02d7143fe3b5c101542e7ca028e74fe",
+    "deletedAt": 1786459436916
+  },
+  "notes": [],
+  "cards": [],
+  "journalVersions": [],
+  "attachments": [],
+  "aiConversations": []
+}
