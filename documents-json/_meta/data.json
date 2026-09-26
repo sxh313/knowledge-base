@@ -1,6 +1,6 @@
 {
   "version": 5,
-  "exportedAt": 1790417086642,
+  "exportedAt": 1790417179845,
   "journals": [],
   "notes": [],
   "cards": [],
@@ -6169,53 +6169,8 @@
       "updatedAt": 1787233877204
     }
   ],
-  "zero2Mastery": [
-    {
-      "topicId": "zero2agent:learn-agent-interview/03-fault-tolerance/index.md",
-      "mastery": null,
-      "confidence": 0,
-      "evidenceCount": 0,
-      "questionCount": 0,
-      "correctCount": 0,
-      "interestScore": 0.9999999999999999,
-      "stability": 0.1,
-      "difficulty": 5,
-      "nextReviewAt": 1787233874121,
-      "repetitions": 0,
-      "state": "new",
-      "updatedAt": 1788684371789
-    },
-    {
-      "topicId": "zero2agent:learn-agent-interview/09-rag-retrieval/index.md",
-      "mastery": null,
-      "confidence": 0,
-      "evidenceCount": 0,
-      "questionCount": 0,
-      "correctCount": 0,
-      "interestScore": 0.8999999999999999,
-      "stability": 0.1,
-      "difficulty": 5,
-      "nextReviewAt": 1787233874121,
-      "repetitions": 0,
-      "state": "new",
-      "updatedAt": 1787233903855
-    },
-    {
-      "topicId": "zero2agent:learn-agent-interview/12-business-ai-engineering/index.md",
-      "mastery": null,
-      "confidence": 0,
-      "evidenceCount": 0,
-      "questionCount": 0,
-      "correctCount": 0,
-      "interestScore": 0.8999999999999999,
-      "stability": 0.1,
-      "difficulty": 5,
-      "nextReviewAt": 1787233874122,
-      "repetitions": 0,
-      "state": "new",
-      "updatedAt": 1787233903857
-    }
-  ],
+  "zero2ReviewMessages": [],
+  "zero2Mastery": [],
   "zero2ReviewPlans": [
     {
       "goalId": "learn-agent-interview",
@@ -6473,5 +6428,7 @@
         "lowEvidence": 1
       }
     }
-  ]
+  ],
+  "zero2ReviewAttempts": [],
+  "zero2LearningMemories": []
 }
