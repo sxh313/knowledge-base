@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1790681301772,
+  "exportedAt": 1790681390088,
   "journal": {
     "id": "03f687c5-a22a-4d3e-afde-ba75c29f0741",
     "title": "简历",
@@ -13,7 +13,7 @@
     "status": "active",
     "properties": {},
     "createdAt": 1787058121195,
-    "updatedAt": 1790365431160,
+    "updatedAt": 1790681318971,
     "contentHash": "3ec197652c2b38516a8553f44f0beac30e373783a550982744e7c698131ffea8",
     "editorState": {
       "type": "doc",
