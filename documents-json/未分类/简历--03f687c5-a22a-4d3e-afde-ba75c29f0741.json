@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1790859875306,
+  "exportedAt": 1790860034317,
   "journal": {
     "id": "03f687c5-a22a-4d3e-afde-ba75c29f0741",
     "title": "简历",
@@ -13,7 +13,7 @@
     "status": "active",
     "properties": {},
     "createdAt": 1787058121195,
-    "updatedAt": 1790757476408,
+    "updatedAt": 1790859887664,
     "contentHash": "52a9121ea33b934d06b322dc1b2c1167bf266a46b49fd66d9eb3d813ba8ffdf6",
     "editorState": {
       "type": "doc",
@@ -1509,7 +1509,9 @@
                     "textAlign": "left",
                     "colspan": 1,
                     "rowspan": 1,
-                    "colwidth": null,
+                    "colwidth": [
+                      246
+                    ],
                     "align": "left"
                   },
                   "content": [
@@ -1634,7 +1636,9 @@
                     "textAlign": "left",
                     "colspan": 1,
                     "rowspan": 1,
-                    "colwidth": null,
+                    "colwidth": [
+                      246
+                    ],
                     "align": "left"
                   },
                   "content": [
@@ -1759,7 +1763,9 @@
                     "textAlign": "left",
                     "colspan": 1,
                     "rowspan": 1,
-                    "colwidth": null,
+                    "colwidth": [
+                      246
+                    ],
                     "align": "left"
                   },
                   "content": [
@@ -1884,7 +1890,9 @@
                     "textAlign": "left",
                     "colspan": 1,
                     "rowspan": 1,
-                    "colwidth": null,
+                    "colwidth": [
+                      246
+                    ],
                     "align": "left"
                   },
                   "content": [
@@ -2019,7 +2027,9 @@
                     "textAlign": "left",
                     "colspan": 1,
                     "rowspan": 1,
-                    "colwidth": null,
+                    "colwidth": [
+                      246
+                    ],
                     "align": "left"
                   },
                   "content": [
@@ -2159,7 +2169,9 @@
                     "textAlign": "left",
                     "colspan": 1,
                     "rowspan": 1,
-                    "colwidth": null,
+                    "colwidth": [
+                      246
+                    ],
                     "align": "left"
                   },
                   "content": [
