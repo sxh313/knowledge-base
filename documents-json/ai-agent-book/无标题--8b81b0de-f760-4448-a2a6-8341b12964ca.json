@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "exportedAt": 1791049771205,
+  "journal": {
+    "id": "8b81b0de-f760-4448-a2a6-8341b12964ca",
+    "title": "无标题",
+    "content": "# **Agent = LLM + 上下文 + 工具**",
+    "contentPlain": "Agent = LLM + 上下文 + 工具",
+    "tags": [],
+    "subject": "ai-agent-book",
+    "sourceType": "manual",
+    "aliases": [],
+    "status": "active",
+    "properties": {},
+    "createdAt": 1791047626790,
+    "updatedAt": 1791047652966,
+    "contentHash": "ae3594853feedff45fddf5e151e442dce0f276c57b2f30c2d2066ea4388a9bf9",
+    "editorState": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "heading",
+          "attrs": {
+            "textAlign": null,
+            "level": 1,
+            "collapsed": false
+          },
+          "content": [
+            {
+              "type": "text",
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "Agent = LLM + 上下文 + 工具"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "attrs": {
+            "textAlign": null
+          }
+        }
+      ]
+    },
+    "localOnly": false
+  },
+  "notes": [],
+  "cards": [],
+  "journalVersions": [
+    {
+      "id": "630bacd4-63d6-4703-a834-45a50d409846",
+      "journalId": "8b81b0de-f760-4448-a2a6-8341b12964ca",
+      "title": "无标题",
+      "content": "# **Agent = LLM + 上下文 + 工具**",
+      "createdAt": 1791047653014
+    }
+  ],
+  "attachments": [],
+  "aiConversations": []
+}
