@@ -37,10 +37,11 @@ const Zero2Source = lazy(() => import('./pages/Zero2Source'));
 // Electron/Capacitor 容器使用 HashRouter；普通浏览器使用 BrowserRouter。
 const isElectron = typeof navigator !== 'undefined' && /Electron/.test(navigator.userAgent);
 const isNativeApp = Capacitor.isNativePlatform();
-const Router = isElectron || isNativeApp ? HashRouter : BrowserRouter;
+const useHashRouter = isElectron || isNativeApp || import.meta.env.BASE_URL !== '/';
+const Router = useHashRouter ? HashRouter : BrowserRouter;
 // 兼容桌面/浏览器的硬导航
 const goPath = (p: string) => {
-  if (isElectron || isNativeApp) window.location.hash = '#' + p;
+  if (useHashRouter) window.location.hash = '#' + p;
   else window.location.href = p;
 };
 

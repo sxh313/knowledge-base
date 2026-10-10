@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
   // 允许通过被 git 忽略的 .env.local 显式配置本机 OpenAI-compatible 模型。
   envPrefix: ['VITE_', 'VLM_'],
   // 桌面/安卓端用相对路径,确保本地加载时 /assets 能正确解析
-  base: isDesktopBuild ? './' : '/',
+  base: isDesktopBuild ? './' : process.env.BUILD_TARGET === 'pages' ? '/knowledge-base/' : '/',
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
   },
