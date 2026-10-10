@@ -1,6 +1,7 @@
-import type { ChatMessage } from './client';
+import type { ChatMessage, ToolCall, ToolDefinition } from './client';
 import { chatCompletion } from './client';
 import { getSettings } from '../db/queries';
+import { recordDiagnostic } from '../observability/diagnostics';
 import { MODEL_MAP, TASK_MODELS, PROVIDER_FALLBACK_MODELS, providerNeedsApiKey, type ModelEntry, type TaskType, type ProviderName } from './providers';
 import type { AIModelBindings, AIModelProfile } from '../db/schema';
 
@@ -9,6 +10,8 @@ export interface RouteResult {
   model: string;
   provider: string;
   usage?: { promptTokens: number; completionTokens: number };
+  /** 模型发起的原生工具调用（传入 tools 时可能出现） */
+  toolCalls?: ToolCall[];
 }
 
 export type ModelBindingRole = keyof Pick<AIModelBindings, 'answerModelId' | 'reviewTutorModelId' | 'evaluatorModelId' | 'plannerModelId' | 'queryRewriteModelId'>;
@@ -29,7 +32,11 @@ export async function routeAI(
   onToken?: (token: string) => void,
   preferredModelId?: string,
   signal?: AbortSignal,
+  /** 原生函数调用工具定义；传入时透传给支持工具调用的 provider */
+  tools?: ToolDefinition[],
+  onReasoning?: (token: string) => void,
 ): Promise<RouteResult> {
+  const startedAt = performance.now();
   const settings = await getSettings();
   // 将设置页选择的模型放在任务专属 fallback 链最前面，避免 UI 选择与实际调用脱节。
   const preferredKey = task === 'codeReview' || task === 'codeExplain'
@@ -44,7 +51,10 @@ export async function routeAI(
   const modelIds = Array.from(new Set([preferred, ...TASK_MODELS[task]].filter((id): id is string => !!id)));
   let lastError: string | null = null;
   // QA 输出过长会显著拉高总延迟；需要更长内容的任务仍可通过专用 prompt 控制。
-  const maxTokens = task === 'qa' ? 768 : task === 'summarize' ? 768 : undefined;
+  // 推理模型会先输出 reasoning_content；768 token 容易在思考阶段耗尽，最终没有正文。
+  const maxTokens = task === 'qa' ? 1536 : task === 'summarize' ? 768 : undefined;
+  const userText = [...messages].reverse().find((message) => message.role === 'user')?.content ?? '';
+  const enableThinking = task === 'qa' && (userText.length > 80 || /(为什么|如何|比较|区别|分析|方案|推理|多跳|权衡|设计)/.test(userText));
 
   // 记录已尝试过的 (provider, model)，避免 fallback 阶段重复调用
   const tried = new Set<string>();
@@ -60,20 +70,29 @@ export async function routeAI(
       return null;
     }
     try {
-      const controller = signal ? undefined : new AbortController();
-      const timeout = controller ? setTimeout(() => controller.abort(), 60000) : undefined;
-      const result = await chatCompletion(
-        { name: provider, baseUrl: prov.baseUrl, apiKey: prov.apiKey, enabled: true },
-        model,
-        messages,
-        { stream: !!onToken, onToken, maxTokens, signal: signal ?? controller?.signal },
-      );
-      if (timeout) clearTimeout(timeout);
-      return { content: result.content, model, provider, usage: result.usage };
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000);
+      const onExternalAbort = () => controller.abort();
+      if (signal) {
+        if (signal.aborted) controller.abort();
+        else signal.addEventListener('abort', onExternalAbort, { once: true });
+      }
+      try {
+        const result = await chatCompletion(
+          { name: provider, baseUrl: prov.baseUrl, apiKey: prov.apiKey, enabled: true },
+          model,
+          messages,
+          // 工具调用模式下关闭流式（client 内部也会强制非流式）
+          { stream: !!onToken && !tools, onToken: tools ? undefined : onToken, onReasoning, enableThinking, maxTokens, signal: controller.signal, tools },
+        );
+        return { content: result.content, model, provider, usage: result.usage, toolCalls: result.toolCalls };
+      } finally {
+        clearTimeout(timeout);
+        signal?.removeEventListener('abort', onExternalAbort);
+      }
     } catch (err) {
       if (signal?.aborted) throw err;
       lastError = `${provider}/${model}: ${(err as Error).message}`;
-      console.warn(`AI failover: ${lastError}`);
       return null;
     }
   };
@@ -83,20 +102,28 @@ export async function routeAI(
     if (tried.has(key)) return null;
     tried.add(key);
     try {
-      const controller = signal ? undefined : new AbortController();
-      const timeout = controller ? setTimeout(() => controller.abort(), 60000) : undefined;
-      const result = await chatCompletion(
-        { name: profile.id, baseUrl: profile.baseUrl, apiKey: profile.apiKey, enabled: profile.enabled },
-        profile.modelId,
-        messages,
-        { stream: !!onToken, onToken, maxTokens, signal: signal ?? controller?.signal },
-      );
-      if (timeout) clearTimeout(timeout);
-      return { content: result.content, model: profile.modelId, provider: profile.id, usage: result.usage };
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000);
+      const onExternalAbort = () => controller.abort();
+      if (signal) {
+        if (signal.aborted) controller.abort();
+        else signal.addEventListener('abort', onExternalAbort, { once: true });
+      }
+      try {
+        const result = await chatCompletion(
+          { name: profile.id, baseUrl: profile.baseUrl, apiKey: profile.apiKey, enabled: profile.enabled },
+          profile.modelId,
+          messages,
+          { stream: !!onToken && !tools, onToken: tools ? undefined : onToken, onReasoning, enableThinking, maxTokens, signal: controller.signal, tools },
+        );
+        return { content: result.content, model: profile.modelId, provider: profile.id, usage: result.usage, toolCalls: result.toolCalls };
+      } finally {
+        clearTimeout(timeout);
+        signal?.removeEventListener('abort', onExternalAbort);
+      }
     } catch (err) {
       if (signal?.aborted) throw err;
       lastError = `[${profile.id}/${profile.modelId}]: ${(err as Error).message}`;
-      console.warn(`AI failover: ${lastError}`);
       return null;
     }
   };
@@ -124,14 +151,16 @@ export async function routeAI(
     const fallbackModelId = PROVIDER_FALLBACK_MODELS[provider];
     const entry = fallbackModelId ? resolveModelEntry(fallbackModelId) : undefined;
     const model = provider === 'local'
-      ? (settings.availableModels?.local?.[0] ?? settings.selectedModels?.find((id) => id.startsWith('local/'))?.slice(6) ?? entry?.model ?? 'dsv4').replace(/^local\//, '')
+      ? (settings.availableModels?.local?.[0] ?? settings.selectedModels?.find((id) => id.startsWith('local/'))?.slice(6) ?? entry?.model ?? '').replace(/^local\//, '')
       : entry?.model;
     if (!model) continue;
     const res = await tryModel(provider, model);
     if (res) return res;
   }
 
-  throw new Error(`All AI endpoints failed. Last error: ${lastError}`);
+  const message = `All AI endpoints failed. Last error: ${lastError}`;
+  recordDiagnostic({ category: 'ai', operation: `route:${task}`, outcome: signal?.aborted ? 'cancelled' : 'failure', message, durationMs: performance.now() - startedAt });
+  throw new Error(message);
 }
 
 /** 使用设置页“角色绑定”的模型；找不到自定义配置时仍走原有 fallback。 */

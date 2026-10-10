@@ -19,10 +19,10 @@ function configuredBases(extraBases: string[] = []): string[] {
   return [...extraBases, ...bases, ...DEFAULT_OPEN_WEBSEARCH_BASES].filter((value, index, all) => all.indexOf(value) === index);
 }
 
-function timeoutSignal(timeoutMs: number): AbortSignal {
+function timeoutSignal(timeoutMs: number): { signal: AbortSignal; cancel: () => void } {
   const controller = new AbortController();
-  setTimeout(() => controller.abort(), timeoutMs);
-  return controller.signal;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return { signal: controller.signal, cancel: () => clearTimeout(timer) };
 }
 
 function asRecord(value: unknown): UnknownRecord | null {
@@ -99,17 +99,20 @@ export function assertSafePublicUrl(rawUrl: string): string {
 
 async function callOpenWebSearch(path: string, body: UnknownRecord, timeoutMs: number, baseUrls: string[] = []): Promise<unknown | null> {
   for (const base of configuredBases(baseUrls)) {
+    const timeout = timeoutSignal(timeoutMs);
     try {
       const response = await fetch(`${base.replace(/\/$/, '')}${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: timeoutSignal(timeoutMs),
+        signal: timeout.signal,
       });
       if (!response.ok) continue;
       return await response.json();
     } catch {
       // Try the next configured base, then fall back to the lightweight provider.
+    } finally {
+      timeout.cancel();
     }
   }
   return null;

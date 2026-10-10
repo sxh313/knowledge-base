@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Trash2, RotateCcw, FileText, ArrowLeft } from 'lucide-react';
-import { db, type JournalEntry } from '../lib/db/schema';
-import { restoreJournal, purgeJournal } from '../lib/db/queries';
+import type { JournalEntry } from '../lib/db/schema';
+import { getTrashedJournals, restoreJournal, purgeJournal } from '../lib/db/repositories/journals';
 import { useJournalStore } from '../stores/journalStore';
 
 export default function Trash() {
@@ -14,7 +14,7 @@ export default function Trash() {
 
   const load = async () => {
     setLoading(true);
-    const trashed = await db.journals.filter(j => j.deletedAt !== undefined).toArray();
+    const trashed = await getTrashedJournals();
     trashed.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
     setItems(trashed);
     setLoading(false);

@@ -2,7 +2,7 @@ import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   FileText, MessageSquare, Brain, BarChart3, Settings, BookOpen, Layers,
   ChevronLeft, Sun, Moon, Monitor, Search, HelpCircle, Smartphone, MoreHorizontal, X, Trash2,
-  Cloud, Loader2, Tag, Inbox, Plus, Timer, ArrowUp, ArrowDown, RotateCcw, Target,
+  Cloud, Loader2, Tag, Inbox, Plus, Timer, ArrowUp, ArrowDown, RotateCcw, Target, Bot,
 } from 'lucide-react';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useThemeStore, type ThemeMode } from '../stores/themeStore';
@@ -21,8 +21,9 @@ interface LayoutProps {
 const navItems = [
   { to: '/', icon: FileText, label: '文档', group: '创作' },
   { to: '/inbox', icon: Inbox, label: '收集箱', group: '创作' },
-  { to: '/ai', icon: MessageSquare, label: '知屿 AI', group: '智能' },
-  { to: '/zero2-review', icon: Brain, label: '面试训练营', group: '智能' },
+  { to: '/ai', icon: MessageSquare, label: 'AI 问答', group: '智能' },
+  { to: '/agent', icon: Bot, label: 'Agent 模式', group: '智能' },
+  { to: '/zero2-review', icon: Brain, label: '复习教练', group: '智能' },
   { to: '/learning', icon: Target, label: '学习目标', group: '成长' },
   { to: '/stats', icon: BarChart3, label: '统计', group: '成长' },
   { to: '/tags', icon: Tag, label: '标签', group: '管理' },
@@ -248,7 +249,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
         </div>
 
         <main className={`app-main flex-1 min-h-0 ${isWorkspacePage ? 'overflow-hidden p-0' : 'overflow-y-auto px-2.5 py-3'}`}>
-          <div key={location.pathname} className={`min-h-full animate-slide-up ${isWorkspacePage ? `workspace-mobile-content ${isEditorPage ? 'workspace-mobile-content-editor' : ''}` : ''}`}>
+          <div key={location.pathname} className={`min-h-full animate-slide-up ${isWorkspacePage ? 'workspace-mobile-content' : ''}`}>
             <Outlet />
           </div>
         </main>
@@ -300,7 +301,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </div>
         )}
 
-        {!isEditorPage && <nav className="mobile-bottom-nav glass flex shrink-0 items-center border-t border-[var(--color-border)] pb-[env(safe-area-inset-bottom)]">
+        <nav className="mobile-bottom-nav glass relative z-30 flex shrink-0 items-center border-t border-[var(--color-border)] pb-[env(safe-area-inset-bottom)]">
           {mobileTabItems.map((item) => {
             const isActive = item.to === '/'
               ? location.pathname === '/'
@@ -327,7 +328,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
             <MoreHorizontal className="h-5 w-5" />
             更多
           </button>
-        </nav>}
+        </nav>
 
         {showMoreSheet && (
           <div className="fixed inset-0 z-50 flex min-h-[100dvh] flex-col justify-end" onClick={() => setShowMoreSheet(false)}>
@@ -408,7 +409,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
   return (
     <div className="flex h-screen overflow-hidden">
       <aside
-        className={`glass relative flex flex-col border-r border-[var(--color-border)] ${
+        className={`glass app-sidebar relative flex flex-col ${
           collapsed ? 'w-16 transition-all duration-300' : ''
         }`}
         style={collapsed ? undefined : { width: sidebarWidth }}
@@ -420,16 +421,16 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
             title="拖动调整侧栏宽度"
           />
         )}
-        <div className="flex h-14 items-center justify-between border-b border-[var(--color-border)] px-4 relative">
+        <div className="sidebar-brand-row soft-divider flex h-14 items-center justify-between px-4 relative">
           {!collapsed ? (
             <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-primary)] text-white shadow-sm">
+              <div className="brand-mark flex h-7 w-7 items-center justify-center text-white">
                 <BookOpen className="h-4 w-4" />
               </div>
               <span className="text-sm font-bold tracking-tight text-[var(--color-text)]">知屿</span>
             </div>
           ) : (
-            <div className="mx-auto flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--color-primary)] text-white shadow-sm">
+            <div className="brand-mark mx-auto flex h-7 w-7 items-center justify-center text-white">
               <BookOpen className="h-4 w-4" />
             </div>
           )}
@@ -443,7 +444,7 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
           </button>
         </div>
 
-        <div className="p-2 border-b border-[var(--color-border)]">
+        <div className="sidebar-search-row soft-divider p-2">
           <button
             onClick={onOpenPalette}
             className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-[var(--color-text-tertiary)] bg-[var(--color-surface-2)] hover:bg-[var(--color-border)] transition-colors"
@@ -473,9 +474,9 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
                 onDragEnd={() => setDraggingNav(null)}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => { event.preventDefault(); moveDesktopNav(item.to); setDraggingNav(null); }}
-                className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
+                className={`nav-item group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
                   isActive
-                    ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)]'
+                    ? 'nav-item-active text-[var(--color-primary)]'
                     : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
                 }`}
                 title={item.label}
@@ -501,16 +502,16 @@ export default function Layout({ onOpenPalette }: LayoutProps) {
             {!collapsed && (
               <>
                 <span>{themeConfig[mode].label}</span>
-                <span className="ml-auto text-[10px] text-[var(--color-text-tertiary)]">→ {themeConfig[nextTheme].hint}</span>
+                <span className="ml-auto text-[11px] text-[var(--color-text-tertiary)]">切换：{themeConfig[nextTheme].label}</span>
               </>
             )}
           </button>
-          {!collapsed && <div className="px-3 pt-1 pb-1 text-[10px] text-[var(--color-text-tertiary)]">知屿 v{__APP_VERSION__}</div>}
+          {!collapsed && <div className="px-3 pt-1 pb-1 text-[11px] text-[var(--color-text-tertiary)]">知屿 v{__APP_VERSION__}</div>}
         </div>
       </aside>
 
       <main className="app-main flex-1 overflow-hidden flex flex-col">
-        <div className="glass sticky top-0 z-10 flex items-center gap-3 border-b border-[var(--color-border)] px-5 h-12 shrink-0">
+        <div className="glass app-topbar soft-divider sticky top-0 z-10 flex items-center gap-3 px-5 h-12 shrink-0">
           <div className="flex-1" />
           <span className="text-xs text-[var(--color-text-tertiary)] tabular-nums hidden sm:inline">
             {new Intl.DateTimeFormat('zh-CN', {

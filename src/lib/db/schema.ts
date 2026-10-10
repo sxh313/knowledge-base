@@ -22,6 +22,8 @@ export interface JournalEntry {
   id: string;
   title: string;
   content: string;           // Markdown
+  /** TipTap JSON 快照：保留合并单元格、列宽等 Markdown 无法表达的结构。 */
+  editorState?: Record<string, unknown>;
   contentPlain: string;      // plain text for search
   contentHash?: string;      // 规范化标题与内容的稳定哈希
   summary?: string;          // AI-generated summary
@@ -39,6 +41,8 @@ export interface JournalEntry {
   createdAt: number;         // timestamp ms
   updatedAt: number;
   deletedAt?: number;
+  /** 仅保存在当前设备，不参与 GitHub/Markdown 云同步。 */
+  localOnly?: boolean;
 }
 
 export interface Note {
@@ -94,32 +98,44 @@ export interface KnowledgeEdge {
   deletedAt?: number;
 }
 
+export interface PersistedCitation {
+  source: 'personal' | 'zero2agent' | 'zero2leetcode' | 'web';
+  sourceId: string;
+  chunkId: string;
+  offset?: { start: number; end: number };
+  journalId?: string;
+  knowledgeDocId?: string;
+  title: string;
+  heading?: string;
+  content: string;
+  score: number;
+  confidence?: number;
+  path?: string;
+  module?: string;
+  sourceUrl?: string;
+  localPath?: string;
+  headingPath?: string[];
+  sourceAnchor?: string;
+  localUrl?: string;
+  /** Hash of the source content when the citation was created. */
+  sourceContentHash?: string;
+}
+
+export interface AIConversationMessage {
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  /** 每条回答独立保存来源，避免后续轮次覆盖旧回答的引用。 */
+  citations?: PersistedCitation[];
+  grounding?: { grounded: boolean; coverage: number; invalidReferences: string[] };
+}
+
 export interface AIConversation {
   id: string;
   journalId?: string;
   model: string;
-  messages: { role: 'user' | 'assistant' | 'system'; content: string }[];
+  messages: AIConversationMessage[];
   /** 最近一次回答使用的 RAG 来源，便于重新打开对话后继续定位原文 */
-  citations?: {
-    source: 'personal' | 'zero2agent' | 'web';
-    sourceId: string;
-    chunkId: string;
-    offset?: { start: number; end: number };
-    journalId?: string;
-    knowledgeDocId?: string;
-    title: string;
-    heading?: string;
-    content: string;
-    score: number;
-    confidence?: number;
-    path?: string;
-    module?: string;
-    sourceUrl?: string;
-    localPath?: string;
-    headingPath?: string[];
-    sourceAnchor?: string;
-    localUrl?: string;
-  }[];
+  citations?: PersistedCitation[];
   tokensInput: number;
   tokensOutput: number;
   costUsd: number;
@@ -155,12 +171,19 @@ export interface AIModelProfile {
   dimension?: number;
 }
 
+/** 本地服务中每个模型的独立连接配置。键为 local/<modelId>。 */
+export interface LocalModelConfig {
+  displayName: string;
+  baseUrl: string;
+  apiKey: string;
+}
+
 export interface AIModelBindings {
   /** 最终回答、普通 AI 任务和 zero2Agent 回答使用的对话模型。 */
   answerModelId: string;
   /** 向量召回模型；没有配置时自动退回关键词检索。 */
   embeddingModelId?: string;
-  /** 可选的 LLM 重排模型，通常绑定 chat 模型（例如 dsv4）。 */
+  /** 可选的 LLM 重排模型，通常绑定客户配置的本地 chat 模型。 */
   rerankerModelId?: string;
   /** 可选的查询改写模型。默认关闭，避免增加一次网络请求。 */
   queryRewriteModelId?: string;
@@ -185,6 +208,8 @@ export type AnswerDetailLevel = 'concise' | 'standard' | 'detailed';
 export interface AIAnswerSettings {
   retrievalTopK: 3 | 5 | 8;
   detail: AnswerDetailLevel;
+  /** 生成后用同一模型做保守润色；默认关闭，避免额外消耗和改变原意。 */
+  rewriteEnabled?: boolean;
 }
 
 export type WebSearchMode = 'manual' | 'auto' | 'always' | 'off';
@@ -205,7 +230,7 @@ export interface SyncConfig {
   owner: string;        // GitHub 用户名，如 sxh313
   repo: string;         // 仓库名
   branch: string;       // 分支，默认 main
-  path: string;         // 数据文件路径，默认 data.json
+  path: string;         // 旧版聚合数据路径，仅用于首次迁移读取
   token: string;        // 用户自己的 Personal Access Token，仅存当前设备 IndexedDB
   autoSync: boolean;    // 编辑停顿后自动同步
   lastSyncAt?: number;
@@ -230,17 +255,25 @@ export interface AppSettings {
   availableModels: Record<string, string[]>;
   /** 用户从可用模型中勾选的模型（全局，用于模型偏好下拉） */
   selectedModels: string[];
+  /** 本地模型的用户自定义显示名称，键为 local/<modelId>。 */
+  modelLabels?: Record<string, string>;
+  /** 本地模型的独立地址与 Key，键为 local/<modelId>；未配置时回退到服务级配置。 */
+  localModelConfigs?: Record<string, LocalModelConfig>;
   theme: 'light' | 'dark' | 'auto';
   reviewDailyGoal: number;   // cards per day
   /** 云同步配置（GitHub） */
   sync?: SyncConfig;
   /** AI provider 优先级顺序（用户可自定义排序；缺省时按内置顺序） */
   providerOrder?: ProviderName[];
+  /** API 服务的自定义显示名称。 */
+  providerLabels?: Partial<Record<ProviderName, string>>;
+  /** 用户删除的内置 API 服务，避免刷新设置后重新出现。 */
+  removedProviders?: ProviderName[];
   /** 独立模型中心；与旧的 provider 配置并存，逐步迁移不破坏旧用户设置。 */
   modelProfiles?: AIModelProfile[];
   /** 各业务角色实际绑定的模型配置。 */
   modelBindings?: AIModelBindings;
-  /** 向量召回与 dsv4 重排开关。 */
+  /** 向量召回与本地模型重排开关。 */
   retrieval?: RetrievalSettings;
   /** 普通 AI 问答的回答策略。 */
   aiAnswer?: AIAnswerSettings;
@@ -278,6 +311,11 @@ export interface DocumentChunk {
   startOffset: number;
   endOffset: number;
   ordinal: number;
+  /** 个人笔记增量向量索引；模型变化或正文变化时按 hash 自动失效。 */
+  embedding?: number[];
+  embeddingModelId?: string;
+  embeddingContentHash?: string;
+  embeddedAt?: number;
   createdAt: number;
 }
 
@@ -380,11 +418,27 @@ export interface AgentToolCacheEntry {
   expiresAt: number;
 }
 
+/** 细粒度会话权限策略：定义本会话允许修改的数据范围（allowedOperations 使用 tools.ts 中的 AgentOpType 名称，为避免循环依赖此处用 string） */
+export interface AgentPermissionPolicy {
+  /** 允许的操作类型；空数组表示不限制操作类型 */
+  allowedOperations: string[];
+  /** 允许修改的文档 id 白名单；未设置表示不限制文档范围 */
+  allowedJournalIds?: string[];
+  /** 允许修改的分类白名单；未设置表示不限制分类 */
+  allowedSubjects?: string[];
+  /** 是否允许删除操作（默认禁止） */
+  allowDelete: boolean;
+  /** 过期时间（时间戳）；过期后策略失效 */
+  expiresAt?: number;
+}
+
 /** 用户配置的细粒度授权；具体写操作仍必须经过计划预览。 */
 export interface AgentPermissionContext {
   mode: 'default' | 'plan_only';
   allowReadTools: boolean;
   allowWriteTools: boolean;
+  /** 细粒度权限策略；旧数据缺失时按保守默认策略处理 */
+  policy?: AgentPermissionPolicy;
   updatedAt: number;
 }
 
@@ -454,11 +508,20 @@ export interface AgentRun {
   statusReason?: string;
   /** 撤销信息（版本快照 + 新建文档 id），供运行历史一键撤销 */
   undo?: {
-    versions: { journalId: string; title: string; content: string }[];
+    versions: { journalId: string; title: string; content: string; afterHash?: string; tags?: string[]; subject?: string; aliases?: string[]; status?: JournalStatus; deletedAt?: number }[];
     createdJournalIds: string[];
+    createdJournalHashes?: Record<string, string>;
   };
   createdAt: number;
   updatedAt: number;
+  finishedAt?: number;
+}
+
+/** 跨刷新/重启持久化的执行收据；planId 是唯一主键。 */
+export interface AgentExecutionReceipt {
+  planId: string;
+  status: 'running' | 'success';
+  startedAt: number;
   finishedAt?: number;
 }
 
@@ -470,6 +533,20 @@ export interface AgentAuditLog {
   beforeHash?: string;
   afterHash?: string;
   result: 'success' | 'failed' | 'skipped';
+  createdAt: number;
+}
+
+/** Agent 运行时间线事件：记录一次运行中的检索、模型调用、工具、审批与执行节点 */
+export interface AgentRunEvent {
+  id: string;
+  runId: string;
+  type: 'retrieval' | 'model_call' | 'tool_call' | 'plan_created' | 'plan_rejected' | 'approval' | 'execution';
+  status: 'started' | 'success' | 'failed';
+  /** 摘要信息（仅存脱敏内容，禁止包含 API Key / 同步 Token / 完整附件原文） */
+  summary: string;
+  durationMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
   createdAt: number;
 }
 
@@ -485,6 +562,10 @@ export interface LearningGoal {
   deadline?: string;
   dailyMinutes: number;
   level?: string;
+  planKind?: 'custom' | 'agent-course';
+  totalTasks?: number;
+  reminderEnabled?: boolean;
+  reminderTime?: string;
   status: 'active' | 'paused' | 'completed';
   createdAt: number;
   updatedAt: number;
@@ -498,7 +579,31 @@ export interface LearningTask {
   title: string;
   minutes: number;
   sourceIds: string[];
+  sourceRefs?: { title: string; path: string; sourceUrl?: string; localPath?: string; sourceId?: string }[];
+  summary?: string;
+  exercise?: string;
+  learningStage?: 'reading' | 'practice' | 'review' | 'done';
+  reflection?: string;
+  quizPrompt?: string;
+  quizAnswer?: string;
+  order?: number;
   status: 'todo' | 'done' | 'skipped';
+  createdAt: number;
+  updatedAt: number;
+  deletedAt?: number;
+}
+
+export type Zero2LearningMemoryKind = 'weak_point' | 'preference' | 'mastery' | 'prerequisite';
+
+export interface Zero2LearningMemory {
+  id: string;
+  topicId?: string;
+  kind: Zero2LearningMemoryKind;
+  content: string;
+  sourceMessageIds: string[];
+  sourceAttemptIds: string[];
+  confidence: number;
+  userConfirmed?: boolean;
   createdAt: number;
   updatedAt: number;
   deletedAt?: number;
@@ -614,8 +719,11 @@ export class StudyJournalDB extends Dexie {
   agentMessages!: Table<AgentMessageRecord>;
   agentRuns!: Table<AgentRun>;
   agentAuditLogs!: Table<AgentAuditLog>;
+  agentRunEvents!: Table<AgentRunEvent>;
   agentStates!: Table<AgentStateRecord>;
+  agentExecutionReceipts!: Table<AgentExecutionReceipt>;
   memoryItems!: Table<MemoryItem>;
+  zero2LearningMemories!: Table<Zero2LearningMemory>;
   userPreferences!: Table<UserPreference>;
   learningGoals!: Table<LearningGoal>;
   learningTasks!: Table<LearningTask>;
@@ -741,6 +849,22 @@ export class StudyJournalDB extends Dexie {
     this.version(11).stores({
       agentStates: 'sessionId, updatedAt',
       memoryItems: 'id, sessionId, scope, kind, updatedAt, deletedAt, *keywords',
+    });
+    // version(12): Agent 运行时间线事件（可观测性：检索/模型/工具/审批/执行节点）。
+    this.version(12).stores({
+      agentRunEvents: 'id, runId, type, createdAt, [runId+createdAt]',
+    });
+    // version(13): Agent 执行幂等收据；DocumentChunk 向量字段为非索引字段，无需单独 store。
+    this.version(13).stores({
+      agentExecutionReceipts: 'planId, status, startedAt, finishedAt',
+    }).upgrade(async (tx) => {
+      // 历史成功运行写入收据，防止升级后旧计划被重新执行。
+      const runs = await tx.table<AgentRun, string>('agentRuns').filter((run) => run.status === 'success' || run.status === 'partial' || run.status === 'rolled_back').toArray();
+      if (runs.length) await tx.table<AgentExecutionReceipt, string>('agentExecutionReceipts').bulkPut(runs.map((run) => ({ planId: run.planId, status: 'success', startedAt: run.createdAt, finishedAt: run.finishedAt ?? run.updatedAt })));
+    });
+    // version(14): zero2Agent 学习记忆，与通用 Agent memoryItems 隔离。
+    this.version(14).stores({
+      zero2LearningMemories: 'id, topicId, kind, updatedAt, deletedAt, *sourceAttemptIds',
     });
   }
 }

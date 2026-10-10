@@ -6,7 +6,9 @@ import { useJournalStore } from './stores/journalStore';
 import { useThemeStore } from './stores/themeStore';
 import { useSyncStore } from './stores/syncStore';
 import { buildSearchIndex } from './lib/search/fuse';
-import { ensureIndexesRebuilt } from './lib/db/queries';
+import { bootstrapApplication } from './lib/app/bootstrap';
+import { checkDailyLearningReminder } from './lib/agent/learningReminder';
+import { recordDiagnostic } from './lib/observability/diagnostics';
 
 import Layout from './components/Layout';
 import CommandPalette from './components/CommandPalette';
@@ -14,6 +16,7 @@ import ShortcutsModal from './components/ShortcutsModal';
 import PomodoroWidget from './components/PomodoroWidget';
 import UpdatePrompt from './components/UpdatePrompt';
 import ToastViewport from './components/ToastViewport';
+import AppErrorBoundary from './components/AppErrorBoundary';
 
 // 路由级懒加载：按需加载各页面，显著减小首屏主 chunk 体积
 const JournalList = lazy(() => import('./pages/JournalList'));
@@ -47,25 +50,17 @@ export default function App() {
   const { applySystemChange } = useThemeStore();
   const { doSync } = useSyncStore();
   const syncEnabled = !!useSettingsStore((s) => s.settings?.sync?.enabled);
+  const autoSync = !!useSettingsStore((s) => s.settings?.sync?.autoSync);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   useEffect(() => {
-    loadSettings();
-    // 先加载列表让用户尽快看到内容；派生索引重建在后台执行，不阻塞首屏
-    loadAll();
-    (async () => {
-      try {
-        const rebuilt = await ensureIndexesRebuilt();
-        // 若后台重建了派生索引（chunks/links/hash），刷新列表以触发搜索索引重建
-        if (rebuilt) loadAll();
-      } catch { /* 忽略重建错误 */ }
-    })();
-  }, []);
+    void bootstrapApplication({ loadSettings, loadAllJournals: loadAll }).catch(() => undefined);
+  }, [loadSettings, loadAll]);
 
   // 自动云同步：启用后，打开应用 / 切回标签页 / 恢复联网时自动同步一次
   useEffect(() => {
-    if (!syncEnabled) return;
+    if (!syncEnabled || !autoSync) return;
     const trigger = () => { if (document.visibilityState === 'visible') doSync(); };
     document.addEventListener('visibilitychange', trigger);
     window.addEventListener('online', trigger);
@@ -75,7 +70,20 @@ export default function App() {
       window.removeEventListener('online', trigger);
       clearTimeout(t);
     };
-  }, [syncEnabled, doSync]);
+  }, [syncEnabled, autoSync, doSync]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => { void checkDailyLearningReminder().catch(() => undefined); }, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const onError = (event: ErrorEvent) => recordDiagnostic({ category: 'ui', operation: 'uncaught-error', outcome: 'failure', message: event.error?.message || event.message });
+    const onRejection = (event: PromiseRejectionEvent) => recordDiagnostic({ category: 'ui', operation: 'unhandled-rejection', outcome: 'failure', message: event.reason instanceof Error ? event.reason.message : String(event.reason) });
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => { window.removeEventListener('error', onError); window.removeEventListener('unhandledrejection', onRejection); };
+  }, []);
 
 
   // Ctrl+K 打开命令面板；Ctrl+F 在非编辑器页面也打开命令面板（编辑器内 Ctrl+F 由查找替换栏接管）
@@ -129,7 +137,8 @@ export default function App() {
   }, [entries]);
 
   return (
-    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <AppErrorBoundary>
+      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <Suspense fallback={<div className="app-loading-state"><div className="app-loading-card"><div className="app-loading-mark"><span className="text-lg">⌁</span></div><strong className="text-sm text-[var(--color-text)]">正在打开知屿</strong><span className="text-xs">整理你的知识航线…</span></div></div>}>
@@ -147,6 +156,7 @@ export default function App() {
           <Route path="/learning" element={<LearningGoals />} />
           <Route path="/zero2-review" element={<Zero2Review />} />
           <Route path="/source/zero2agent" element={<Zero2Source />} />
+          <Route path="/source/zero2leetcode" element={<Zero2Source knowledgeBase="zero2leetcode" />} />
           <Route path="/search" element={<SearchResultsPage />} />
           <Route path="/trash" element={<Trash />} />
         </Route>
@@ -155,6 +165,7 @@ export default function App() {
       <PomodoroWidget />
       <UpdatePrompt />
       <ToastViewport />
-    </Router>
+      </Router>
+    </AppErrorBoundary>
   );
 }

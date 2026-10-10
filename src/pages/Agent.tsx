@@ -8,11 +8,22 @@ import {
   Send, Paperclip, Check, X, FileText, Plus, Pencil, ArrowDownToLine,
   ArrowUpFromLine, CornerDownRight, Search, Loader2, Trash2, ExternalLink, MessageSquare,
   Tag, FolderInput, Layers, Undo2, ShieldAlert, ShieldCheck, Shield, Wrench, Network, Link2, PanelLeft, Bot,
+  Activity, GitBranch, BookOpen, SlidersHorizontal, Copy, BrainCircuit, ChevronDown, ChevronUp, Clock3,
 } from 'lucide-react';
-import type { AgentOp, AgentOpResult } from '../lib/agent/tools';
+import type { AgentOp, AgentOpResult, AgentPlan } from '../lib/agent/tools';
+import { INTENT_META, type AgentIntent } from '../lib/agent/intent';
+import type { EvidenceRef } from '../lib/agent/evidence';
+import { listAgentRunEvents } from '../lib/agent/persistence';
+import { getAgentState, updateAgentState } from '../lib/agent/state';
+import { DEFAULT_AGENT_PERMISSION_POLICY } from '../lib/agent/permissions';
+import type { AgentRun, AgentRunEvent, AgentPermissionPolicy } from '../lib/db/schema';
 import { diffLines } from '../lib/agent/diff';
+import { classifyAgentFailure } from '../lib/agent/recovery';
 import { getSkillRegistryState } from '../lib/agent/skills';
 import { DEFAULT_AGENT_PREFERENCES, getAgentPreferences, resetAgentPreferences, saveAgentPreferences, type AgentPreferences } from '../lib/agent/preferences';
+import Select from '../components/ui/Select';
+import Disclosure from '../components/ui/Disclosure';
+import DropdownMenu from '../components/ui/DropdownMenu';
 
 const RISK_META: Record<string, { label: string; icon: typeof Shield; color: string; badge: string }> = {
   low: { label: '低风险', icon: Shield, color: 'text-emerald-600', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
@@ -70,9 +81,80 @@ function RiskBadge({ risk }: { risk?: AgentOp['risk'] }) {
   const meta = RISK_META[risk ?? 'low'];
   const Icon = meta.icon;
   return (
-    <span className={`risk-badge-${risk ?? 'low'} inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium border ${meta.badge}`}>
+    <span className={`risk-badge-${risk ?? 'low'} inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium border ${meta.badge}`}>
       <Icon className="h-3 w-3" /> {meta.label}
     </span>
+  );
+}
+
+type PlanRiskFilter = 'all' | 'low' | 'medium' | 'high' | 'failed';
+type RunStatusFilter = 'all' | 'planned' | 'running' | 'success' | 'partial' | 'failed' | 'interrupted' | 'rolled_back';
+
+function formatSeconds(durationMs: number) {
+  return `${(Math.max(0, durationMs) / 1000).toFixed(durationMs >= 10000 ? 1 : 2)} 秒`;
+}
+
+/** 展示可审计的处理摘要，避免把模型隐式推理作为用户界面内容。 */
+function ModelThinking({ thinking }: { thinking?: { steps: string[]; durationMs: number } }) {
+  const [open, setOpen] = useState(false);
+  if (!thinking?.steps.length) return null;
+  return (
+    <div className="mt-3 overflow-hidden rounded-lg border border-[var(--color-primary)]/20 bg-[var(--color-primary-light)]/25 text-xs">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-primary-light)]/45"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+      >
+        <span className="flex min-w-0 items-center gap-1.5"><BrainCircuit className="h-3.5 w-3.5 shrink-0 text-[var(--color-primary)]" /><span className="font-medium text-[var(--color-text)]">模型思考</span><span className="truncate text-[11px]">处理摘要</span></span>
+        <span className="flex shrink-0 items-center gap-1 text-[11px] text-[var(--color-text-tertiary)]"><Clock3 className="h-3 w-3" />{formatSeconds(thinking.durationMs)}{open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}</span>
+      </button>
+      {open && <ol className="space-y-1 border-t border-[var(--color-primary)]/15 px-3 py-2 text-[11px] leading-5 text-[var(--color-text-secondary)]">{thinking.steps.map((step, index) => <li key={`${index}-${step}`} className="flex gap-2"><span className="font-mono text-[var(--color-primary)]">{String(index + 1).padStart(2, '0')}</span><span>{step}</span></li>)}</ol>}
+    </div>
+  );
+}
+
+function groupedPlanOps(plan: AgentPlan, filter: PlanRiskFilter, results?: AgentOpResult[]) {
+  const groups = new Map<string, { title: string; items: { op: AgentOp; index: number }[] }>();
+  plan.ops.forEach((op, index) => {
+    const failed = results?.[index] ? !results[index].ok && !results[index].skipped : op.note?.toLowerCase().includes('失败') || op.note?.toLowerCase().includes('error');
+    if (filter !== 'all' && (filter === 'failed' ? !failed : op.risk !== filter)) return;
+    const title = op.newTitle || op.title || (op.journalId ? `文档 #${op.journalId.slice(0, 8)}` : '其他操作');
+    const key = op.journalId || `new:${title}`;
+    const group = groups.get(key) ?? { title, items: [] };
+    group.items.push({ op, index });
+    groups.set(key, group);
+  });
+  return Array.from(groups.values());
+}
+
+function ProgressTimeline({ events, isProcessing, currentOperation }: { events: AgentRunEvent[]; isProcessing: boolean; currentOperation?: { index: number; total: number; label: string; status: string } | null }) {
+  const stages = [
+    { key: 'retrieval', label: '检索相关文档' },
+    { key: 'model_call', label: '分析与生成计划' },
+    { key: 'plan_created', label: '生成整理计划' },
+    { key: 'approval', label: '等待用户确认' },
+    { key: 'execution', label: '执行文档变更' },
+  ];
+  const latest = events.at(-1);
+  return (
+    <div className="agent-progress rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-xs">
+      <div className="mb-2 flex items-center justify-between font-medium">
+        <span className="flex items-center gap-1.5"><Activity className="h-3.5 w-3.5 text-[var(--color-primary)]" />任务进度</span>
+        {latest && <span className="text-[var(--color-text-tertiary)]">{latest.summary}</span>}
+      </div>
+      {currentOperation && <div className="mb-2 rounded-md bg-[var(--color-bg)] px-2 py-1.5 text-[var(--color-text-secondary)]">正在执行 {currentOperation.index}/{currentOperation.total}：{currentOperation.label}</div>}
+      <div className="grid gap-1 sm:grid-cols-5">
+        {stages.map((stage, index) => {
+          const event = events.find((item) => item.type === stage.key);
+          const current = !event && isProcessing && index === Math.min(stages.length - 1, events.length);
+          return <div key={stage.key} className={`flex items-center gap-1.5 ${event?.status === 'success' ? 'text-emerald-600' : current ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-tertiary)]'}`}>
+            {event?.status === 'success' ? <Check className="h-3 w-3" /> : current ? <Loader2 className="h-3 w-3 animate-spin" /> : <span className="inline-flex h-3 w-3 items-center justify-center rounded-full border text-[9px]">{index + 1}</span>}
+            <span className="truncate">{stage.label}</span>
+          </div>;
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -83,7 +165,7 @@ function DiffView({ before, after }: { before?: string; after?: string }) {
   const lines = diffLines(before, after);
   return (
     <div className="mt-1.5 rounded-md border border-[var(--color-border)] overflow-hidden">
-      <div className="px-2 py-1 text-[10px] text-[var(--color-text-tertiary)] bg-[var(--color-surface-2)] border-b border-[var(--color-border)]">
+      <div className="px-2 py-1 text-[11px] text-[var(--color-text-tertiary)] bg-[var(--color-surface-2)] border-b border-[var(--color-border)]">
         内容变更预览（+{lines.filter((l) => l.type === 'add').length} / -{lines.filter((l) => l.type === 'remove').length}）
       </div>
       <div className="max-h-48 overflow-y-auto text-[11px] font-mono leading-relaxed">
@@ -103,7 +185,7 @@ function DiffView({ before, after }: { before?: string; after?: string }) {
           </div>
         ))}
         {lines.length > 200 && (
-          <div className="px-2 py-1 text-[10px] text-[var(--color-text-tertiary)]">
+          <div className="px-2 py-1 text-[11px] text-[var(--color-text-tertiary)]">
             …（共 {lines.length} 行，仅显示前 200 行）
           </div>
         )}
@@ -150,7 +232,8 @@ function OpResult({ result }: { result: AgentOpResult }) {
     return (
       <div className="mt-1.5 pl-5 text-xs text-[var(--color-text-tertiary)]">
         <span className="flex items-center gap-1">
-          <X className="h-3 w-3" /> 已跳过（未批准）
+          <X className="h-3 w-3" /> 已跳过{result.skippedReason ? `（${result.skippedReason}）` : '（未批准）'}
+          {result.durationMs != null && <span>· {(result.durationMs / 1000).toFixed(2)}s</span>}
         </span>
       </div>
     );
@@ -160,6 +243,7 @@ function OpResult({ result }: { result: AgentOpResult }) {
       {result.ok ? (
         <span className="flex items-center gap-1">
           <Check className="h-3 w-3" /> 已{OP_META[result.op.type]?.label ?? '完成'}
+          {result.durationMs != null && <span className="text-[var(--color-text-tertiary)]">· {(result.durationMs / 1000).toFixed(2)}s</span>}
           {result.journalId && (
             <button
               className="inline-flex items-center gap-0.5 text-indigo-500 hover:underline"
@@ -170,7 +254,7 @@ function OpResult({ result }: { result: AgentOpResult }) {
           )}
         </span>
       ) : (
-        <span>✕ {result.error}</span>
+        <span>✕ {result.error}{result.durationMs != null ? ` · ${(result.durationMs / 1000).toFixed(2)}s` : ''}</span>
       )}
       {result.ok && result.content && (
         <div className="mt-1 whitespace-pre-wrap text-[var(--color-text-tertiary)]">
@@ -181,19 +265,278 @@ function OpResult({ result }: { result: AgentOpResult }) {
   );
 }
 
+/** 运行时间线事件类型元信息 */
+const EVENT_TYPE_META: Record<string, { label: string; icon: typeof Activity }> = {
+  retrieval: { label: '检索', icon: Search },
+  model_call: { label: '模型调用', icon: Bot },
+  tool_call: { label: '工具调用', icon: Wrench },
+  plan_created: { label: '计划生成', icon: Layers },
+  plan_rejected: { label: '计划拒绝', icon: ShieldAlert },
+  approval: { label: '审批', icon: ShieldCheck },
+  execution: { label: '执行', icon: Check },
+};
+
+/** 运行详情抽屉：展示一次运行的时间线事件与调试信息（耗时/token） */
+function RunDetailDrawer({ run, onClose }: { run: AgentRun; onClose: () => void }) {
+  const [events, setEvents] = useState<AgentRunEvent[]>([]);
+  const [showDebug, setShowDebug] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    listAgentRunEvents(run.id)
+      .then((rows) => { if (alive) setEvents(rows); })
+      .catch(() => {})
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [run.id]);
+
+  const statusColor = (status: AgentRunEvent['status']) =>
+    status === 'success' ? 'text-emerald-600' : status === 'failed' ? 'text-red-500' : 'text-blue-600';
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/25" onClick={onClose}>
+      <div
+        className="flex h-full w-[min(420px,92vw)] flex-col border-l border-[var(--color-border)] bg-[var(--color-bg)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-[var(--color-border)] p-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium">运行详情</div>
+            <div className="truncate text-xs text-[var(--color-text-tertiary)]">
+              {run.model ? `${run.provider ?? ''} / ${run.model} · ` : ''}{new Date(run.createdAt).toLocaleString('zh-CN')}
+            </div>
+          </div>
+          <button className="btn-ghost p-1" onClick={onClose} type="button" aria-label="关闭运行详情">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-1.5">
+          <span className="text-xs text-[var(--color-text-secondary)]">时间线（{events.length} 个事件）</span>
+          <label className="flex items-center gap-1 text-[11px] text-[var(--color-text-tertiary)]">
+            <input type="checkbox" checked={showDebug} onChange={(e) => setShowDebug(e.target.checked)} />
+            调试详情
+          </label>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {loading && <div className="text-xs text-[var(--color-text-tertiary)] text-center py-6">加载中…</div>}
+          {!loading && events.length === 0 && (
+            <div className="text-xs text-[var(--color-text-tertiary)] text-center py-6">
+              暂无时间线事件（该运行可能由旧版本创建）
+            </div>
+          )}
+          {events.map((ev) => {
+            const meta = EVENT_TYPE_META[ev.type] ?? EVENT_TYPE_META.execution;
+            const Icon = meta.icon;
+            return (
+              <div key={ev.id} className="rounded-md border border-[var(--color-border)] p-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1 font-medium">
+                    <Icon className="h-3 w-3 text-[var(--color-primary)]" /> {meta.label}
+                  </span>
+                  <span className={`flex items-center gap-1 ${statusColor(ev.status)}`}>
+                    {ev.status === 'success' ? <Check className="h-3 w-3" /> : ev.status === 'failed' ? <X className="h-3 w-3" /> : <Loader2 className="h-3 w-3 animate-spin" />}
+                    {ev.status === 'success' ? '成功' : ev.status === 'failed' ? '失败' : '进行中'}
+                    <span className="text-[var(--color-text-tertiary)]">
+                      {new Date(ev.createdAt).toLocaleTimeString('zh-CN', { hour12: false })}
+                    </span>
+                  </span>
+                </div>
+                <div className="mt-1 text-[var(--color-text-secondary)]">{ev.summary}</div>
+                {showDebug && (
+                  <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-[var(--color-text-tertiary)]">
+                    {ev.durationMs != null && <span>耗时 {ev.durationMs}ms</span>}
+                    {ev.inputTokens != null && <span>输入 {ev.inputTokens} tokens</span>}
+                    {ev.outputTokens != null && <span>输出 {ev.outputTokens} tokens</span>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 计划依据（证据片段）展示：可折叠列出命中的笔记片段 */
+function EvidenceBlock({ evidence }: { evidence?: EvidenceRef[] }) {
+  const [open, setOpen] = useState(false);
+  if (!evidence?.length) return null;
+  return (
+    <Disclosure className="mt-2 rounded-md border border-amber-200/70 bg-amber-50/60 px-3 py-2 text-xs dark:border-amber-800/50 dark:bg-amber-900/15" open={open} onToggle={() => setOpen(value => !value)} icon={<BookOpen className="h-3.5 w-3.5 text-amber-600" />} label={<span className="font-medium">依据（{evidence.length} 个笔记片段）</span>} contentClassName="mt-1.5 space-y-1.5">
+          {evidence.map((r, i) => (
+            <div key={i} className="pl-5 text-[var(--color-text-secondary)]">
+              <span className="font-medium">《{r.title}》</span>
+              {r.heading && <span className="text-[var(--color-text-tertiary)]">「{r.heading}」</span>}
+              <div className="text-[11px] text-[var(--color-text-tertiary)] line-clamp-2">{r.snippet.replace(/\s+/g, ' ')}</div>
+            </div>
+          ))}
+    </Disclosure>
+  );
+}
+
+/** 权限面板可配置的写入操作类型（与 OP_META 标签对应） */
+const PERMISSION_OP_TYPES = [
+  'create', 'edit', 'append', 'prepend', 'insertAfter', 'patchJournal',
+  'updateMetadata', 'rename', 'move', 'addTags', 'removeTags', 'delete', 'applyConflictMerge',
+];
+
+/** 会话权限面板：细粒度配置允许的操作类型 / 删除许可 / 授权范围 */
+function PermissionPanel({ sessionId, onClose }: { sessionId: string | null; onClose: () => void }) {
+  const [policy, setPolicy] = useState<AgentPermissionPolicy>({ ...DEFAULT_AGENT_PERMISSION_POLICY });
+  const [scope, setScope] = useState<'session' | 'once'>('session');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    getAgentState(sessionId)
+      .then((state) => {
+        if (state.permissions?.policy) {
+          setPolicy(state.permissions.policy);
+          setScope(state.permissions.policy.expiresAt ? 'once' : 'session');
+        }
+      })
+      .catch(() => {});
+  }, [sessionId]);
+
+  const toggleOp = (type: string) => {
+    setPolicy((prev) => {
+      const has = prev.allowedOperations.includes(type);
+      const next = has ? prev.allowedOperations.filter((t) => t !== type) : [...prev.allowedOperations, type];
+      return { ...prev, allowedOperations: next };
+    });
+  };
+
+  const save = async () => {
+    if (!sessionId) return;
+    setSaving(true);
+    try {
+      const state = await getAgentState(sessionId);
+      await updateAgentState(sessionId, {
+        permissions: {
+          ...state.permissions,
+          policy: {
+            ...policy,
+            // 「仅下一次计划」：30 分钟兜底过期（执行后也会自动恢复默认）；「本会话有效」：不设过期
+            expiresAt: scope === 'once' ? Date.now() + 30 * 60 * 1000 : undefined,
+          },
+        },
+      });
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/25" onClick={onClose}>
+      <div className="flex h-full w-[min(420px,92vw)] flex-col border-l border-[var(--color-border)] bg-[var(--color-bg)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-[var(--color-border)] p-3">
+          <div>
+            <div className="text-sm font-medium">会话权限</div>
+            <div className="text-xs text-[var(--color-text-tertiary)]">所有写操作仍需在计划预览中逐项确认</div>
+          </div>
+          <button className="btn-ghost p-1" onClick={onClose} type="button" aria-label="关闭权限面板">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
+          {!sessionId && <div className="text-[var(--color-text-tertiary)]">暂无活动会话</div>}
+          {sessionId && (
+            <>
+              <div>
+                <div className="mb-1.5 font-medium text-[var(--color-text-secondary)]">允许的操作类型</div>
+                <div className="grid grid-cols-2 gap-1">
+                  {PERMISSION_OP_TYPES.map((type) => (
+                    <label key={type} className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-2 py-1.5">
+                      <input
+                        type="checkbox"
+                        checked={policy.allowedOperations.includes(type)}
+                        onChange={() => toggleOp(type)}
+                      />
+                      <span>{OP_META[type]?.label ?? type}</span>
+                    </label>
+                  ))}
+                </div>
+                <label className="mt-2 flex items-center gap-1.5 rounded-md border border-red-200 dark:border-red-900/50 bg-red-50/50 dark:bg-red-900/10 px-2 py-1.5">
+                  <input
+                    type="checkbox"
+                    checked={policy.allowDelete}
+                    onChange={(e) => setPolicy((prev) => ({ ...prev, allowDelete: e.target.checked }))}
+                  />
+                  <ShieldAlert className="h-3 w-3 text-red-500" />
+                  <span>允许删除笔记（默认禁止，高风险）</span>
+                </label>
+              </div>
+              <div>
+                <div className="mb-1.5 font-medium text-[var(--color-text-secondary)]">授权范围</div>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    className={`flex-1 rounded-md border px-2 py-1.5 ${scope === 'session' ? 'border-[var(--color-primary)] text-[var(--color-primary)]' : 'border-[var(--color-border)]'}`}
+                    onClick={() => setScope('session')}
+                  >
+                    本会话有效
+                  </button>
+                  <button
+                    type="button"
+                    className={`flex-1 rounded-md border px-2 py-1.5 ${scope === 'once' ? 'border-[var(--color-primary)] text-[var(--color-primary)]' : 'border-[var(--color-border)]'}`}
+                    onClick={() => setScope('once')}
+                  >
+                    仅下一次计划
+                  </button>
+                </div>
+                {scope === 'once' && (
+                  <div className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">
+                    授权在计划执行后自动失效，最长 30 分钟
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button className="btn-primary text-xs px-3 py-1.5" onClick={save} disabled={saving} type="button">
+                  {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} 保存
+                </button>
+                <button
+                  className="btn-ghost text-xs px-3 py-1.5 rounded-md border border-[var(--color-border)]"
+                  onClick={() => setPolicy({ ...DEFAULT_AGENT_PERMISSION_POLICY })}
+                  disabled={saving}
+                  type="button"
+                >
+                  恢复默认
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 export default function Agent() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { messages, isProcessing, error, run, applyPending, cancelPending, undoLast, undoRunById, clear,
-    sessionId, sessions, runs, initialized, init, newSession, loadSession, renameSession, setSessionStatus, deleteSession } = useAgentStore();
+  const { messages, isProcessing, executionProgress, error, run, applyPending, cancelPending, undoLast, undoRunById, clear,
+    sessionId, sessions, runs, initialized, init, newSession, loadSession, renameSession, setSessionStatus, deleteSession, deleteAllSessions } = useAgentStore();
   const { loadAll } = useJournalStore();
   const { isMobile } = useViewModeStore();
   const [input, setInput] = useState('');
+  const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
   const [attached, setAttached] = useState<{ name: string; content: string } | null>(null);
   const [approved, setApproved] = useState<Set<string>>(new Set());
-  const [showSessions, setShowSessions] = useState<boolean>(() => localStorage.getItem('agent-sessions') !== '0');
+  const [planRiskFilter, setPlanRiskFilter] = useState<PlanRiskFilter>('all');
+  const [liveEvents, setLiveEvents] = useState<AgentRunEvent[]>([]);
+  const [showFailureDetails, setShowFailureDetails] = useState(false);
+  // Agent 的会话历史是辅助信息；首次进入时优先让用户看到任务入口和输入区。
+  const [showSessions, setShowSessions] = useState(false);
   const [showRuns, setShowRuns] = useState(false);
+  const [runStatusFilter, setRunStatusFilter] = useState<RunStatusFilter>('all');
   const [showSkills, setShowSkills] = useState(false);
+  const [showPermissions, setShowPermissions] = useState(false);
+  const [showComposerSettings, setShowComposerSettings] = useState(false);
+  const [detailRun, setDetailRun] = useState<AgentRun | null>(null);
+  // 意图模式：auto 为自动分类，其余为手动指定
+  const [intentMode, setIntentMode] = useState<'auto' | AgentIntent>('auto');
   const [preferences, setPreferences] = useState<AgentPreferences>(DEFAULT_AGENT_PREFERENCES);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
@@ -206,11 +549,7 @@ export default function Agent() {
     if (isMobile) setShowSessions(false);
   }, [isMobile]);
 
-  const toggleSessions = () => setShowSessions((current) => {
-    const next = !current;
-    localStorage.setItem('agent-sessions', next ? '1' : '0');
-    return next;
-  });
+  const toggleSessions = () => setShowSessions((current) => !current);
 
   // 初始化：从 IndexedDB 恢复会话
   useEffect(() => {
@@ -225,6 +564,17 @@ export default function Agent() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isProcessing]);
+
+  // 执行期间轮询已持久化的运行事件，让主对话区实时反映检索、审批和执行阶段。
+  useEffect(() => {
+    const activeRun = runs.find((item) => item.status === 'running') ?? (isProcessing ? runs[0] : undefined);
+    if (!activeRun) { setLiveEvents([]); return; }
+    let alive = true;
+    const refresh = () => listAgentRunEvents(activeRun.id).then((rows) => { if (alive) setLiveEvents(rows); }).catch(() => {});
+    void refresh();
+    const timer = window.setInterval(refresh, isProcessing ? 600 : 2500);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [runs, isProcessing]);
 
   // 当出现新的待确认计划时，默认全部勾选（低/中风险默认勾选，高风险默认不勾选需手动确认）
   useEffect(() => {
@@ -261,13 +611,14 @@ export default function Agent() {
     if (!input.trim() || isProcessing) return;
     const text = input.trim();
     setInput('');
+    setEditingMessageIndex(null);
     const attach = attached;
     setAttached(null);
-    await run(text, attach?.content);
+    await run(text, attach?.content, intentMode === 'auto' ? undefined : intentMode);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.altKey) {
       e.preventDefault();
       handleSend();
     }
@@ -344,6 +695,34 @@ export default function Agent() {
     }
   };
 
+  const copyMessage = async (content: string) => {
+    try { await navigator.clipboard.writeText(content); } catch { /* 浏览器未授权时不打断对话 */ }
+  };
+
+  const editMessage = (index: number, content: string) => {
+    setEditingMessageIndex(index);
+    setInput(content);
+    textareaRef.current?.focus();
+  };
+
+  const approveAllSafe = (ops: AgentPlan['ops']) => setApproved(new Set(ops.filter((op) => op.opId && op.risk !== 'high').map((op) => op.opId!)));
+  const retryLastTask = async () => {
+    const latest = [...messages].reverse().find((message) => message.role === 'user' && message.content.trim());
+    if (!latest || isProcessing) return;
+    await run(latest.content, undefined, latest.intent);
+  };
+  const replanLastTask = () => {
+    const latest = [...messages].reverse().find((message) => message.role === 'user' && message.content.trim());
+    if (!latest || isProcessing) return;
+    setInput(`请根据上次任务失败原因重新读取相关文档并生成新的待确认计划：${error ?? '请重新检查目标文档状态'}`);
+    textareaRef.current?.focus();
+  };
+  const handleDeleteAllSessions = async () => {
+    if (!sessions.length || !confirm('确定删除全部 Agent 历史？此操作不可恢复。')) return;
+    await deleteAllSessions();
+    setApproved(new Set());
+  };
+
   const RUN_STATUS_META: Record<string, { label: string; color: string }> = {
     planned: { label: '待确认', color: 'text-amber-600' },
     approved: { label: '已批准', color: 'text-blue-600' },
@@ -356,6 +735,7 @@ export default function Agent() {
     rolled_back: { label: '已撤销', color: 'text-gray-500' },
   };
   const skillState = getSkillRegistryState();
+  const visibleRuns = runStatusFilter === 'all' ? runs : runs.filter((run) => run.status === runStatusFilter);
   const updatePreference = async (patch: Partial<AgentPreferences>) => setPreferences(await saveAgentPreferences(patch));
 
   return (
@@ -369,12 +749,13 @@ export default function Agent() {
           type="button"
         />
       )}
-      <aside className={`${isMobile ? 'absolute inset-y-0 left-0 z-30 w-[84vw] max-w-[280px] shadow-xl' : 'w-64'} shrink-0 border-r border-[var(--color-border)] flex flex-col ${showSessions ? '' : 'hidden'}`}>
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] p-3">
+      <aside className={`${isMobile ? 'absolute inset-y-0 left-0 z-30 w-[84vw] max-w-[280px] shadow-xl' : 'w-64'} shrink-0 flex flex-col ${showSessions ? '' : 'hidden'} agent-workspace-sidebar`}>
+        <div className="soft-divider flex items-center justify-between p-3">
           <span className="text-xs font-medium text-[var(--color-text-secondary)]">对话历史</span>
-          <button className="btn-ghost p-1" onClick={toggleSessions} title="隐藏会话列表" aria-label="隐藏会话列表" type="button">
-            <PanelLeft className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button className="btn-ghost p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-danger)]" onClick={handleDeleteAllSessions} title="清空全部历史" aria-label="清空全部历史" type="button"><Trash2 className="h-3.5 w-3.5" /></button>
+            <button className="btn-ghost p-1" onClick={toggleSessions} title="隐藏会话列表" aria-label="隐藏会话列表" type="button"><PanelLeft className="h-4 w-4" /></button>
+          </div>
         </div>
         <button className="m-2 btn-primary text-xs flex items-center justify-center gap-1" onClick={handleNewSession} title="新建对话" type="button">
           <Plus className="h-3.5 w-3.5" /> 新建对话
@@ -432,7 +813,7 @@ export default function Agent() {
             <div className="text-xs text-[var(--color-text-tertiary)] text-center py-6">暂无会话</div>
           )}
         </div>
-        <div className="p-2 border-t border-[var(--color-border)]">
+        <div className="soft-divider p-2">
           <button
             className="w-full btn-ghost text-xs flex items-center justify-center gap-1 py-1.5 rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-2)]"
             onClick={() => setShowRuns((v) => !v)}
@@ -445,7 +826,7 @@ export default function Agent() {
       {/* 主聊天区 */}
       <div className="flex-1 flex flex-col min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between gap-2 px-4 py-2 border-b border-[var(--color-border)]">
+      <div className="soft-divider flex items-center justify-between gap-2 px-4 py-2">
         <div className="flex items-center gap-2">
           {!showSessions && <button className="btn-ghost p-1" onClick={toggleSessions} title="显示会话列表" aria-label="显示会话列表" type="button"><PanelLeft className="h-4 w-4" /></button>}
           <h1 className="flex items-center" title="Agent 工作区" aria-label="Agent 工作区"><Bot className="h-5 w-5 text-[var(--color-primary)]" /></h1>
@@ -453,24 +834,22 @@ export default function Agent() {
       </div>
 
       {showSkills && (
-        <div className="border-b border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-2">
-          <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-1.5">
+        <div className="soft-divider agent-skills-strip px-4 py-2">
+          <div className="mx-auto flex max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] flex-wrap items-center gap-1.5">
             {skillState.skills.map((skill) => (
-              <span key={skill.id} className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[10px] text-[var(--color-text-secondary)]" title={skill.description}>
+              <span key={skill.id} className="agent-skill-chip inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--color-text-secondary)]" title={skill.description}>
                 <span className={`h-1.5 w-1.5 rounded-full ${skill.status === 'ready' ? 'bg-emerald-500' : skill.status === 'guarded' ? 'bg-amber-500' : 'bg-sky-500'}`} />
                 {skill.name}
               </span>
             ))}
-            <span className="ml-auto text-[10px] text-[var(--color-text-tertiary)]" title={skillState.guard}>{skillState.checkpoint}</span>
+            <span className="ml-auto text-[11px] text-[var(--color-text-tertiary)]" title={skillState.guard}>{skillState.checkpoint}</span>
           </div>
-          <div className="mx-auto mt-2 flex max-w-4xl flex-wrap items-center gap-2 border-t border-[var(--color-border)] pt-2 text-[10px] text-[var(--color-text-secondary)]">
+          <div className="soft-divider agent-skills-preferences mx-auto mt-2 flex max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] flex-wrap items-center gap-2 pt-2 text-[11px] text-[var(--color-text-secondary)]">
             <span>工作偏好</span>
-            <select className="input-field w-auto px-2 py-1 text-[10px]" value={preferences.detail} onChange={(e) => updatePreference({ detail: e.target.value as AgentPreferences['detail'] })} aria-label="回答详细程度">
-              <option value="concise">简洁</option><option value="balanced">平衡</option><option value="detailed">详细</option>
-            </select>
+            <Select className="w-24" size="compact" value={preferences.detail} onChange={(value) => updatePreference({ detail: value as AgentPreferences['detail'] })} ariaLabel="回答详细程度" options={[{ value: 'concise', label: '简洁' }, { value: 'balanced', label: '平衡' }, { value: 'detailed', label: '详细' }]} />
             <label className="flex items-center gap-1"><input type="checkbox" checked={preferences.defaultPlanOnly} onChange={(e) => updatePreference({ defaultPlanOnly: e.target.checked })} />默认只生成计划</label>
-            <label className="flex items-center gap-1">最多卡片 <input className="input-field w-14 px-1 py-1 text-[10px]" type="number" min={1} max={50} value={preferences.maxCards} onChange={(e) => updatePreference({ maxCards: Number(e.target.value) })} /></label>
-            <button className="btn-ghost px-1 py-0.5 text-[10px]" onClick={async () => setPreferences(await resetAgentPreferences())}>恢复默认</button>
+            <label className="flex items-center gap-1">最多卡片 <input className="input-field w-14 px-1 py-1 text-[11px]" type="number" min={1} max={50} value={preferences.maxCards} onChange={(e) => updatePreference({ maxCards: Number(e.target.value) })} /></label>
+            <button className="btn-ghost px-1 py-0.5 text-[11px]" onClick={async () => setPreferences(await resetAgentPreferences())}>恢复默认</button>
           </div>
         </div>
       )}
@@ -478,22 +857,33 @@ export default function Agent() {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.length === 0 && (
-          <div className="empty-state mx-auto max-w-3xl space-y-2 text-sm text-[var(--color-text-tertiary)]">
-          <div className="empty-state-icon mb-2"><Bot className="h-6 w-6" /></div>
-            <p className="font-medium text-[var(--color-text)]">让 Agent 帮你执行文档任务</p>
-            <p className="max-w-xl text-xs">可以新建、编辑、追加或整理文档。执行前会展示操作计划，由你确认后再写入。</p>
-            <div className="mt-2 flex flex-wrap justify-center gap-1.5 text-[11px]"><span className="tag-gray">整理学习笔记</span><span className="tag-gray">生成卡片</span><span className="tag-gray">追加总结</span></div>
+          <div className="agent-empty mx-auto max-w-3xl text-sm text-[var(--color-text-tertiary)]">
+          <Bot className="h-5 w-5 text-[var(--color-primary)]" />
+            <p className="font-medium text-[var(--color-text)]">把重复整理交给我</p>
+            <p className="max-w-xl text-xs">选择一个常用工作流，或直接描述你要处理的内容。</p>
+            <div className="agent-starter-list">
+              <button type="button" onClick={() => setInput('整理收集箱中的内容，并先给我查看计划')}><span>整理收集箱</span><small>扫描未分类内容，先生成整理建议</small></button>
+              <button type="button" onClick={() => setInput('根据我最近的笔记生成学习计划')}><span>生成学习计划</span><small>根据近期笔记生成可调整的学习安排</small></button>
+              <button type="button" onClick={() => setInput('检查没有标签的文档并提出补标签计划')}><span>批量补标签</span><small>检查缺失标签，先列出建议改动</small></button>
+            </div>
           </div>
         )}
 
         {messages.map((msg, i) => (
-          <div key={i} className={`agent-message-row mx-auto flex w-full max-w-4xl cv-auto ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={i} className={`agent-message-row mx-auto flex w-full max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] cv-auto ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[85%] px-4 py-3 text-sm leading-7 ${
               msg.role === 'user'
                 ? 'agent-user-bubble rounded-2xl'
                 : 'agent-assistant-content'
             }`}>
               <MarkdownContent>{msg.content}</MarkdownContent>
+
+              <div className="mt-2 flex items-center gap-1 text-[11px] text-[var(--color-text-tertiary)]">
+                <button type="button" className="btn-ghost h-6 px-1.5" onClick={() => void copyMessage(msg.content)} title="复制消息"><Copy className="h-3 w-3" />复制</button>
+                {msg.role === 'user' && <button type="button" className="btn-ghost h-6 px-1.5" onClick={() => editMessage(i, msg.content)} title="编辑后重新发送"><Pencil className="h-3 w-3" />编辑</button>}
+              </div>
+
+              {msg.role === 'assistant' && <ModelThinking thinking={msg.thinking} />}
 
               {/* 多轮工具循环日志 */}
               {msg.toolLog && msg.toolLog.length > 0 && (
@@ -508,12 +898,16 @@ export default function Agent() {
               {/* 操作计划预览 */}
               {msg.plan && !msg.applied && (
                 <div className="mt-3 border-t border-[var(--color-border)] pt-2 space-y-2">
-                  <div className="text-xs font-medium text-[var(--color-text-secondary)]">📋 操作计划（待确认，可逐项勾选）：</div>
-                  {msg.plan.ops.map((op, j) => {
-                    const preview = msg.preview?.results[j];
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><div><span className="font-medium text-[var(--color-text)]">操作计划</span><span className="ml-2 text-[var(--color-text-tertiary)]">{msg.plan.ops.length} 项 · {msg.plan.ops.filter((op) => op.risk === 'high').length} 项高风险</span></div><div className="flex flex-wrap gap-1"><Select className="w-24" size="compact" value={planRiskFilter} onChange={(value) => setPlanRiskFilter(value as PlanRiskFilter)} ariaLabel="计划风险筛选" options={[{ value: 'all', label: '全部' }, { value: 'low', label: '低风险' }, { value: 'medium', label: '中风险' }, { value: 'high', label: '高风险' }, { value: 'failed', label: '执行失败' }]} /><button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => approveAllSafe(msg.plan!.ops)}>选择安全项</button><button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => setApproved(new Set())}>全部取消</button></div></div>
+                  <EvidenceBlock evidence={msg.evidence} />
+                  {groupedPlanOps(msg.plan, planRiskFilter, msg.preview?.results).map((group) => (
+                    <div key={group.title} className="space-y-1.5">
+                      <div className="flex items-center gap-2 px-1 text-[11px] font-medium text-[var(--color-text-secondary)]"><FileText className="h-3 w-3" />《{group.title}》<span className="text-[var(--color-text-tertiary)]">{group.items.length} 项</span></div>
+                      {group.items.map(({ op, index }) => {
+                    const preview = msg.preview?.results[index];
                     const checked = !!op.opId && approved.has(op.opId);
                     return (
-                      <div key={j} className="rounded-md border border-[var(--color-border)] p-2">
+                      <div key={op.opId ?? index} className="rounded-md border border-[var(--color-border)] p-2">
                         <label className="flex items-start gap-2 cursor-pointer">
                           <input
                             type="checkbox"
@@ -526,6 +920,16 @@ export default function Agent() {
                               <OpBadge op={op} />
                               <RiskBadge risk={op.risk} />
                             </div>
+                            {op.dependsOn?.length ? (
+                              <div className="mt-1 flex items-center gap-1 text-[11px] text-[var(--color-text-tertiary)]">
+                                <GitBranch className="h-3 w-3" /> 依赖：{op.dependsOn.join('、')}
+                              </div>
+                            ) : null}
+                            {op.evidence?.length ? (
+                              <div className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">
+                                依据：{op.evidence.map((ev) => ev.reason).join('；')}
+                              </div>
+                            ) : null}
                             {preview?.content && (
                               <div className="mt-1 pl-5 text-xs text-[var(--color-text-tertiary)] whitespace-pre-wrap">
                                 {preview.content}
@@ -538,6 +942,9 @@ export default function Agent() {
                       </div>
                     );
                   })}
+                    </div>
+                  ))}
+                  {groupedPlanOps(msg.plan, planRiskFilter, msg.preview?.results).length === 0 && <div className="rounded-md border border-dashed border-[var(--color-border)] px-3 py-4 text-center text-xs text-[var(--color-text-tertiary)]">没有符合当前筛选条件的操作</div>}
                   <div className="flex gap-2 pt-1">
                     <button
                       className="btn-primary text-xs px-3 py-1 flex items-center gap-1"
@@ -583,39 +990,48 @@ export default function Agent() {
           </div>
         ))}
 
-        {isProcessing && (
+        {(isProcessing || liveEvents.length > 0) && (
           <div className="flex justify-start">
-            <div className="agent-assistant-content mx-auto w-full max-w-4xl px-1 py-2 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>AI 正在分析并生成操作计划…</span>
+            <div className="agent-assistant-content mx-auto w-full max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] px-1 py-2">
+              <ProgressTimeline events={liveEvents} isProcessing={isProcessing} currentOperation={executionProgress} />
             </div>
           </div>
         )}
 
         {error && (
-          <div className="mx-auto flex max-w-3xl items-center gap-2 rounded-lg border border-[var(--color-danger)]/30 bg-[var(--color-danger-light)] px-3 py-2 text-sm text-[var(--color-danger)]"><ShieldAlert className="h-4 w-4 shrink-0" />{error}</div>
+          <div className="mx-auto max-w-3xl rounded-lg border border-[var(--color-danger)]/30 bg-[var(--color-danger-light)] px-3 py-2 text-sm text-[var(--color-danger)]">
+            {(() => { const advice = classifyAgentFailure(error); return <>
+              <div className="flex items-center gap-2"><ShieldAlert className="h-4 w-4 shrink-0" /><span className="min-w-0 flex-1 font-medium">{advice.label}</span><button type="button" className="btn-ghost h-8 shrink-0 px-2 text-xs" onClick={() => void retryLastTask()} disabled={isProcessing}>{advice.retryLabel}</button><button type="button" className="btn-ghost h-8 shrink-0 px-2 text-xs" onClick={replanLastTask} disabled={isProcessing}>{advice.replanLabel}</button><button type="button" className="btn-ghost h-8 shrink-0 px-2 text-xs" onClick={() => setShowFailureDetails((value) => !value)}>{showFailureDetails ? '收起详情' : '查看详情'}</button></div>
+              {showFailureDetails && <div className="mt-1.5 pl-6 text-xs">{advice.hint}<div className="mt-1 break-words opacity-80">原始错误：{error}</div></div>}
+            </>; })()}
+          </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input */}
-      <div className="px-4 pb-4 pt-3 border-t border-[var(--color-border)] bg-[var(--color-bg)]">
-        <div className="mx-auto mb-2 flex max-w-4xl items-center gap-2 overflow-x-auto whitespace-nowrap">
-          <button
-            className="btn-ghost flex h-8 shrink-0 items-center gap-1 rounded-md border border-[var(--color-border)] px-2.5 py-1 text-xs hover:bg-[var(--color-surface-2)]"
-            onClick={() => navigate('/ai?mode=chat')}
-            title="返回普通 AI 对话"
-            type="button"
-          >
-            <MessageSquare className="h-3.5 w-3.5" /> 普通对话
-          </button>
-          <button className="btn-ghost flex h-8 shrink-0 items-center gap-1 px-2 text-xs" onClick={clear} title="清空对话" type="button">
-            <Trash2 className="h-3.5 w-3.5" /> 清空
-          </button>
-          <button className={`btn-ghost flex h-8 shrink-0 items-center gap-1 px-2 text-xs ${showSkills ? 'text-[var(--color-primary)]' : ''}`} onClick={() => setShowSkills((v) => !v)} title="查看 Skill Registry 与安全检查点" aria-label="Skill Registry" type="button">
-            <Wrench className="h-3.5 w-3.5" /> Skills
+      <div className="soft-divider px-4 pb-4 pt-3 bg-[var(--color-bg)]">
+        {editingMessageIndex !== null && <div className="mx-auto mb-1 flex max-w-4xl items-center justify-between text-[11px] text-[var(--color-primary)]"><span>正在编辑第 {editingMessageIndex + 1} 条消息，发送后会重新生成任务</span><button type="button" className="btn-ghost h-6 px-1.5" onClick={() => { setEditingMessageIndex(null); setInput(''); }}>取消编辑</button></div>}
+        <div className="mx-auto mb-2 flex max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] justify-end">
+          <button className="btn-ghost agent-settings-toggle h-7 gap-1 px-2 text-xs" onClick={() => setShowComposerSettings(value => !value)} type="button" aria-expanded={showComposerSettings}>
+            <SlidersHorizontal className="h-3.5 w-3.5" />更多设置
           </button>
         </div>
+        {showComposerSettings && (
+          <div className="agent-composer-settings mx-auto mb-2 flex max-w-4xl xl:max-w-6xl 2xl:max-w-[96rem] flex-wrap items-center gap-2">
+            <Select
+              className="w-32"
+              size="compact"
+              value={intentMode}
+              onChange={(value) => setIntentMode(value as 'auto' | AgentIntent)}
+              ariaLabel="任务判断模式"
+              options={[{ value: 'auto', label: '自动判断' }, ...(Object.keys(INTENT_META) as AgentIntent[]).map((key) => ({ value: key, label: INTENT_META[key].label, description: INTENT_META[key].hint }))]}
+            />
+            <DropdownMenu label="工作区工具" icon={<Wrench className="h-3.5 w-3.5" />} placement="up" align="left" items={[{ label: showSkills ? '隐藏 Skills' : '查看 Skills', icon: <Wrench className="h-3.5 w-3.5" />, onSelect: () => setShowSkills(value => !value) }, { label: '会话权限', icon: <Shield className="h-3.5 w-3.5" />, onSelect: () => setShowPermissions(true) }, { label: showRuns ? '隐藏运行历史' : '运行历史', icon: <Activity className="h-3.5 w-3.5" />, onSelect: () => setShowRuns(value => !value) }]} />
+            <button className="btn-ghost flex h-8 items-center gap-1 px-2 text-xs" onClick={clear} title="清空本次对话" type="button"><Trash2 className="h-3.5 w-3.5" />清空对话</button>
+            <button className="btn-ghost flex h-8 items-center gap-1 px-2 text-xs" onClick={() => navigate('/ai?mode=chat')} title="返回 AI 问答" type="button"><MessageSquare className="h-3.5 w-3.5" />AI 问答</button>
+          </div>
+        )}
         {attached && (
           <div className="flex items-center gap-2 mb-2 text-xs bg-[var(--color-surface-2)] rounded-md px-3 py-1.5">
             <FileText className="h-3.5 w-3.5 text-indigo-500" />
@@ -648,7 +1064,7 @@ export default function Agent() {
           <textarea
             ref={textareaRef}
             className="input-field flex-1 resize-none h-10 min-h-[40px] max-h-32 text-sm"
-            placeholder="输入指令，例如：把下面内容新建为《XX》笔记…（可粘贴文件）"
+            placeholder="描述你要整理的内容…"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -662,30 +1078,30 @@ export default function Agent() {
             <Send className="h-3.5 w-3.5" /> 发送
           </button>
         </div>
-        <div className="flex justify-between mt-2 text-xs text-[var(--color-text-tertiary)]">
-          <span>Enter 发送 · Shift+Enter 换行 · 可粘贴 .md/.txt 文件</span>
-        </div>
       </div>
       </div>
 
       {/* 运行历史面板 */}
       {showRuns && (
-        <aside className="w-80 shrink-0 border-l border-[var(--color-border)] flex flex-col">
-          <div className="p-2 border-b border-[var(--color-border)] flex items-center justify-between">
+        <aside className="w-80 shrink-0 flex flex-col agent-workspace-runs">
+          <div className="soft-divider p-2 flex items-center justify-between">
             <span className="text-xs font-semibold text-[var(--color-text-secondary)]">运行历史</span>
-            <button className="btn-ghost text-xs p-1 rounded hover:bg-[var(--color-surface-2)]" onClick={() => setShowRuns(false)}>
-              <X className="h-3.5 w-3.5" />
-            </button>
+            <div className="flex items-center gap-1">
+              <Select className="w-24" size="compact" value={runStatusFilter} onChange={(value) => setRunStatusFilter(value as RunStatusFilter)} ariaLabel="运行状态筛选" options={[{ value: 'all', label: '全部' }, { value: 'planned', label: '待确认' }, { value: 'running', label: '执行中' }, { value: 'success', label: '成功' }, { value: 'partial', label: '部分成功' }, { value: 'failed', label: '失败' }, { value: 'interrupted', label: '已中断' }, { value: 'rolled_back', label: '已撤销' }]} />
+              <button className="btn-ghost text-xs p-1 rounded hover:bg-[var(--color-surface-2)]" onClick={() => setShowRuns(false)} aria-label="关闭运行历史" title="关闭运行历史">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-2">
-            {runs.length === 0 && (
-              <div className="text-xs text-[var(--color-text-tertiary)] text-center py-6">暂无运行记录</div>
+            {visibleRuns.length === 0 && (
+              <div className="text-xs text-[var(--color-text-tertiary)] text-center py-6">当前筛选没有运行记录</div>
             )}
-            {runs.map((r) => {
+            {visibleRuns.map((r) => {
               const meta = RUN_STATUS_META[r.status] ?? RUN_STATUS_META.planned;
               const opCount = (r.operations ?? []).length;
               return (
-                <div key={r.id} className="rounded-md border border-[var(--color-border)] p-2 text-xs">
+                <div key={r.id} className="agent-run-card rounded-md p-2 text-xs">
                   <div className="flex items-center justify-between gap-1">
                     <span className={`font-medium ${meta.color}`}>{meta.label}</span>
                     <span className="text-[var(--color-text-tertiary)]">
@@ -698,9 +1114,16 @@ export default function Agent() {
                     {r.durationMs != null && <span>· {(r.durationMs / 1000).toFixed(1)}s</span>}
                     {r.error && <span className="text-red-500">· {r.error}</span>}
                   </div>
+                  <button
+                    className="agent-run-action mt-1.5 w-full btn-ghost text-xs flex items-center justify-center gap-1 rounded-md py-1"
+                    onClick={() => setDetailRun(r)}
+                    type="button"
+                  >
+                    <Activity className="h-3 w-3" /> 运行详情
+                  </button>
                   {r.undo && (r.status === 'success' || r.status === 'partial') && (
                     <button
-                      className="mt-2 w-full btn-ghost text-xs flex items-center justify-center gap-1 rounded-md border border-[var(--color-border)] py-1 hover:bg-[var(--color-surface-2)]"
+                      className="agent-run-action mt-2 w-full btn-ghost text-xs flex items-center justify-center gap-1 rounded-md py-1"
                       onClick={() => undoRunById(r.id)}
                       disabled={isProcessing}
                     >
@@ -713,6 +1136,12 @@ export default function Agent() {
           </div>
         </aside>
       )}
+
+      {/* 运行详情抽屉（时间线 + 调试信息） */}
+      {detailRun && <RunDetailDrawer run={detailRun} onClose={() => setDetailRun(null)} />}
+
+      {/* 会话权限面板 */}
+      {showPermissions && <PermissionPanel sessionId={sessionId} onClose={() => setShowPermissions(false)} />}
     </div>
   );
 }

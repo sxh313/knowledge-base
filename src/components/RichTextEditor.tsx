@@ -12,15 +12,16 @@ import { Table } from '@tiptap/extension-table';
 import TableRow from '@tiptap/extension-table-row';
 import TableCell from '@tiptap/extension-table-cell';
 import TableHeader from '@tiptap/extension-table-header';
+import TextAlign from '@tiptap/extension-text-align';
 import {
   Bold, Italic, Strikethrough,
   Code, Link as LinkIcon, List, ListOrdered,
   Quote, Heading1, Heading2, Heading3, Heading4, Heading5, Pilcrow, CodeXml, Minus, Image as ImageIcon,
   Undo2, Redo2, ListChecks, ZoomIn, ZoomOut, Copy, Table2, ImageDown, X,
-  Lightbulb, Languages, Sparkles, BookOpen, Search, PaintRoller, MoreHorizontal,
+  Lightbulb, Languages, Sparkles, BookOpen, Search, PaintRoller, MoreHorizontal, AlignCenter,
 } from 'lucide-react';
 import { markdownToHtml, htmlToMarkdown } from '../lib/markdownUtils';
-import { putAttachment, getAttachment } from '../lib/db/queries';
+import { putAttachment, getAttachment } from '../lib/db/repositories/attachments';
 import { useJournalStore } from '../stores/journalStore';
 import { getSlashCommands, type SlashCommandItem } from './tiptap/slashCommand';
 import { Callout } from './tiptap/callout';
@@ -61,6 +62,9 @@ async function resolveAttachmentImages(root: HTMLElement) {
 interface RichTextEditorProps {
   value: string;          // Markdown
   onChange: (value: string) => void;  // 返回 Markdown
+  /** 可选的 TipTap JSON 快照，用于恢复合并单元格和列宽等高级结构。 */
+  editorState?: Record<string, unknown>;
+  onEditorStateChange?: (state: Record<string, unknown>) => void;
   placeholder?: string;
   autoFocus?: boolean;
   /** 选中→AI 操作：翻译/解释/润色 */
@@ -101,7 +105,7 @@ function whenEditorDomReady(editor: any, callback: (dom: HTMLElement) => void): 
   };
 }
 
-function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, onWikilinkClick, journalId }: RichTextEditorProps) {
+function RichTextEditor({ value, onChange, editorState, onEditorStateChange, placeholder, autoFocus, onAIAction, onWikilinkClick, journalId }: RichTextEditorProps) {
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
@@ -118,6 +122,8 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
   const [svgRendering, setSvgRendering] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const [tableRows, setTableRows] = useState(3);
+  const [tableCols, setTableCols] = useState(3);
   const [showMoreTools, setShowMoreTools] = useState(false);
   // 格式刷：第一次点复制选区格式，第二次点应用到新选区
   const [storedMarks, setStoredMarks] = useState<{ type: string }[] | null>(null);
@@ -147,6 +153,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
   const lastEmittedRef = useRef(value);
   // 合并 onUpdate 的 rAF 句柄：连续输入时只做一次 turndown 转换
   const rafRef = useRef<number>(0);
+  const updateTimerRef = useRef<number>(0);
 
   const editor = useEditor({
     extensions: [
@@ -166,17 +173,41 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
       TableRow,
       TableCell,
       TableHeader,
+      TextAlign.configure({ types: ['heading', 'paragraph', 'tableCell', 'tableHeader'] }),
       Callout,
       Wikilink,
     ],
-    content: markdownToHtml(value),
+    content: editorState ?? markdownToHtml(value),
     autofocus: autoFocus ? 'end' : false,
     editorProps: {
       attributes: {
         class: 'prose-custom max-w-none focus:outline-none min-h-[58vh] px-1 py-3',
         spellcheck: 'false',
       },
+      handlePaste: (view, event) => {
+        const html = event.clipboardData?.getData('text/html') || '';
+        if (html.length <= 800_000) return false;
+        const plainText = event.clipboardData?.getData('text/plain')
+          || new DOMParser().parseFromString(html, 'text/html').body.textContent
+          || '';
+        event.preventDefault();
+        view.dispatch(view.state.tr.insertText(plainText));
+        return true;
+      },
       handleKeyDown: (view, event) => {
+        if (event.key.toLowerCase() === 'a' && (event.ctrlKey || event.metaKey)) {
+          const { state } = view;
+          const { $from } = state.selection;
+          for (let depth = $from.depth; depth > 0; depth -= 1) {
+            const nodeName = $from.node(depth).type.name;
+            if (nodeName !== 'codeBlock' && nodeName !== 'callout') continue;
+            event.preventDefault();
+            const from = $from.start(depth);
+            const to = from + $from.node(depth).content.size;
+            view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, from, to)));
+            return true;
+          }
+        }
         if (event.key !== 'Tab') return false;
         const { state } = view;
         const { $from, from, to } = state.selection;
@@ -258,15 +289,20 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
       },
     },
     onUpdate: ({ editor }) => {
-      // 用 rAF 合并同一帧内的多次事务，避免连续快速输入时每次都做完整的 turndown 转换
+      // 合并连续事务并延后转换，避免外部网页粘贴时同步处理巨量 HTML。
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (updateTimerRef.current) window.clearTimeout(updateTimerRef.current);
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = 0;
-        if (editor.isDestroyed || !editor.isInitialized) return;
-        const md = htmlToMarkdown(editor.getHTML());
-        // 标记本次变化由编辑器自身产生：下方 effect 据此跳过 setContent，保留撤销/重做历史栈
-        lastEmittedRef.current = md;
-        onChange(md);
+        updateTimerRef.current = window.setTimeout(() => {
+          updateTimerRef.current = 0;
+          if (editor.isDestroyed || !editor.isInitialized) return;
+          const md = htmlToMarkdown(editor.getHTML());
+          onEditorStateChange?.(editor.getJSON() as Record<string, unknown>);
+          // 标记本次变化由编辑器自身产生：下方 effect 据此跳过 setContent，保留撤销/重做历史栈
+          lastEmittedRef.current = md;
+          onChange(md);
+        }, 120);
       });
     },
   });
@@ -287,6 +323,18 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
       lastEmittedRef.current = value;
     }
   }, [value, editor]);
+
+  // 文档切换时优先恢复 TipTap JSON；仅当快照与当前文档不同才写入，避免每次输入都清空撤销历史。
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !editor.isInitialized || !editorState) return;
+    try {
+      if (JSON.stringify(editor.getJSON()) !== JSON.stringify(editorState)) {
+        editor.commands.setContent(editorState, { emitUpdate: false });
+      }
+    } catch {
+      // 旧版本或损坏快照无法恢复时，保留 Markdown 内容作为兼容回退。
+    }
+  }, [editor, editorState]);
 
   // 附件图片：把图片以附件形式存储，正文用 attachment://<id> 引用（渲染时解析回 dataUrl）
   const insertImageFromDataUrl = useCallback(async (dataUrl: string, name: string, mimeType: string) => {
@@ -783,6 +831,7 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
           </ToolbarBtn>
         ))}
         <ToolbarBtn onClick={() => editor.chain().focus().setParagraph().run()} active={isActive('paragraph')} title="正文"><Pilcrow className="w-4 h-4" /></ToolbarBtn>
+        <ToolbarBtn onClick={() => editor.chain().focus().setTextAlign('center').run()} active={editor.isActive({ textAlign: 'center' })} title="居中对齐"><AlignCenter className="w-4 h-4" /></ToolbarBtn>
         <div className="w-px h-4 bg-[var(--color-border)] mx-0.5" />
         <ToolbarBtn onClick={() => editor.chain().focus().toggleBold().run()} active={isActive('bold')} title="加粗"><Bold className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().toggleItalic().run()} active={isActive('italic')} title="斜体"><Italic className="w-4 h-4" /></ToolbarBtn>
@@ -806,13 +855,31 @@ function RichTextEditor({ value, onChange, placeholder, autoFocus, onAIAction, o
         <ToolbarBtn onClick={toggleCodeBlockSmart} active={isActive('codeBlock')} title="代码块"><CodeXml className="w-4 h-4" /></ToolbarBtn>
         <div className="relative">
           <ToolbarBtn onClick={() => setTablePickerOpen((open) => !open)} title="插入表格"><Table2 className="w-4 h-4" /></ToolbarBtn>
-          {tablePickerOpen && <div className="table-picker-popover absolute left-0 top-[calc(100%+0.4rem)] z-50 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-2 shadow-xl" onMouseDown={(event) => event.preventDefault()}>
-            <p className="mb-1.5 text-[10px] text-[var(--color-text-tertiary)]">选择表格大小</p>
-            <div className="grid grid-cols-8 gap-1">
-              {Array.from({ length: 64 }, (_, index) => { const row = Math.floor(index / 8) + 1; const col = (index % 8) + 1; return <button key={`${row}-${col}`} type="button" className="table-picker-cell h-4 w-4 rounded-sm border border-[var(--color-border)]" title={`${row} × ${col}`} onClick={() => { editor.chain().focus().insertTable({ rows: row, cols: col, withHeaderRow: true }).run(); setTablePickerOpen(false); }} />; })}
+          {tablePickerOpen && <div className="table-picker-popover absolute left-0 top-[calc(100%+0.4rem)] z-50 w-52 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-3 shadow-xl" onMouseDown={(event) => event.preventDefault()}>
+            <p className="mb-2 text-xs font-medium text-[var(--color-text)]">插入表格</p>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="text-[11px] text-[var(--color-text-secondary)]">
+                行数
+                <input type="number" min={1} max={50} value={tableRows} onChange={(event) => setTableRows(Math.min(50, Math.max(1, Number(event.target.value) || 1)))} className="input-field mt-1 h-8 w-full px-2 text-xs" />
+              </label>
+              <label className="text-[11px] text-[var(--color-text-secondary)]">
+                列数
+                <input type="number" min={1} max={20} value={tableCols} onChange={(event) => setTableCols(Math.min(20, Math.max(1, Number(event.target.value) || 1)))} className="input-field mt-1 h-8 w-full px-2 text-xs" />
+              </label>
             </div>
+            <button type="button" className="btn-primary mt-3 h-8 w-full text-xs" onClick={() => { editor.chain().focus().insertTable({ rows: tableRows, cols: tableCols, withHeaderRow: true }).run(); setTablePickerOpen(false); }}>生成表格</button>
+            <p className="mt-2 text-[10px] leading-4 text-[var(--color-text-tertiary)]">插入后可在表格工具栏继续加行或加列。</p>
           </div>}
         </div>
+        {isActive('table') && <div className="editor-table-tools flex items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] p-1" role="group" aria-label="表格编辑">
+          <button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => editor.chain().focus().addRowAfter().run()}>加行</button>
+          <button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => editor.chain().focus().addColumnAfter().run()}>加列</button>
+          <button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => editor.chain().focus().deleteRow().run()} disabled={!editor.can().deleteRow()}>删行</button>
+          <button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => editor.chain().focus().deleteColumn().run()} disabled={!editor.can().deleteColumn()}>删列</button>
+          <button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => editor.chain().focus().mergeCells().run()} disabled={!editor.can().mergeCells()}>合并</button>
+          <button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => editor.chain().focus().splitCell().run()} disabled={!editor.can().splitCell()}>拆分</button>
+          <button type="button" className="btn-ghost h-7 px-2 text-[11px] text-[var(--color-danger)]" onClick={() => editor.chain().focus().deleteTable().run()}>删表</button>
+        </div>}
         <ToolbarBtn onClick={openSvgDialog} title="SVG 代码转 PNG 图片"><ImageDown className="w-4 h-4" /></ToolbarBtn>
         <ToolbarBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="分隔线"><Minus className="w-4 h-4" /></ToolbarBtn>
         <label className="p-1.5 rounded-md transition-colors text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] cursor-pointer" title="插入图片（选文件）">

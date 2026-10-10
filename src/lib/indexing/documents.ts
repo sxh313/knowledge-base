@@ -1,6 +1,8 @@
 import { db, type DocumentChunk, type DocumentLink, type JournalEntry } from '../db/schema';
 import { extractWikilinks, markdownToPlainText } from '../markdownUtils';
 import { rebuildSearchIndex, updateSearchEntry } from '../search/fuse';
+import { invalidatePersonalChunkIndex, replacePersonalJournalChunks } from '../ai/personalIndex';
+import { recordDiagnostic } from '../observability/diagnostics';
 
 const CHUNK_TARGET_LENGTH = 650;
 const CHUNK_MAX_LENGTH = 800;
@@ -186,28 +188,50 @@ export async function persistJournalWithIndexes(entry: JournalEntry): Promise<Jo
     !existing ||
     existing.title !== prepared.title ||
     JSON.stringify(existing.aliases ?? []) !== JSON.stringify(prepared.aliases ?? []);
+  const contentChanged = !existing || existing.content !== prepared.content;
+  const deletionChanged = existing?.deletedAt !== prepared.deletedAt;
 
   const chunks = buildDocumentChunks(prepared);
+  const previousChunks = existing ? await db.documentChunks.where('journalId').equals(prepared.id).toArray() : [];
+  const previousByOrdinal = new Map(previousChunks.map((chunk) => [chunk.ordinal, chunk]));
+  for (const chunk of chunks) {
+    const previous = previousByOrdinal.get(chunk.ordinal);
+    // 标题、章节和正文均未变化时沿用已有向量，避免每次自动保存重复调用 Embedding。
+    if (previous && previous.title === chunk.title && previous.heading === chunk.heading && previous.contentPlain === chunk.contentPlain) {
+      chunk.embedding = previous.embedding;
+      chunk.embeddingModelId = previous.embeddingModelId;
+      chunk.embeddingContentHash = previous.embeddingContentHash;
+      chunk.embeddedAt = previous.embeddedAt;
+    }
+  }
 
   await db.transaction('rw', db.journals, db.documentChunks, async () => {
     await db.journals.put(prepared);
     await db.documentChunks.where('journalId').equals(prepared.id).delete();
     if (chunks.length) await db.documentChunks.bulkPut(chunks);
   });
+  replacePersonalJournalChunks(prepared.id, chunks);
 
-  if (titleChanged) {
-    // 标题/别名变化：重建当前文档的链接，并刷新其他文档中原本失效的 [[链接]]
+  if (titleChanged || deletionChanged) {
+    // 标题、别名或删除状态变化会影响其他文档的目标解析，必须重建全部出链。
     const allEntries = await db.journals.toArray();
-    const entriesForResolution = [...allEntries.filter((item) => item.id !== prepared.id), prepared];
-    const links = buildDocumentLinks(prepared, entriesForResolution);
+    await rebuildAllDocumentLinks(allEntries);
+  } else if (contentChanged) {
+    // 正文变化只影响当前文档的出链，避免每次自动保存都扫描全库。
+    const allEntries = await db.journals.toArray();
+    const links = buildDocumentLinks(prepared, allEntries);
     await db.transaction('rw', db.documentLinks, async () => {
       await db.documentLinks.where('sourceId').equals(prepared.id).delete();
       if (links.length) await db.documentLinks.bulkPut(links);
     });
-    await rebuildBrokenLinkSources();
   }
   // 搜索索引增量更新（仅更新当前文档，避免每次自动保存都全表 rebuild 的开销）
   updateSearchEntry(prepared);
+  // 向量索引是可重建派生数据；保存先返回，后台仅为当前文档增量更新。
+  void import('../ai/personalEmbeddings').then(({ syncPersonalChunkEmbeddings }) => syncPersonalChunkEmbeddings([prepared.id])).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    recordDiagnostic({ category: 'indexing', operation: 'personal-embedding', outcome: 'failure', message });
+  });
   return prepared;
 }
 
@@ -232,10 +256,25 @@ export async function rebuildBrokenLinkSources(): Promise<void> {
   });
 }
 
-export async function rebuildDocumentIndexes(journalId?: string): Promise<void> {
+export interface IndexRebuildProgress {
+  completed: number;
+  total: number;
+  phase: 'preparing' | 'writing' | 'search';
+}
+
+export async function rebuildDocumentIndexes(
+  journalId?: string,
+  onProgress?: (progress: IndexRebuildProgress) => void,
+): Promise<void> {
   const allEntries = await db.journals.toArray();
   const targets = journalId ? allEntries.filter((entry) => entry.id === journalId) : allEntries;
-  const preparedTargets = await Promise.all(targets.map(prepareJournalEntry));
+  const total = Math.max(1, targets.length * 2 + 1);
+  const preparedTargets: JournalEntry[] = [];
+  onProgress?.({ completed: 0, total, phase: 'preparing' });
+  for (const entry of targets) {
+    preparedTargets.push(await prepareJournalEntry(entry));
+    onProgress?.({ completed: preparedTargets.length, total, phase: 'preparing' });
+  }
   const preparedById = new Map(preparedTargets.map((entry) => [entry.id, entry]));
   const entriesForResolution = allEntries.map((entry) => preparedById.get(entry.id) ?? entry);
 
@@ -244,7 +283,8 @@ export async function rebuildDocumentIndexes(journalId?: string): Promise<void> 
       await db.documentLinks.clear();
       await db.documentChunks.clear();
     }
-    for (const entry of preparedTargets) {
+    for (let index = 0; index < preparedTargets.length; index += 1) {
+      const entry = preparedTargets[index];
       await db.journals.put(entry);
       await db.documentLinks.where('sourceId').equals(entry.id).delete();
       await db.documentChunks.where('journalId').equals(entry.id).delete();
@@ -252,7 +292,23 @@ export async function rebuildDocumentIndexes(journalId?: string): Promise<void> 
       const chunks = buildDocumentChunks(entry);
       if (links.length) await db.documentLinks.bulkPut(links);
       if (chunks.length) await db.documentChunks.bulkPut(chunks);
+      onProgress?.({ completed: targets.length + index + 1, total, phase: 'writing' });
     }
   });
+  onProgress?.({ completed: total - 1, total, phase: 'search' });
   await rebuildSearchIndex();
+  invalidatePersonalChunkIndex();
+  onProgress?.({ completed: total, total, phase: 'search' });
+}
+
+/** Rebuild the full outgoing-link graph when target titles or deletion state change. */
+async function rebuildAllDocumentLinks(entries: JournalEntry[]): Promise<void> {
+  const activeEntries = entries.filter((entry) => !entry.deletedAt);
+  await db.transaction('rw', db.documentLinks, async () => {
+    await db.documentLinks.clear();
+    for (const entry of activeEntries) {
+      const links = buildDocumentLinks(entry, activeEntries);
+      if (links.length) await db.documentLinks.bulkPut(links);
+    }
+  });
 }

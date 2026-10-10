@@ -3,12 +3,15 @@ import { syncNow, testConnection, pullFromCloud } from '../lib/sync/github';
 import type { SyncConfig } from '../lib/db/schema';
 import { useSettingsStore } from './settingsStore';
 import { useJournalStore } from './journalStore';
-import { updateSettings } from '../lib/db/queries';
+import { updateSettings } from '../lib/db/repositories/settings';
+import { recordDiagnostic } from '../lib/observability/diagnostics';
+import { idleAsyncTask, rejectAsyncTask, resolveAsyncTask, runningAsyncTask, type AsyncTaskState } from '../lib/tasks/asyncTask';
 
 export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error';
 
 interface SyncStore {
   status: SyncStatus;
+  task: AsyncTaskState<boolean>;
   lastSyncAt: number | null;
   message: string | null;
   /** 执行一次完整同步（拉取→合并→推送）；未配置或正在同步时自动跳过 */
@@ -20,6 +23,7 @@ interface SyncStore {
 
 export const useSyncStore = create<SyncStore>((set, get) => ({
   status: 'idle',
+  task: idleAsyncTask<boolean>(),
   lastSyncAt: null,
   message: null,
 
@@ -29,13 +33,10 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
     if (!cfg?.enabled || !cfg.token || !cfg.owner || !cfg.repo) return false;
     if (get().status === 'syncing') return false; // 防并发
 
-    set({ status: 'syncing', message: null });
+    const startedAt = Date.now();
+    set({ status: 'syncing', message: null, task: runningAsyncTask(startedAt) });
     try {
       const result = await syncNow(cfg);
-      if (!result) {
-        set({ status: 'idle', message: '已有同步任务正在进行' });
-        return false;
-      }
       const now = Date.now();
       await updateSettings({ sync: { ...cfg, lastSyncAt: now, lastSyncSha: result.sha, baselineHashes: result.baselineHashes } });
       await useSettingsStore.getState().load();
@@ -44,11 +45,15 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
         status: 'success',
         lastSyncAt: now,
         message: result.conflicts > 0 ? `${baseMsg}；检测到 ${result.conflicts} 处冲突，请在下方查看` : baseMsg,
+        task: resolveAsyncTask(true, startedAt),
       });
+      recordDiagnostic({ category: 'sync', operation: 'push-pull', outcome: 'success', durationMs: Date.now() - startedAt });
       await useJournalStore.getState().loadAll(); // 刷新文档列表，反映合并结果
       return true;
     } catch (e) {
-      set({ status: 'error', message: (e as Error).message });
+      const error = (e as Error).message;
+      set({ status: 'error', message: error, task: rejectAsyncTask(e, startedAt) });
+      recordDiagnostic({ category: 'sync', operation: 'push-pull', outcome: 'failure', message: error, durationMs: Date.now() - startedAt });
       return false;
     }
   },
@@ -58,13 +63,10 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
     const cfg = settings?.sync;
     if (!cfg?.enabled || !cfg.token || !cfg.owner || !cfg.repo) return false;
     if (get().status === 'syncing') return false; // 防并发
-    set({ status: 'syncing', message: null });
+    const startedAt = Date.now();
+    set({ status: 'syncing', message: null, task: runningAsyncTask(startedAt) });
     try {
       const r = await pullFromCloud(cfg);
-      if (!r) {
-        set({ status: 'idle', message: '已有同步任务正在进行' });
-        return false;
-      }
       const now = Date.now();
       // 仅拉取也要记录远端 SHA 与文档基线，否则下一次双向同步会把已拉取数据误判为冲突。
       await updateSettings({
@@ -82,12 +84,16 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
         message:
           r.pulled > 0
             ? `已从云端拉取 ${r.pulled} 条记录` + (r.conflicts > 0 ? `；检测到 ${r.conflicts} 处冲突，请在下方查看` : '')
-            : '云端无新数据',
+          : '云端无新数据',
+        task: resolveAsyncTask(true, startedAt),
       });
+      recordDiagnostic({ category: 'sync', operation: 'pull', outcome: 'success', durationMs: Date.now() - startedAt });
       await useJournalStore.getState().loadAll();
       return true;
     } catch (e) {
-      set({ status: 'error', message: (e as Error).message });
+      const error = (e as Error).message;
+      set({ status: 'error', message: error, task: rejectAsyncTask(e, startedAt) });
+      recordDiagnostic({ category: 'sync', operation: 'pull', outcome: 'failure', message: error, durationMs: Date.now() - startedAt });
       return false;
     }
   },

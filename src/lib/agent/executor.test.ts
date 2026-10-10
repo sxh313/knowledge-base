@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   mockDeleteJournal: vi.fn(),
   mockCreateCard: vi.fn(),
   mockCalculateContentHash: vi.fn(),
+  mockReceiptGet: vi.fn().mockResolvedValue(undefined),
+  mockReceiptPut: vi.fn(),
+  mockReceiptDelete: vi.fn(),
 }));
 
 vi.mock('../db/schema', () => ({
@@ -17,6 +20,15 @@ vi.mock('../db/schema', () => ({
     journals: mocks.mockJournals,
     journalVersions: {},
     cards: {},
+    documentLinks: {},
+    documentChunks: {},
+    attachments: {},
+    syncConflicts: {},
+    agentExecutionReceipts: {
+      get: mocks.mockReceiptGet,
+      put: mocks.mockReceiptPut,
+      delete: mocks.mockReceiptDelete,
+    },
     transaction: mocks.mockTransaction,
   },
 }));
@@ -35,7 +47,7 @@ vi.mock('../indexing/documents', () => ({
   calculateContentHash: mocks.mockCalculateContentHash,
 }));
 
-import { applyPlan, undoRun, searchJournals } from './executor';
+import { applyPlan, undoRun, searchJournals, UndoConflictError } from './executor';
 import type { AgentPlan } from './tools';
 
 function makeJournal(id: string, title: string, content: string) {
@@ -74,6 +86,14 @@ describe('applyPlan 防重复执行', () => {
     expect(second.hasError).toBe(true);
     expect(second.results[0].error).toContain('已执行过');
     expect(mocks.mockUpdateJournal).toHaveBeenCalledTimes(1); // 第二次未写入
+  });
+
+  it('刷新后仍通过持久化回执拒绝重复计划', async () => {
+    mocks.mockReceiptGet.mockResolvedValueOnce({ planId: 'plan-persisted', status: 'success', startedAt: 1, finishedAt: 2 });
+    const result = await applyPlan({ planId: 'plan-persisted', ops: [{ type: 'create', newTitle: '重复', content: '内容' }] });
+    expect(result.hasError).toBe(true);
+    expect(result.results[0].error).toContain('已执行过');
+    expect(mocks.mockTransaction).not.toHaveBeenCalled();
   });
 });
 
@@ -189,16 +209,29 @@ describe('undoRun 撤销本次运行', () => {
     );
     const undo = {
       planId: 'plan-6',
-      versions: [{ journalId: '1', title: '旧标题', content: '旧内容' }],
+      versions: [{ journalId: '1', title: '旧标题', content: '旧内容', afterHash: 'after-1' }],
       createdJournalIds: ['2'],
+      createdJournalHashes: { '2': 'after-2' },
     };
+    mocks.mockCalculateContentHash.mockResolvedValueOnce('after-1').mockResolvedValueOnce('after-2');
     const result = await undoRun(undo);
     expect(result.restored).toBe(1);
     expect(result.deleted).toBe(1);
     // 恢复：updateJournal 被调用一次（恢复文档1）
-    expect(mocks.mockUpdateJournal).toHaveBeenCalledWith('1', { title: '旧标题', content: '旧内容' });
+    expect(mocks.mockUpdateJournal).toHaveBeenCalledWith('1', expect.objectContaining({ title: '旧标题', content: '旧内容' }));
     // 删除：deleteJournal 被调用一次（删除文档2）
     expect(mocks.mockDeleteJournal).toHaveBeenCalledWith('2');
+  });
+
+  it('执行后又被客户修改时报告冲突且不覆盖', async () => {
+    mocks.mockGetJournal.mockResolvedValue(makeJournal('1', '客户已修改', '后来内容'));
+    mocks.mockCalculateContentHash.mockResolvedValue('different');
+    await expect(undoRun({
+      planId: 'plan-conflict',
+      versions: [{ journalId: '1', title: '旧标题', content: '旧内容', afterHash: 'agent-after' }],
+      createdJournalIds: [],
+    })).rejects.toBeInstanceOf(UndoConflictError);
+    expect(mocks.mockUpdateJournal).not.toHaveBeenCalled();
   });
 });
 

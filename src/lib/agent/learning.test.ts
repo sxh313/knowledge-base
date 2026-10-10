@@ -11,6 +11,7 @@ function table(store: Map<string, Record<string, unknown>>) {
     put: async (row: Record<string, unknown>) => { store.set(String(row.id), row); },
     bulkPut: async (rows: Record<string, unknown>[]) => { rows.forEach((row) => store.set(String(row.id), row)); },
     get: async (id: string) => store.get(id),
+    update: async (id: string, patch: Record<string, unknown>) => { const current = store.get(id); if (current) store.set(id, { ...current, ...patch }); },
     bulkGet: async (ids: string[]) => ids.map((id) => store.get(id)),
     toArray: async () => [...store.values()],
     where: (field: string) => ({ equals: (value: unknown) => ({ toArray: async () => [...store.values()].filter((row) => row[field] === value) }) }),
@@ -24,7 +25,7 @@ vi.mock('../db/schema', () => ({
   },
 }));
 
-import { createLearningGoal, createTasksForGoal, listLearningTasks, updateLearningTask } from './learning';
+import { createLearningGoal, createTasksForGoal, deleteLearningTask, listLearningTasks, updateLearningTask } from './learning';
 
 beforeEach(() => {
   mocks.goals.clear();
@@ -44,5 +45,16 @@ describe('learning task persistence', () => {
     expect(await listLearningTasks(goal.id)).toHaveLength(2);
     await updateLearningTask(tasks[0].id, { status: 'done', date: '2030-01-02' });
     expect((await listLearningTasks(goal.id)).find((task) => task.id === tasks[0].id)).toMatchObject({ status: 'done', date: '2030-01-02' });
+  });
+
+  it('keeps a deleted task hidden when the same plan is generated again', async () => {
+    const goal = await createLearningGoal({ title: 'Agent', dailyMinutes: 30, deadline: undefined, level: '初学者' });
+    const tasks = await createTasksForGoal(goal, [], ['工具调用', '记忆']);
+    await deleteLearningTask(tasks[0].id);
+    expect(await listLearningTasks(goal.id)).toHaveLength(1);
+
+    await createTasksForGoal(goal, [], ['工具调用', '记忆']);
+    expect(await listLearningTasks(goal.id)).toHaveLength(1);
+    expect(mocks.tasks.get(tasks[0].id)?.deletedAt).toEqual(expect.any(Number));
   });
 });

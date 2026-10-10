@@ -2,9 +2,10 @@ import { create } from 'zustand';
 import type { ChatMessage } from '../lib/ai/client';
 import { routeAI } from '../lib/ai/router';
 import { chatCompletion } from '../lib/ai/client';
-import { getSettings } from '../lib/db/queries';
+import { getSettings } from '../lib/db/repositories/settings';
 import { providerNeedsApiKey, type TaskType, type ProviderName } from '../lib/ai/providers';
 import type { AIStage, AITimingMetrics } from '../lib/ai/performance';
+import { cancelAsyncTask, idleAsyncTask, rejectAsyncTask, resolveAsyncTask, runningAsyncTask, type AsyncTaskState } from '../lib/tasks/asyncTask';
 
 /** 检查是否至少有一个 Provider 已配置 */
 async function checkProvidersConfigured(): Promise<boolean> {
@@ -44,6 +45,8 @@ interface AIStore {
   timing: AITimingMetrics | null;
   /** AI 对话历史 */
   conversation: ChatMessage[];
+  /** 统一异步任务状态，供页面和诊断面板使用。 */
+  task: AsyncTaskState<string>;
 
   // ─── 对话管理 ───
   setConversation: (messages: ChatMessage[]) => void;
@@ -54,13 +57,13 @@ interface AIStore {
   /** 智能总结（传入文档内容，返回总结文字） */
   summarize: (content: string, title?: string, onToken?: (token: string) => void) => Promise<string>;
   /** AI 对话（流式问答） */
-  chat: (messages: ChatMessage[], onToken?: (token: string) => void) => Promise<string>;
+  chat: (messages: ChatMessage[], onToken?: (token: string) => void, onReasoning?: (token: string) => void) => Promise<string>;
 
   // ─── 底层 AI 操作（供高级用户直接调用模型） ───
   /** 按任务类型自动选择模型 + 故障转移 */
   callAI: (taskType: TaskType, messages: ChatMessage[], onToken?: (token: string) => void) => Promise<string>;
   /** 直接调用指定模型 */
-  callDirect: (providerName: ProviderName, modelName: string, messages: ChatMessage[], onToken?: (token: string) => void) => Promise<string>;
+  callDirect: (providerName: ProviderName, modelName: string, messages: ChatMessage[], onToken?: (token: string) => void, onReasoning?: (token: string) => void, enableThinking?: boolean) => Promise<string>;
   stop: () => void;
   setStage: (stage: AIStage) => void;
   setTiming: (timing: AITimingMetrics | null) => void;
@@ -75,6 +78,7 @@ export const useAIStore = create<AIStore>((set) => ({
   stage: 'idle',
   timing: null,
   conversation: [],
+  task: idleAsyncTask<string>(),
 
   setConversation: (messages) => set({ conversation: messages }),
   addMessage: (msg) => set((s) => ({ conversation: [...s.conversation, msg] })),
@@ -89,32 +93,39 @@ export const useAIStore = create<AIStore>((set) => ({
       { role: 'system', content: '你是一位学习助手。用简洁的中文总结以下学习笔记的核心要点，列出 3-5 个关键知识点。' },
       { role: 'user', content: title ? `## ${title}\n\n${content}` : content },
     ];
-    set({ isProcessing: true, error: null, streamingContent: '', stage: 'generating', timing: null });
+    activeController?.abort();
+    const controller = new AbortController();
+    activeController = controller;
+    const startedAt = Date.now();
+    set({ isProcessing: true, error: null, streamingContent: '', stage: 'generating', timing: null, task: runningAsyncTask(startedAt) });
     try {
       const streamToken = onToken ?? ((token: string) => set((state) => ({ streamingContent: state.streamingContent + token })));
-      const result = await routeAI('summarize', messages, streamToken);
-      set({ isProcessing: false, streamingContent: result.content, stage: 'idle' });
+      const result = await routeAI('summarize', messages, streamToken, undefined, controller.signal);
+      if (activeController === controller) set({ isProcessing: false, streamingContent: result.content, stage: 'idle', task: resolveAsyncTask(result.content, startedAt) });
       return result.content;
     } catch (e) {
       const msg = (e as Error).message;
-      set({ isProcessing: false, error: msg, stage: 'idle' });
+      if (activeController === controller) set({ isProcessing: false, error: controller.signal.aborted ? null : msg, stage: 'idle', task: controller.signal.aborted ? cancelAsyncTask(startedAt) : rejectAsyncTask(e, startedAt) });
       throw e;
     }
   },
 
-  chat: async (messages, onToken) => {
-    activeController?.abort(); activeController = new AbortController();
-    set({ isProcessing: true, error: null, streamingContent: '', stage: 'generating', timing: null });
+  chat: async (messages, onToken, onReasoning) => {
+    activeController?.abort();
+    const controller = new AbortController();
+    activeController = controller;
+    const startedAt = Date.now();
+    set({ isProcessing: true, error: null, streamingContent: '', stage: 'generating', timing: null, task: runningAsyncTask(startedAt) });
     // 查找或创建 'qa' 任务类型的 AI 调用
     try {
       const streamToken = onToken ?? ((token: string) => set((state) => ({ streamingContent: state.streamingContent + token })));
-      const result = await routeAI('qa', messages, streamToken, undefined, activeController.signal);
+      const result = await routeAI('qa', messages, streamToken, undefined, controller.signal, undefined, onReasoning);
       const fullContent = result.content;
-      set({ isProcessing: false, streamingContent: fullContent, stage: 'idle' });
+      if (activeController === controller) set({ isProcessing: false, streamingContent: fullContent, stage: 'idle', task: resolveAsyncTask(fullContent, startedAt) });
       return fullContent;
     } catch (e) {
       const msg = (e as Error).message;
-      set({ isProcessing: false, error: activeController?.signal.aborted ? null : msg, stage: 'idle' });
+      if (activeController === controller) set({ isProcessing: false, error: controller.signal.aborted ? null : msg, stage: 'idle', task: controller.signal.aborted ? cancelAsyncTask(startedAt) : rejectAsyncTask(e, startedAt) });
       throw e;
     }
   },
@@ -122,33 +133,38 @@ export const useAIStore = create<AIStore>((set) => ({
   // ─── 底层 API（保持向后兼容） ───
 
   callAI: async (taskType, messages, onToken) => {
-    activeController?.abort(); activeController = new AbortController();
-    set({ isProcessing: true, error: null, streamingContent: '', stage: 'generating', timing: null });
+    activeController?.abort();
+    const controller = new AbortController();
+    activeController = controller;
+    const startedAt = Date.now();
+    set({ isProcessing: true, error: null, streamingContent: '', stage: 'generating', timing: null, task: runningAsyncTask(startedAt) });
     try {
       // 前置检查：是否已配置任何 Provider
       const configured = await checkProvidersConfigured();
       if (!configured) {
         const friendlyMsg = '尚未配置 AI API Key，请前往「设置」配置后使用';
-        set({ isProcessing: false, error: friendlyMsg, stage: 'idle' });
+        if (activeController === controller) set({ isProcessing: false, error: friendlyMsg, stage: 'idle', task: rejectAsyncTask(friendlyMsg, startedAt) });
         throw new Error(friendlyMsg);
       }
 
       const streamToken = onToken ?? ((token: string) => set((state) => ({ streamingContent: state.streamingContent + token })));
-      const result = await routeAI(taskType, messages, streamToken, undefined, activeController.signal);
+      const result = await routeAI(taskType, messages, streamToken, undefined, controller.signal);
       const fullContent = result.content;
-      set({ isProcessing: false, streamingContent: fullContent, stage: 'idle' });
+      if (activeController === controller) set({ isProcessing: false, streamingContent: fullContent, stage: 'idle', task: resolveAsyncTask(fullContent, startedAt) });
       return fullContent;
     } catch (e) {
       const msg = (e as Error).message;
       // 如果已经是友好消息就直接用，否则转换
       const friendly = msg.includes('尚未配置') ? msg : friendlyAIError(e);
-      set({ isProcessing: false, error: activeController?.signal.aborted ? null : friendly, stage: 'idle' });
+      if (activeController === controller) set({ isProcessing: false, error: controller.signal.aborted ? null : friendly, stage: 'idle', task: controller.signal.aborted ? cancelAsyncTask(startedAt) : rejectAsyncTask(e, startedAt) });
       throw new Error(friendly);
     }
   },
 
-  callDirect: async (providerName, modelName, messages, onToken) => {
-    activeController?.abort(); activeController = new AbortController();
+  callDirect: async (providerName, modelName, messages, onToken, onReasoning, enableThinking) => {
+    activeController?.abort();
+    const controller = new AbortController();
+    activeController = controller;
     const settings = await getSettings();
     const provider = settings.aiProviders[providerName];
     if (!provider?.enabled || (providerNeedsApiKey(providerName) && !provider.apiKey)) {
@@ -157,21 +173,27 @@ export const useAIStore = create<AIStore>((set) => ({
       throw new Error(errMsg);
     }
 
+    const startedAt = Date.now();
+    set({ isProcessing: true, error: null, streamingContent: '', stage: 'generating', timing: null, task: runningAsyncTask(startedAt) });
     try {
-    set({ isProcessing: true, error: null, streamingContent: '', stage: 'generating', timing: null });
       const result = await chatCompletion(
         { name: providerName, baseUrl: provider.baseUrl, apiKey: provider.apiKey, enabled: true },
         modelName,
         messages,
-        { stream: true, onToken: onToken ?? ((token: string) => set((state) => ({ streamingContent: state.streamingContent + token }))), signal: activeController.signal },
+        { stream: true, maxTokens: 1536, enableThinking, onToken: onToken ?? ((token: string) => set((state) => ({ streamingContent: state.streamingContent + token }))), onReasoning, signal: controller.signal },
       );
-      set({ isProcessing: false, streamingContent: result.content, stage: 'idle' });
+      if (activeController === controller) set({ isProcessing: false, streamingContent: result.content, stage: 'idle', task: resolveAsyncTask(result.content, startedAt) });
       return result.content;
     } catch (e) {
-      set({ isProcessing: false, error: activeController.signal.aborted ? null : (e as Error).message, stage: 'idle' });
+      if (activeController === controller) set({ isProcessing: false, error: controller.signal.aborted ? null : (e as Error).message, stage: 'idle', task: controller.signal.aborted ? cancelAsyncTask(startedAt) : rejectAsyncTask(e, startedAt) });
       throw e;
     }
   },
-  stop: () => { activeController?.abort(); activeController = null; set({ isProcessing: false, streamingContent: '', error: null, stage: 'idle' }); },
+  stop: () => {
+    const startedAt = activeController ? Date.now() : undefined;
+    activeController?.abort();
+    activeController = null;
+    set({ isProcessing: false, streamingContent: '', error: null, stage: 'idle', task: cancelAsyncTask(startedAt) });
+  },
 }));
 

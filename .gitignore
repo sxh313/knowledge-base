@@ -1,11 +1,17 @@
-node_modules/
-dist/
+# 本地运行数据与导出内容，禁止提交到仓库
+data.json
+*.backup
+*.bak
+exports/
+backups/
 release/
+dist/
 .env
-.env.local
+.env.*
+!.env.example
+node_modules/
 *.log
 .DS_Store
 .vite/
 *.tsbuildinfo
 .claude/
-

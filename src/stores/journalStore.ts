@@ -8,11 +8,13 @@ import {
   getJournal,
   getAllJournals,
   duplicateJournal,
+} from '../lib/db/repositories/journals';
+import {
   getCategories,
   createCategory as createCategoryRecord,
   renameCategory as renameCategoryRecord,
   deleteCategory as deleteCategoryRecord,
-} from '../lib/db/queries';
+} from '../lib/db/repositories/categories';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -53,6 +55,8 @@ interface JournalStore {
   deleteCategory: (id: string) => Promise<void>;
 }
 
+let latestLoadOneRequest = 0;
+
 export const useJournalStore = create<JournalStore>((set, get) => ({
   entries: [],
   categories: [],
@@ -82,11 +86,15 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
   },
 
   loadOne: async (id) => {
-    set({ isLoading: true });
+    const requestId = ++latestLoadOneRequest;
+    // 路由已经切换时先清空旧文档，避免读取窗口期内的操作误作用到上一篇。
+    set({ isLoading: true, currentEntry: null });
     try {
       const entry = await getJournal(id);
+      if (requestId !== latestLoadOneRequest) return;
       set({ currentEntry: entry, isLoading: false });
     } catch (e) {
+      if (requestId !== latestLoadOneRequest) return;
       set({ error: (e as Error).message, isLoading: false });
     }
   },
@@ -192,7 +200,10 @@ export const useJournalStore = create<JournalStore>((set, get) => ({
     });
     return { entry, created: true };
   },
-  setCurrent: (entry) => set({ currentEntry: entry }),
+  setCurrent: (entry) => {
+    latestLoadOneRequest++;
+    set({ currentEntry: entry });
+  },
   setSearchQuery: (q) => set({ searchQuery: q }),
   setSelectedTag: (tag) => set({ selectedTag: tag }),
   setSelectedSubject: (subject) => set({ selectedSubject: subject }),

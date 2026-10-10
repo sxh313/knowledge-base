@@ -30,6 +30,7 @@ export interface Zero2SourceReference {
   sourceUrl?: string;
   sourceAnchor?: string;
   localUrl?: string;
+  sourceContentHash?: string;
   /** 已召回的原文片段，打开溯源弹窗时可立即展示。 */
   content?: string;
 }
@@ -93,6 +94,24 @@ export interface PersistableReviewMessage {
   content: string;
   topicIds: string[];
   citations: Zero2SourceReference[];
+}
+
+export interface Zero2AdaptivePolicy {
+  mode: 'diagnose' | 'reinforce' | 'scaffold' | 'challenge';
+  questionType: Zero2ReviewQuestion['type'];
+  difficulty: 1 | 2 | 3 | 4 | 5;
+  rationale: string;
+  weakPoints: Zero2MistakeType[];
+  recentScores: number[];
+  learningContext?: Zero2LearningContext;
+}
+
+export interface Zero2LearningContext {
+  weakPoints: string[];
+  preferences: string[];
+  prerequisites: string[];
+  confirmedMastery: string[];
+  lastReviewedAt?: number;
 }
 
 export interface Zero2ReviewContext {

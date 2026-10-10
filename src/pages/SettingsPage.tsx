@@ -4,7 +4,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import type { ProviderName } from '../lib/ai/providers';
 import { DEFAULT_BASE_URLS, providerNeedsApiKey } from '../lib/ai/providers';
 import type { AISettings, WebSearchSettings } from '../lib/db/schema';
-import { fetchAvailableModels } from '../lib/db/queries';
+import { fetchAvailableModels } from '../lib/db/repositories/settings';
 import type { SyncConfig } from '../lib/db/schema';
 import { useSyncStore } from '../stores/syncStore';
 import { useUpdateStore, manualCheck, applyUpdate } from '../stores/updateStore';
@@ -13,9 +13,12 @@ import SyncSettingsSection from '../components/settings/SyncSettingsSection';
 import AIModelCenter from '../components/settings/AIModelCenter';
 import SettingsSelect from '../components/settings/SettingsSelect';
 import DesktopUpdater from '../components/DesktopUpdater';
-import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck, ArrowUp, ArrowDown, GripVertical, Bot } from 'lucide-react';
+import { RefreshCw, Check, ChevronDown, CheckCircle2, Square, Plus, X, Search, Download, ExternalLink, ShieldCheck, ArrowUp, ArrowDown, GripVertical, Bot, Pencil, Trash2, ClipboardPaste } from 'lucide-react';
 import { describeConnectionError } from '../lib/ai/connectionError';
 import { searchAndFetchWeb } from '../lib/ai/webSearch';
+import { resolveAIBaseUrl } from '../lib/ai/localProxy';
+import DiagnosticsSection from '../components/settings/DiagnosticsSection';
+import DataManagementSection from '../components/settings/DataManagementSection';
 
 const isAndroidApp = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
 const isElectronApp = !!window.electronAPI?.isElectron;
@@ -27,7 +30,7 @@ const PROVIDER_INFO: { key: ProviderName; label: string; desc: string; icon: str
   { key: 'siliconflow', label: '硅基流动', desc: 'SiliconFlow 丰富模型', icon: '🔬' },
   { key: 'zhipu', label: '智谱 GLM', desc: '中文理解 & 图片分析', icon: '🧠' },
   { key: 'deepseek', label: 'DeepSeek', desc: '代码专用', icon: '💻' },
-  { key: 'local', label: '本地模型', desc: 'Ollama / LM Studio / vLLM / LocalAI（OpenAI 兼容，需开启 CORS）', icon: '🖥️' },
+  { key: 'local', label: '本地模型', desc: 'Ollama / LM Studio / vLLM / LocalAI（OpenAI 兼容；开发环境可使用同源代理）', icon: '🖥️' },
 ];
 
 const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
@@ -66,14 +69,15 @@ export default function SettingsPage() {
   const [refreshMsg, setRefreshMsg] = useState<Record<string, string>>({});
   const [apiTestResults, setApiTestResults] = useState<Record<string, ApiTestResult>>({});
   const [webSearchTest, setWebSearchTest] = useState<ApiTestResult>({ status: 'waiting', msg: '' });
+  const [webSearchClipboardMessage, setWebSearchClipboardMessage] = useState('');
   const [manualModel, setManualModel] = useState<Record<string, string>>({});
+  const [localModelDraft, setLocalModelDraft] = useState({ name: '', modelId: '', baseUrl: '', apiKey: '' });
+  const [showLocalModelDraft, setShowLocalModelDraft] = useState(false);
   const { doSync, status: syncStatus, pullOnly, message: syncErrorMessage } = useSyncStore();
   const [openProvider, setOpenProvider] = useState<ProviderName | null>(null);
   const providerOpenInitialized = useRef(false);
   const [syncTesting, setSyncTesting] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
-  const [mdBusy, setMdBusy] = useState(false);
-  const [mdMsg, setMdMsg] = useState<string | null>(null);
   const [exportOut, setExportOut] = useState('');
   const [importText, setImportText] = useState('');
   const [vaultPwd, setVaultPwd] = useState('');
@@ -82,6 +86,9 @@ export default function SettingsPage() {
   const { needRefresh, checking, lastCheckAt, markChecked, setChecking } = useUpdateStore();
   const [checkMsg, setCheckMsg] = useState<string | null>(null);
   const [draggingProvider, setDraggingProvider] = useState<ProviderName | null>(null);
+  const [renamingProvider, setRenamingProvider] = useState<ProviderName | null>(null);
+  const [providerNameDraft, setProviderNameDraft] = useState('');
+  const [advancedSettings, setAdvancedSettings] = useState(() => localStorage.getItem('settings-advanced') === '1');
 
   const handleCheckUpdate = async () => {
     setChecking(true); setCheckMsg(null);
@@ -113,7 +120,8 @@ export default function SettingsPage() {
   useEffect(() => {
     if (providerOpenInitialized.current || !localProviders) return;
     providerOpenInitialized.current = true;
-    const firstEnabled = PROVIDER_INFO.find(({ key }) => localProviders[key]?.enabled);
+    const removed = new Set(settings?.removedProviders ?? []);
+    const firstEnabled = PROVIDER_INFO.find(({ key }) => !removed.has(key) && localProviders[key]?.enabled);
     if (firstEnabled) setOpenProvider(firstEnabled.key);
   }, [localProviders]);
 
@@ -133,7 +141,7 @@ export default function SettingsPage() {
   };
 
   const webSearchSettings = { ...DEFAULT_WEB_SEARCH_SETTINGS, ...(settings.webSearch ?? {}) };
-  const answerSettings = { retrievalTopK: 5 as const, detail: 'standard' as const, ...(settings.aiAnswer ?? {}) };
+  const answerSettings = { retrievalTopK: 5 as const, detail: 'standard' as const, rewriteEnabled: false, ...(settings.aiAnswer ?? {}) };
 
   const updateWebSearch = (patch: Partial<WebSearchSettings>) => {
     void update({ webSearch: { ...webSearchSettings, ...patch } });
@@ -151,22 +159,37 @@ export default function SettingsPage() {
       const timeout = setTimeout(() => controller.abort(), 10000);
       const headers: Record<string, string> = {};
       if (prov.apiKey.trim()) headers.Authorization = `Bearer ${prov.apiKey.trim()}`;
-      const res = await fetch(`${(prov.baseUrl || DEFAULT_BASE_URLS[key]).replace(/\/+$/, '')}/models`, {
-        headers,
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const data = await res.json();
-      const count = Array.isArray(data.data) ? data.data.length : 0;
-      setApiTestResults(prev => ({ ...prev, [key]: { status: 'ok', msg: `可用（${count} 个模型）` } }));
+      try {
+        const res = await fetch(`${resolveAIBaseUrl(prov.baseUrl || DEFAULT_BASE_URLS[key])}/models`, {
+          headers,
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        const data = await res.json();
+        const count = Array.isArray(data.data) ? data.data.length : 0;
+        setApiTestResults(prev => ({ ...prev, [key]: { status: 'ok', msg: `可用（${count} 个模型）` } }));
+      } finally {
+        clearTimeout(timeout);
+      }
     } catch (error) {
       setApiTestResults(prev => ({ ...prev, [key]: { status: 'fail', msg: describeConnectionError(error, prov.baseUrl || DEFAULT_BASE_URLS[key]) } }));
     }
   };
 
   const handleTestAllProviders = async () => {
-    for (const { key } of PROVIDER_INFO) await handleTestProvider(key);
+    for (const { key } of orderedProviders) await handleTestProvider(key);
+  };
+
+  const fillWebSearchKeyFromClipboard = async () => {
+    try {
+      const value = (await navigator.clipboard.readText()).trim();
+      if (!value) { setWebSearchClipboardMessage('剪贴板为空'); return; }
+      updateWebSearch({ apiKey: value });
+      setWebSearchClipboardMessage('已填入本机设置');
+      window.setTimeout(() => setWebSearchClipboardMessage(''), 2400);
+    } catch {
+      setWebSearchClipboardMessage('无法读取剪贴板，请检查浏览器权限');
+    }
   };
 
   const handleTestWebSearch = async () => {
@@ -227,7 +250,8 @@ export default function SettingsPage() {
     setRefreshMsg(prev => ({ ...prev, [key]: '' }));
     try {
       const baseUrl = prov.baseUrl || DEFAULT_BASE_URLS[key];
-      const models = await fetchAvailableModels(key, baseUrl, prov.apiKey);
+      // 开发环境中的局域网模型必须走 Vite 同源代理，否则浏览器只会得到模糊的 CORS/Failed to fetch。
+      const models = await fetchAvailableModels(key, resolveAIBaseUrl(baseUrl), prov.apiKey);
       setRefreshMsg(prev => ({ ...prev, [key]: `发现 ${models.length} 个模型` }));
       await load();
     } catch (err) {
@@ -252,10 +276,41 @@ export default function SettingsPage() {
     const name = key === 'local' && rawName && !rawName.includes('/') ? `local/${rawName}` : rawName;
     if (!name) return;
     const current = settings.selectedModels ?? [];
-    if (!current.includes(name)) {
-      update({ selectedModels: [...current, name] });
-    }
+    const available = settings.availableModels ?? {};
+    const providerModels = available[key] ?? [];
+    const nextAvailableModels = providerModels.includes(rawName)
+      ? providerModels
+      : [...providerModels, rawName];
+    const nextSelectedModels = current.includes(name) ? current : [...current, name];
+    update({
+      availableModels: { ...available, [key]: nextAvailableModels },
+      selectedModels: nextSelectedModels,
+    });
     setManualModel(prev => ({ ...prev, [key]: '' }));
+  };
+  const addLocalModel = () => {
+    const modelId = localModelDraft.modelId.trim();
+    const label = localModelDraft.name.trim() || modelId;
+    if (!modelId) return;
+    const key = `local/${modelId}`;
+    const current = settings.selectedModels ?? [];
+    const available = settings.availableModels ?? {};
+    const providerModels = available.local ?? [];
+    void update({
+      availableModels: { ...available, local: providerModels.includes(modelId) ? providerModels : [...providerModels, modelId] },
+      selectedModels: current.includes(key) ? current : [...current, key],
+      modelLabels: { ...(settings.modelLabels ?? {}), [key]: label },
+      localModelConfigs: {
+        ...(settings.localModelConfigs ?? {}),
+        [key]: {
+          displayName: label,
+          baseUrl: localModelDraft.baseUrl.trim() || localProviders.local.baseUrl || DEFAULT_BASE_URLS.local,
+          apiKey: localModelDraft.apiKey.trim(),
+        },
+      },
+    });
+    setLocalModelDraft({ name: '', modelId: '', baseUrl: '', apiKey: '' });
+    setShowLocalModelDraft(false);
   };
   const removeModel = (model: string) => {
     const current = settings.selectedModels ?? [];
@@ -283,6 +338,59 @@ export default function SettingsPage() {
     order.splice(to, 0, draggingProvider);
     update({ providerOrder: order });
     setDraggingProvider(null);
+  };
+
+  const startRenameProvider = (key: ProviderName, fallbackName: string) => {
+    setRenamingProvider(key);
+    setProviderNameDraft(settings.providerLabels?.[key] || fallbackName);
+  };
+
+  const saveProviderName = (key: ProviderName) => {
+    const name = providerNameDraft.trim();
+    const providerLabels = { ...(settings.providerLabels ?? {}) };
+    if (name) providerLabels[key] = name;
+    else delete providerLabels[key];
+    void update({ providerLabels });
+    setRenamingProvider(null);
+  };
+
+  const deleteProvider = (key: ProviderName, fallbackName: string) => {
+    const displayName = settings.providerLabels?.[key] || fallbackName;
+    if (!window.confirm(`确定删除“${displayName}”吗？该服务的模型和角色绑定也会被移除。`)) return;
+
+    const removedProviders = Array.from(new Set([...(settings.removedProviders ?? []), key]));
+    const defaultOrder: ProviderName[] = ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek', 'local'];
+    const providerOrder = (settings.providerOrder ?? defaultOrder).filter((provider) => provider !== key);
+    const modelIds = new Set((settings.availableModels?.[key] ?? []).map((model) => key === 'local' ? `local/${model}` : model));
+    const selectedModels = (settings.selectedModels ?? []).filter((model) => !modelIds.has(model));
+    const availableModels = { ...(settings.availableModels ?? {}) };
+    delete availableModels[key];
+
+    const removedProfileIds = new Set((settings.modelProfiles ?? [])
+      .filter((profile) => profile.id.startsWith(`api:${key}:`))
+      .map((profile) => profile.id));
+    const modelProfiles = (settings.modelProfiles ?? []).filter((profile) => !removedProfileIds.has(profile.id));
+    const modelBindings = { ...(settings.modelBindings ?? {}) } as Partial<NonNullable<typeof settings.modelBindings>>;
+    for (const bindingKey of Object.keys(modelBindings)) {
+      const bindingValue = modelBindings[bindingKey as keyof typeof modelBindings];
+      if (bindingValue && removedProfileIds.has(bindingValue)) {
+        delete modelBindings[bindingKey as keyof typeof modelBindings];
+      }
+    }
+    const providerLabels = { ...(settings.providerLabels ?? {}) };
+    delete providerLabels[key];
+    if (openProvider === key) setOpenProvider(null);
+    void update({ removedProviders, providerOrder, selectedModels, availableModels, modelProfiles, modelBindings: modelBindings as NonNullable<typeof settings.modelBindings>, providerLabels });
+  };
+
+  // 隐藏浏览器原生拖动副本，排序只由卡片在纵向列表中的位置决定。
+  const startProviderDrag = (event: React.DragEvent<HTMLDivElement>, key: ProviderName) => {
+    event.dataTransfer.effectAllowed = 'move';
+    const transparentPreview = document.createElement('canvas');
+    transparentPreview.width = 1;
+    transparentPreview.height = 1;
+    event.dataTransfer.setDragImage(transparentPreview, 0, 0);
+    setDraggingProvider(key);
   };
 
   const updateSync = (patch: Partial<SyncConfig>) => {
@@ -350,16 +458,21 @@ export default function SettingsPage() {
     }
   };
 
+  const removedProviders = new Set(settings.removedProviders ?? []);
   const orderedProviders = (settings.providerOrder ?? ['shengsuanyun', 'relay', 'siliconflow', 'zhipu', 'deepseek', 'local'])
+    .filter((key) => !removedProviders.has(key))
     .map((key) => PROVIDER_INFO.find((provider) => provider.key === key))
     .filter((provider): provider is typeof PROVIDER_INFO[number] => Boolean(provider));
 
   return (
     <div className="settings-layout w-full p-1 sm:p-3">
-      <main className="min-w-0 space-y-5 sm:space-y-7">
+      <main className="settings-main min-w-0 space-y-5 sm:space-y-7">
       <header className="page-hero !items-start !flex-col !gap-0">
-        <div className="page-kicker">Workspace preferences</div>
         <h1 className="text-2xl font-bold">设置</h1>
+        <div className="mt-3 flex w-full flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5">
+          <div><p className="text-sm font-medium">配置模式：{advancedSettings ? '高级' : '基础'}</p><p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">基础模式只保留最常用的模型与同步设置；需要模型路由、联网和重排时再打开高级设置。</p></div>
+          <button className="btn-secondary text-xs" type="button" onClick={() => setAdvancedSettings((value) => { const next = !value; localStorage.setItem('settings-advanced', next ? '1' : '0'); return next; })}>{advancedSettings ? '切换为基础模式' : '打开高级设置'}</button>
+        </div>
       </header>
 
       {/* API 服务配置 */}
@@ -373,10 +486,11 @@ export default function SettingsPage() {
             <h2 className="flex items-center gap-2 text-lg font-semibold">🔀 来源顺序</h2>
             <p className="mt-1 text-xs text-gray-400">列表顺序就是服务优先级，可拖动调整；点击“配置服务”展开详细设置。</p>
           </div>
-          <button className="btn-ghost shrink-0 px-2 py-1 text-[10px]" onClick={() => void handleTestAllProviders()} type="button">测试全部模型</button>
+          <button className="btn-ghost shrink-0 px-2 py-1 text-[11px]" onClick={() => void handleTestAllProviders()} type="button">测试全部模型</button>
         </div>
         {orderedProviders.map(({ key, label, desc }) => {
           const prov = localProviders[key];
+          const displayLabel = settings.providerLabels?.[key] || label;
           const models = settings.availableModels?.[key] ?? [];
           const isRefreshing = refreshing[key];
           const msg = refreshMsg[key];
@@ -389,26 +503,62 @@ export default function SettingsPage() {
 
           return (
             <div key={key}
-              draggable
-              onDragStart={() => setDraggingProvider(key)}
               onDragEnd={() => setDraggingProvider(null)}
               onDragOver={(event) => event.preventDefault()}
               onDrop={() => dropProvider(key)}
               className={`card order-1 space-y-3 ${draggingProvider === key ? 'provider-order-row-dragging' : ''}`}>
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div>
-                    <h3 className="font-medium">{label}</h3>
+              <div className="provider-card-header">
+                <div
+                  className="flex min-w-0 cursor-grab items-center gap-3"
+                  draggable
+                  onDragStart={(event) => startProviderDrag(event, key)}
+                  title="拖动此处调整服务优先级"
+                >
+                  <div className="min-w-0">
+                    {renamingProvider === key ? (
+                      <input
+                        autoFocus
+                        value={providerNameDraft}
+                        onChange={(event) => setProviderNameDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') saveProviderName(key);
+                          if (event.key === 'Escape') setRenamingProvider(null);
+                        }}
+                        onBlur={() => saveProviderName(key)}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        className="input-field h-8 w-48 px-2 text-sm font-medium"
+                        aria-label="服务名称"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        className="group flex items-center gap-1 text-left"
+                        onClick={() => startRenameProvider(key, displayLabel)}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        title="点击修改服务名称"
+                      >
+                        <h3 className="font-medium">{displayLabel}</h3>
+                        <Pencil className="h-3 w-3 text-transparent transition-colors group-hover:text-[var(--color-text-tertiary)]" />
+                      </button>
+                    )}
                     <p className="text-xs text-gray-400">{desc}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="provider-card-actions">
+                  <button
+                    className="btn-ghost h-8 whitespace-nowrap px-2 text-xs text-red-400 hover:text-red-300"
+                    type="button"
+                    onClick={() => deleteProvider(key, label)}
+                    title={`删除${displayLabel}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> 删除
+                  </button>
                   {(() => {
                     const result = apiTestResults[key] ?? { status: 'waiting' as const, msg: '未测试' };
-                    return <span className={`flex min-w-0 items-center gap-1 text-[10px] ${statusTextClass(result.status)}`}><StatusMark status={result.status} /><span className="hidden max-w-24 truncate sm:inline">{result.msg}</span></span>;
+                    return <span className={`flex min-w-0 items-center gap-1 text-[11px] ${statusTextClass(result.status)}`}><StatusMark status={result.status} /><span className="hidden max-w-24 truncate sm:inline">{result.msg}</span></span>;
                   })()}
                   {prov.enabled && (
-                    <button className="btn-ghost h-8 px-2.5 text-xs" onClick={() => setOpenProvider(isProviderOpen ? null : key)} type="button" aria-expanded={isProviderOpen}>
+                    <button className="btn-ghost h-8 whitespace-nowrap px-2.5 text-xs" onClick={() => setOpenProvider(isProviderOpen ? null : key)} type="button" aria-expanded={isProviderOpen}>
                       {isProviderOpen ? '收起配置' : '配置服务'}
                       <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isProviderOpen ? 'rotate-180' : ''}`} />
                     </button>
@@ -456,7 +606,29 @@ export default function SettingsPage() {
                     {models.length > 0 && (
                       <span className="text-xs text-gray-400">共 {models.length} 个模型</span>
                     )}
+                    {key === 'local' && (
+                      <button className="btn-ghost ml-auto text-xs" type="button" onClick={() => setShowLocalModelDraft((value) => !value)}>
+                        <Plus className="h-3 w-3" /> 新建本地模型
+                      </button>
+                    )}
                   </div>
+                  {key === 'local' && showLocalModelDraft && (
+                    <div className="grid grid-cols-1 gap-2 rounded-lg bg-[var(--color-surface-2)]/55 p-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
+                      <label className="text-xs text-[var(--color-text-secondary)]">显示名称
+                        <input className="input-field mt-1 text-xs" value={localModelDraft.name} onChange={(e) => setLocalModelDraft((draft) => ({ ...draft, name: e.target.value }))} placeholder="例如：我的 DeepSeek" />
+                      </label>
+                      <label className="text-xs text-[var(--color-text-secondary)]">模型 ID
+                        <input className="input-field mt-1 text-xs font-mono" value={localModelDraft.modelId} onChange={(e) => setLocalModelDraft((draft) => ({ ...draft, modelId: e.target.value }))} placeholder="例如：llama3.2" />
+                      </label>
+                      <label className="text-xs text-[var(--color-text-secondary)]">API 地址
+                        <input className="input-field mt-1 text-xs font-mono" value={localModelDraft.baseUrl} onChange={(e) => setLocalModelDraft((draft) => ({ ...draft, baseUrl: e.target.value }))} placeholder="例如：http://127.0.0.1:1234/v1" />
+                      </label>
+                      <label className="text-xs text-[var(--color-text-secondary)]">API Key（可选）
+                        <input type="password" className="input-field mt-1 text-xs font-mono" value={localModelDraft.apiKey} onChange={(e) => setLocalModelDraft((draft) => ({ ...draft, apiKey: e.target.value }))} placeholder="本地服务可留空" />
+                      </label>
+                      <button className="btn-primary text-xs" type="button" onClick={addLocalModel} disabled={!localModelDraft.modelId.trim()}><Plus className="h-3 w-3" /> 添加</button>
+                    </div>
+                  )}
                   {msg && (
                     <p className={`text-xs ${msg.startsWith('发现') ? 'text-green-500' : 'text-red-500'}`}>{msg}</p>
                   )}
@@ -467,12 +639,14 @@ export default function SettingsPage() {
                     const providerModels = models.filter(m => selected.includes(key === 'local' ? `local/${m}` : m));
                     return providerModels.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
-                        {providerModels.map(m => (
-                          <span key={m} className="tag-brand text-xs flex items-center gap-1">
-                            {m}
-                            <button onClick={() => removeModel(key === 'local' ? `local/${m}` : m)} className="hover:text-red-500"><X className="w-3 h-3" /></button>
+                        {providerModels.map(m => {
+                          const modelKey = key === 'local' ? `local/${m}` : m;
+                          const displayName = key === 'local' ? (settings.modelLabels?.[modelKey] || m) : m;
+                          return <span key={m} className="tag-brand text-xs flex items-center gap-1" title={key === 'local' && displayName !== m ? m : undefined}>
+                            {displayName}
+                            <button onClick={() => removeModel(modelKey)} className="hover:text-red-500"><X className="w-3 h-3" /></button>
                           </span>
-                        ))}
+                        })}
                       </div>
                     ) : null;
                   })()}
@@ -555,7 +729,7 @@ export default function SettingsPage() {
               return (
                 <div key={key}
                   draggable
-                  onDragStart={() => setDraggingProvider(key)}
+                  onDragStart={(event) => startProviderDrag(event, key)}
                   onDragEnd={() => setDraggingProvider(null)}
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={() => dropProvider(key)}
@@ -603,7 +777,7 @@ export default function SettingsPage() {
 
       </section>
 
-      <AIModelCenter settings={settings} onUpdate={update} />
+      {advancedSettings && <AIModelCenter settings={settings} onUpdate={update} />}
 
       {/* 普通 AI 回答 */}
       <section id="model-answer" className="scroll-mt-6 space-y-3">
@@ -620,10 +794,18 @@ export default function SettingsPage() {
               <SettingsSelect className="mt-1" value={answerSettings.detail} ariaLabel="回答长度" onChange={(value) => void update({ aiAnswer: { ...answerSettings, detail: value as 'concise' | 'standard' | 'detailed' } })} options={[{ value: 'concise', label: '简洁' }, { value: 'standard', label: '标准' }, { value: 'detailed', label: '详细' }]} />
             </label>
           </div>
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3">
+            <input type="checkbox" className="mt-0.5 h-4 w-4 accent-indigo-600" checked={Boolean(answerSettings.rewriteEnabled)} onChange={(event) => void update({ aiAnswer: { ...answerSettings, rewriteEnabled: event.target.checked } })} />
+            <span>
+              <span className="block text-sm text-[var(--color-text)]">生成后重写答案</span>
+              <span className="mt-0.5 block text-xs text-gray-400">用同一模型进行保守润色，保留引用、代码和 Mermaid；会增加一次模型调用，默认关闭。</span>
+            </span>
+          </label>
         </div>
       </section>
 
       {/* 联网搜索 */}
+      {advancedSettings && <>
       <section id="web-search" className="scroll-mt-6 space-y-3">
         <h2 className="text-lg font-semibold">🌐 联网搜索</h2>
         <div className="card space-y-3">
@@ -641,10 +823,10 @@ export default function SettingsPage() {
             <label className="text-xs text-gray-400">联网搜索服务
               <SettingsSelect className="mt-1" value={webSearchSettings.provider} ariaLabel="联网搜索服务" onChange={(value) => updateWebSearch({ provider: value as WebSearchSettings['provider'] })} options={[{ value: 'tavily', label: 'Tavily（推荐，不用本地部署）' }, { value: 'open-websearch', label: 'open-webSearch（本地/自托管）' }, { value: 'duckduckgo', label: 'DuckDuckGo 摘要兜底' }]} />
             </label>
-            {webSearchSettings.provider === 'tavily' && <label className="text-xs text-gray-400">Tavily API Key<input type="password" className="input-field mt-1 text-xs font-mono" value={webSearchSettings.apiKey ?? ''} onChange={(event) => updateWebSearch({ apiKey: event.target.value })} placeholder="tvly-..." /></label>}
+            {webSearchSettings.provider === 'tavily' && <label className="text-xs text-gray-400">Tavily API Key<div className="mt-1 flex gap-2"><input type="password" className="input-field min-w-0 flex-1 text-xs font-mono" value={webSearchSettings.apiKey ?? ''} onChange={(event) => updateWebSearch({ apiKey: event.target.value })} placeholder="tvly-..." /><button type="button" className="btn-secondary shrink-0 px-2 text-xs" onClick={() => void fillWebSearchKeyFromClipboard()} title="从剪贴板填入"><ClipboardPaste className="h-3.5 w-3.5" />填入</button></div>{webSearchClipboardMessage && <span className="mt-1 block text-[11px] text-[var(--color-primary)]">{webSearchClipboardMessage}</span>}</label>}
             {webSearchSettings.provider === 'open-websearch' && <label className="text-xs text-gray-400">open-webSearch 地址<input className="input-field mt-1 text-xs font-mono" value={webSearchSettings.baseUrl} onChange={(event) => updateWebSearch({ baseUrl: event.target.value })} placeholder="http://127.0.0.1:3210" /></label>}
             <label className="text-xs text-gray-400">聊天默认联网模式
-              <SettingsSelect className="mt-1" value={webSearchSettings.mode} ariaLabel="聊天默认联网模式" onChange={(value) => updateWebSearch({ mode: value as WebSearchSettings['mode'] })} options={[{ value: 'off', label: '不联网' }, { value: 'manual', label: '按需联网' }, { value: 'auto', label: '知识库不足时联网' }, { value: 'always', label: '总是联网补充' }]} />
+              <SettingsSelect className="mt-1" value={webSearchSettings.mode} ariaLabel="聊天默认联网模式" onChange={(value) => updateWebSearch({ mode: value as WebSearchSettings['mode'] })} options={[{ value: 'off', label: '不联网' }, { value: 'manual', label: '仅手动联网' }, { value: 'auto', label: '知识库不足时联网' }, { value: 'always', label: '总是联网补充' }]} />
             </label>
             <label className="text-xs text-gray-400">搜索结果数<input type="number" min={1} max={10} className="input-field mt-1 text-xs" value={webSearchSettings.resultLimit} onChange={(event) => updateWebSearch({ resultLimit: Math.max(1, Math.min(10, Number(event.target.value) || 5)) })} /></label>
             <label className="text-xs text-gray-400">抓取网页数<input type="number" min={1} max={5} className="input-field mt-1 text-xs" value={webSearchSettings.fetchLimit} onChange={(event) => updateWebSearch({ fetchLimit: Math.max(1, Math.min(5, Number(event.target.value) || 3)) })} /></label>
@@ -655,9 +837,11 @@ export default function SettingsPage() {
           </div>
           <p className="text-xs leading-5 text-[var(--color-text-tertiary)]">推荐启用「知识库不足时联网」，它会在本地知识库没有命中或问题包含“最新/今天/价格/版本/政策”等时效词时自动抓取网页正文。</p>
         </div>
-      </section>
+      </section></>}
 
       <SyncSettingsSection config={settings.sync!} status={syncStatus} errorMessage={syncErrorMessage} testing={syncTesting} testMessage={syncMsg} onUpdate={updateSync} onTest={handleTestConn} onPull={pullOnly} onSync={doSync} />
+
+      <DiagnosticsSection />
 
       {/* 密钥迁移（跨设备，基于主密码加密） */}
       <section id="key-migration" className="scroll-mt-6 space-y-3">
@@ -704,46 +888,7 @@ export default function SettingsPage() {
         </details>
       </section>
 
-      {/* 数据管理 */}
-      <section id="data-management" className="scroll-mt-6 space-y-3">
-        <h2 className="text-lg font-semibold">💾 数据管理</h2>
-        <p className="text-xs text-gray-400">JSON 备份包含文档、附件、对话、分类、版本、学习目标、业务偏好和 Agent 历史；不包含 API Key、GitHub Token 与设备级界面设置。</p>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <button className="btn-secondary" onClick={() => import('../lib/services/export').then(m => m.exportAllData())}>
-            📤 导出数据
-          </button>
-          <button className="btn-secondary" onClick={() => document.getElementById('import-file')?.click()}>
-            📥 导入数据
-          </button>
-          <button className="btn-secondary" onClick={() => import('../lib/services/export').then(m => m.exportJournalsAsMarkdownZip())} title="每篇文档导出为独立 .md（带 frontmatter），打包成 zip 下载">
-            📁 导出为 Markdown(.zip)
-          </button>
-          <button
-            className="btn-secondary"
-            disabled={mdBusy}
-            title="把每篇文档作为 .md 推送到 GitHub 仓库 docs/ 目录（专用文件夹）"
-            onClick={async () => {
-              const cfg = settings?.sync;
-              if (!cfg?.enabled || !cfg.token) { setMdMsg('请先在「云同步」里配置并启用'); return; }
-              setMdBusy(true); setMdMsg(null);
-              try {
-                const { pushJournalsAsMarkdown } = await import('../lib/sync/markdownSync');
-                const r = await pushJournalsAsMarkdown(cfg);
-                setMdMsg(`✅ 已推送 ${r.pushed} 篇文档到 GitHub docs/`);
-              } catch (e) { setMdMsg(`❌ ${(e as Error).message}`); }
-              finally { setMdBusy(false); }
-            }}
-          >
-            {mdBusy ? '推送中...' : '☁️ 推送文档为 Markdown 到 GitHub'}
-          </button>
-          <input id="import-file" type="file" accept=".json" className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) import('../lib/services/export').then(m => m.importData(file));
-            }} />
-        </div>
-        {mdMsg && <p className="text-xs text-gray-500">{mdMsg}</p>}
-      </section>
+      <DataManagementSection sync={settings.sync} />
 
       {/* 关于与更新 */}
       <section id="about-updates" className="scroll-mt-6 space-y-3">
@@ -819,7 +964,7 @@ export default function SettingsPage() {
         API Key 由当前设备保存，安装包不内置共享密钥；笔记数据默认本地，仅在启用云同步时推送到你自己的 GitHub 仓库
       </div>
       </main>
-      <aside className="sticky top-3 hidden lg:block">
+      <aside className="settings-sidebar sticky top-3 hidden lg:block">
         <nav aria-label="设置分区" className="card !p-2">
           <p className="mb-2 px-2 text-sm font-semibold text-[var(--color-text-tertiary)]">设置导航</p>
           {[

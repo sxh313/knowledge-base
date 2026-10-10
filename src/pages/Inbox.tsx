@@ -7,6 +7,7 @@ import { suggestJournalMetadata, type MetadataSuggestion } from '../lib/agent/qu
 import { applyPlan, previewPlan } from '../lib/agent/executor';
 import { assignPlanIds } from '../lib/agent/tools';
 import { calculateContentHash } from '../lib/indexing/documents';
+import Select from '../components/ui/Select';
 
 const URL_RE = /^https?:\/\/[^\s]+$/i;
 
@@ -19,6 +20,7 @@ export default function Inbox() {
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [suggestions, setSuggestions] = useState<Record<string, MetadataSuggestion | null>>({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadAll();
@@ -70,6 +72,12 @@ export default function Inbox() {
     await update(id, { status: 'active' });
   }, [update]);
 
+  const organizeSelected = async () => {
+    if (!selectedIds.size) return;
+    await Promise.all([...selectedIds].map((id) => update(id, { status: 'active' })));
+    setSelectedIds(new Set());
+  };
+
   const handleDelete = async (id: string) => {
     if (!window.confirm('移到回收站？')) return;
     await remove(id);
@@ -95,7 +103,6 @@ export default function Inbox() {
     <div className="content-frame animate-fade-in space-y-4">
       <div className="page-hero">
         <div className="page-hero-copy">
-          <div className="page-kicker">Capture now, organize later</div>
           <div className="flex items-center gap-2">
             <InboxIcon className="h-5 w-5 text-[var(--color-primary)]" />
             <h1 className="text-2xl font-bold text-[var(--color-text)]">收集箱</h1>
@@ -145,14 +152,14 @@ export default function Inbox() {
       {/* 收集箱列表 */}
       <div className="min-w-0 space-y-2">
         <div className="flex items-center justify-between px-1">
-          <p className="text-sm font-semibold text-[var(--color-text)]">待整理</p>
-          <span className="text-xs text-[var(--color-text-tertiary)]">{inboxItems.length} 条</span>
+          <div className="flex items-center gap-2"><p className="text-sm font-semibold text-[var(--color-text)]">待整理</p><span className="text-xs text-[var(--color-text-tertiary)]">{inboxItems.length} 条</span></div>
+          <div className="flex items-center gap-2">{selectedIds.size > 0 && <button className="btn-primary text-xs" onClick={() => void organizeSelected()}>批量标记已整理（{selectedIds.size}）</button>}<button className="btn-ghost text-xs" onClick={() => setSelectedIds(new Set(inboxItems.map((item) => item.id)))} disabled={!inboxItems.length}>全选</button></div>
         </div>
         {inboxItems.length === 0 && (
-          <div className="empty-state">
-            <div className="empty-state-icon mb-3"><InboxIcon className="h-6 w-6" /></div>
+          <div className="empty-state compact-empty">
+            <InboxIcon className="mb-1 h-5 w-5 text-[var(--color-info)]" />
             <p className="text-sm font-medium text-[var(--color-text)]">收集箱已清空</p>
-            <p className="mt-1 text-xs text-[var(--color-text-tertiary)]">新的想法可以从左侧快速记录。</p>
+            <p className="mt-1 max-w-sm text-xs text-[var(--color-text-tertiary)]">粘贴一段网页内容、摘抄或临时想法，它会留在这里等你整理。</p>
           </div>
         )}
         {inboxItems.map((item) => (
@@ -169,6 +176,8 @@ export default function Inbox() {
             onSuggest={handleSuggest}
             onAcceptSuggestion={handleAcceptSuggestion}
             onSkipSuggestion={(id) => setSuggestions((current) => ({ ...current, [id]: null }))}
+            selected={selectedIds.has(item.id)}
+            onToggle={() => setSelectedIds((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })}
           />
         ))}
       </div>
@@ -189,9 +198,11 @@ interface InboxRowProps {
   onSuggest: (id: string) => void;
   onAcceptSuggestion: (item: JournalEntry, suggestion: MetadataSuggestion) => void;
   onSkipSuggestion: (id: string) => void;
+  selected: boolean;
+  onToggle: () => void;
 }
 
-function InboxRow({ item, subjects, docTitles, onOrganize, onDelete, onUpdate, onOpen, suggestion, onSuggest, onAcceptSuggestion, onSkipSuggestion }: InboxRowProps) {
+function InboxRow({ item, subjects, docTitles, onOrganize, onDelete, onUpdate, onOpen, suggestion, onSuggest, onAcceptSuggestion, onSkipSuggestion, selected, onToggle }: InboxRowProps) {
   const [title, setTitle] = useState(item.title);
   const [subject, setSubject] = useState(item.subject ?? '');
   const [tagsStr, setTagsStr] = useState((item.tags ?? []).join(', '));
@@ -221,8 +232,9 @@ function InboxRow({ item, subjects, docTitles, onOrganize, onDelete, onUpdate, o
   };
 
   return (
-    <div className="card p-3 space-y-2">
+    <div className={`card p-3 space-y-2 ${selected ? 'ring-2 ring-[var(--color-primary)]/40' : ''}`}>
       <div className="flex items-start gap-2">
+        <input type="checkbox" checked={selected} onChange={onToggle} aria-label={`选择${item.title || '未命名收集'}`} className="mt-1 h-4 w-4 accent-[var(--color-primary)]" />
         <input
           className="flex-1 bg-transparent text-sm font-medium outline-none border-b border-transparent focus:border-[var(--color-primary)]"
           value={title}
@@ -245,19 +257,17 @@ function InboxRow({ item, subjects, docTitles, onOrganize, onDelete, onUpdate, o
       {item.content && (
         <p className="text-xs text-[var(--color-text-secondary)] line-clamp-2">{item.content}</p>
       )}
+      <p className="text-[11px] text-[var(--color-text-tertiary)]">已收集 {Math.max(0, Math.floor((Date.now() - item.createdAt) / 86400000))} 天</p>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <select
-          className="input-field text-xs py-0.5 max-w-[140px]"
+        <Select
+          className="w-[140px]"
+          size="compact"
           value={subject}
-          onChange={(e) => { setSubject(e.target.value); }}
-          onBlur={commitMeta}
-        >
-          <option value="">选择分类</option>
-          {subjects.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
+          onChange={(value) => { setSubject(value); onUpdate(item.id, { subject: value }); }}
+          ariaLabel="选择分类"
+          options={[{ value: '', label: '选择分类' }, ...subjects.map((subjectName) => ({ value: subjectName, label: subjectName }))]}
+        />
         <input
           className="input-field text-xs py-0.5 flex-1 min-w-[120px]"
           placeholder="标签，逗号分隔"

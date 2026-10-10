@@ -15,16 +15,16 @@ export default function Heatmap({ data }: HeatmapProps) {
           <div
             className={`h-6 w-full rounded transition-colors ${
               count === 0
-                ? 'bg-gray-100 dark:bg-surface-card'
+                ? 'border border-[var(--color-border)] bg-[var(--color-surface-2)]'
                 : count <= 2
-                ? 'bg-brand-200 dark:bg-brand-900/40'
+                ? 'bg-[var(--color-info-light)]'
                 : count <= 5
-                ? 'bg-brand-400 dark:bg-brand-700'
-                : 'bg-brand-600 dark:bg-brand-500'
+                ? 'bg-[var(--color-info)]'
+                : 'bg-[var(--color-primary)]'
             }`}
             title={`${date}: ${count} 篇`}
           />
-          <div className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-gray-800 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
+          <div className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-800 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
             {date}: {count} 篇
           </div>
         </div>

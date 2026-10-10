@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Star, PanelLeft, PanelRight, Maximize, Download, FileCode, ChevronDown, ChevronUp, History, Trash2, Copy, Check, X, Loader2, Bot } from 'lucide-react';
+import { ArrowLeft, Star, PanelLeft, PanelRight, Maximize, Download, FileCode, ChevronDown, ChevronUp, History, Trash2, Copy, Check, X, Loader2, Bot, Shield } from 'lucide-react';
 import { useJournalStore } from '../stores/journalStore';
 import { useAIStore } from '../stores/aiStore';
 import { useViewModeStore } from '../stores/viewModeStore';
@@ -8,12 +8,14 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { useSyncStore } from '../stores/syncStore';
 import { buildMessages } from '../lib/ai/prompts';
 import { markdownToHtml } from '../lib/markdownUtils';
-import { saveVersion, getVersions } from '../lib/db/queries';
+import { saveVersion, getVersions } from '../lib/db/repositories/journals';
 import type { JournalVersion } from '../lib/db/schema';
 import RichTextEditor from '../components/RichTextEditor';
 import AIChatPanel from '../components/AIChatPanel';
 import DocumentSidebar from '../components/DocumentSidebar';
 import DocTree from '../components/DocTree';
+import { buildDocumentChunks } from '../lib/indexing/documents';
+import { createTextAnchor, isTextAnchor } from '../lib/ai/sourceAnchor';
 
 type EditMode = 'rich' | 'markdown';
 type SelectionAIAction = 'translate' | 'explain' | 'polish';
@@ -36,6 +38,8 @@ export default function JournalEditor() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [localOnly, setLocalOnly] = useState(false);
+  const [editorState, setEditorState] = useState<Record<string, unknown> | undefined>();
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   // 仅在切换到新文档时从 store 初始化，避免自动保存/同步更新 currentEntry 时覆盖正在编辑的光标。
@@ -57,7 +61,16 @@ export default function JournalEditor() {
   }, [content]);
   const [mode, setMode] = useState<EditMode>(isMobile ? 'markdown' : 'rich');
   const [showAIPanel, setShowAIPanel] = useState(false);
-  const [showDocList, setShowDocList] = useState(false);
+  // 文档列表默认常驻，并记住用户手动收起的选择；切换文档时编辑页不再丢失列表。
+  const [showDocList, setShowDocList] = useState<boolean>(() => {
+    const saved = localStorage.getItem('editor-doctree-visible');
+    return saved === null ? true : saved === '1';
+  });
+  const toggleDocList = () => setShowDocList((visible) => {
+    const next = !visible;
+    localStorage.setItem('editor-doctree-visible', next ? '1' : '0');
+    return next;
+  });
   // 右侧文档侧栏（大纲/反链/提及）显示开关，持久化
   const [showSidebar, setShowSidebar] = useState<boolean>(() => {
     const saved = localStorage.getItem('editor-sidebar-visible');
@@ -90,8 +103,6 @@ export default function JournalEditor() {
     setTagInput('');
   };
   const removeTag = (tag: string) => setTags((current) => current.filter((item) => item !== tag));
-  // 稳定的导航回调：避免每次渲染都创建新引用，配合子组件 React.memo 减少重渲染
-  const handleNavigate = useCallback((targetId: string) => navigate(`/edit/${targetId}`), [navigate]);
   const handleMarkdownOutlineJump = useCallback((line: number) => {
     const textarea = markdownRef.current;
     if (!textarea) return;
@@ -148,32 +159,44 @@ export default function JournalEditor() {
   }, [docListWidth]);
 
   const isNew = !id || id === 'new';
+  const savePromiseRef = useRef<Promise<void> | null>(null);
+  const createdEntryIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (id && id !== 'new') {
+      if (createdEntryIdRef.current && createdEntryIdRef.current !== id) createdEntryIdRef.current = null;
       initializedEntryIdRef.current = null;
       loadOne(id);
     } else {
+      createdEntryIdRef.current = null;
       initializedEntryIdRef.current = null;
       setCurrent(null);
-      setTitle(''); setContent(''); setMode(isMobile ? 'markdown' : 'rich');
-      setTags([]); setTagInput('');
+      setTitle(''); setContent(''); setEditorState(undefined); setMode(isMobile ? 'markdown' : 'rich');
+      setTags([]); setTagInput(''); setLocalOnly(false);
     }
   }, [id]);
   useEffect(() => {
     if (currentEntry && currentEntry.id === id && initializedEntryIdRef.current !== currentEntry.id) {
       setTitle(currentEntry.title);
       setContent(currentEntry.content);
+      setLocalOnly(!!currentEntry.localOnly);
+      setEditorState(currentEntry.editorState);
       setTags(currentEntry.tags ?? []);
       initializedEntryIdRef.current = currentEntry.id;
     }
   }, [currentEntry, id]);
 
-  // 引用定位：个人文档引用带 offset 时，打开编辑器后自动切到 Markdown 并选中原文范围。
+  // 引用定位优先使用内容锚点；旧引用继续兼容 offset。
   useEffect(() => {
     const raw = searchParams.get('offset');
-    const start = raw == null ? NaN : Number(raw);
-    if (!Number.isFinite(start) || !content || !currentEntry || currentEntry.id !== id) return;
+    const anchor = searchParams.get('anchor');
+    let start = raw == null ? NaN : Number(raw);
+    if (!content || !currentEntry || currentEntry.id !== id) return;
+    if (isTextAnchor(anchor)) {
+      const matched = buildDocumentChunks({ ...currentEntry, content }).find((chunk) => createTextAnchor(chunk.content) === anchor);
+      if (matched) start = matched.startOffset;
+    }
+    if (!Number.isFinite(start)) return;
     setMode('markdown');
     const timer = window.setTimeout(() => {
       const textarea = markdownRef.current;
@@ -190,29 +213,44 @@ export default function JournalEditor() {
 
   const handleSave = useCallback(async () => {
     if (!title.trim()) return;
-    setSaving(true);
+    const previous = savePromiseRef.current ?? Promise.resolve();
+    const promise = previous.catch(() => {}).then(async () => {
+      setSaving(true);
+      const entryData = {
+        title: title.trim(),
+        content,
+        editorState,
+        contentPlain: content.replace(/[#*`[\]()>|~_ -]/g, '').replace(/\s+/g, ' ').trim(),
+        tags,
+        subject: currentEntry && currentEntry.id === id ? currentEntry.subject : '',
+        sourceType: 'manual' as const,
+        localOnly,
+      };
 
-    const entryData = {
-      title: title.trim(),
-      content,
-      contentPlain: content.replace(/[#*`[\]()>|~_ -]/g, '').replace(/\s+/g, ' ').trim(),
-      tags,
-      subject: currentEntry?.subject ?? '',
-      sourceType: 'manual' as const,
-    };
+      const targetId = isNew ? createdEntryIdRef.current : id;
+      if (targetId) {
+        await update(targetId, entryData);
+        saveVersion(targetId, title.trim(), content).catch(() => {});
+      } else {
+        const entry = await create(entryData);
+        createdEntryIdRef.current = entry.id;
+        setCurrent(entry);
+        navigate(`/edit/${entry.id}`, { replace: true });
+      }
+    }).finally(() => {
+      if (savePromiseRef.current === promise) {
+        setSaving(false);
+        savePromiseRef.current = null;
+      }
+    });
+    savePromiseRef.current = promise;
+    return promise;
+  }, [title, content, editorState, tags, localOnly, isNew, id, currentEntry]);
 
-    if (isNew) {
-      const entry = await create(entryData);
-      setCurrent(entry);
-      navigate(`/edit/${entry.id}`, { replace: true });
-    } else if (id) {
-      await update(id, entryData);
-      // 记录版本快照（saveVersion 内部会去重，与最近一次相同则不存）
-      saveVersion(id, title.trim(), content).catch(() => {});
-    }
-    setSaving(false);
-    // 本地保存完成（编辑停顿约 3 秒自动存）。云同步独立：顶部☁️手动 / 编辑停顿 10s 自动
-  }, [title, content, tags, isNew, id, currentEntry]);
+  const handleNavigate = useCallback(async (targetId: string) => {
+    await handleSave();
+    navigate(`/edit/${targetId}`);
+  }, [handleSave, navigate]);
 
   // 编辑停顿 10s 后自动同步（仅当启用且开启 autoSync）
   useEffect(() => {
@@ -228,7 +266,7 @@ export default function JournalEditor() {
     if (!title.trim() && !content.trim()) return;
     const timer = setTimeout(handleSave, 3000);
     return () => clearTimeout(timer);
-  }, [title, content, tags]);
+  }, [title, content, tags, editorState, localOnly]);
 
   // 全局快捷键（Ctrl+S 保存）
   useEffect(() => {
@@ -241,7 +279,7 @@ export default function JournalEditor() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [title, content]);
+  }, [handleSave, title]);
 
   const handleAIAction = async (action: 'summarize' | 'codeReview' | 'codeExplain') => {
     if (!content.trim()) return;
@@ -312,12 +350,12 @@ export default function JournalEditor() {
   }, [selectionAI]);
 
   // 点击双向链接：跳转到目标文档
-  const handleWikilinkClick = useCallback((target: string) => {
+  const handleWikilinkClick = useCallback(async (target: string) => {
     const t = target.trim();
     const doc = entries.find(e => !e.deletedAt && (e.title || '无标题') === t);
-    if (doc) { setCurrent(doc); navigate(`/edit/${doc.id}`); }
+    if (doc) { await handleSave(); setCurrent(doc); navigate(`/edit/${doc.id}`); }
     else { window.alert(`未找到文档「${t}」，可能标题已更改或被删除`); }
-  }, [entries, navigate]);
+  }, [entries, handleSave, navigate]);
 
   // 打开版本历史
   const openHistory = async () => {
@@ -336,7 +374,7 @@ export default function JournalEditor() {
     const contentPlain = v.content.replace(/[#*`[\]()>|~_ -]/g, '').replace(/\s+/g, ' ').trim();
     setTitle(v.title);
     setContent(v.content);
-    await update(id, { title: v.title, content: v.content, contentPlain });
+    await update(id, { title: v.title, content: v.content, contentPlain, editorState: undefined });
     setShowHistory(false);
   };
 
@@ -378,10 +416,10 @@ export default function JournalEditor() {
         <button className="btn-ghost p-1.5" onClick={toggleToolbar} title="隐藏工具栏">
           <ChevronUp className="h-4 w-4" />
         </button>
-        <button className="btn-ghost p-1.5" onClick={() => navigate('/')} title="返回">
+        <button className="btn-ghost p-1.5" onClick={async () => { await handleSave(); navigate('/'); }} title="返回">
           <ArrowLeft className="h-4 w-4" />
         </button>
-        <button className={`btn-ghost p-1.5 ${showDocList ? 'text-[var(--color-primary)] bg-[var(--color-primary-light)]' : ''}`} onClick={() => setShowDocList(s => !s)} title="显示/隐藏文档列表">
+        <button className={`btn-ghost p-1.5 ${showDocList ? 'text-[var(--color-primary)] bg-[var(--color-primary-light)]' : ''}`} onClick={toggleDocList} title="显示/隐藏文档列表">
           <PanelLeft className="h-4 w-4" />
         </button>
         <button
@@ -421,9 +459,9 @@ export default function JournalEditor() {
           </button>
           <button
             className="btn-ghost text-xs flex items-center gap-1"
-            onClick={() => {
+            onClick={async () => {
               // 发送当前文档到 Agent：先保存，再跳转并附带文档内容
-              handleSave();
+              await handleSave();
               const payload = encodeURIComponent(
                 JSON.stringify({
                   journalId: currentEntry?.id,
@@ -447,15 +485,18 @@ export default function JournalEditor() {
             onClick={() => setShowExportMenu(s => !s)}
             disabled={!content.trim()}
             title="导出为 HTML / PDF"
+            aria-haspopup="menu"
+            aria-expanded={showExportMenu}
+            aria-controls="editor-export-menu"
           >
             <Download className="h-3.5 w-3.5" /> 导出 <ChevronDown className="h-3 w-3" />
           </button>
           {showExportMenu && (
-            <div className="absolute right-0 top-full mt-1 w-40 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl z-50 py-1 animate-slide-down">
-              <button onClick={handleExportHTML} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-[var(--color-text)] hover:bg-[var(--color-surface-2)]">
+            <div id="editor-export-menu" className="absolute right-0 top-full z-50 mt-1 w-40 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-xl animate-slide-down" role="menu">
+              <button role="menuitem" onClick={handleExportHTML} className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs text-[var(--color-text)] hover:bg-[var(--color-surface-2)]">
                 <FileCode className="h-3.5 w-3.5" /> 导出 HTML
               </button>
-              <button onClick={handleExportPDF} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-[var(--color-text)] hover:bg-[var(--color-surface-2)]">
+              <button role="menuitem" onClick={handleExportPDF} className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs text-[var(--color-text)] hover:bg-[var(--color-surface-2)]">
                 <FileCode className="h-3.5 w-3.5" /> 导出 PDF
               </button>
             </div>
@@ -473,6 +514,17 @@ export default function JournalEditor() {
         </button>
 
         <div className="flex-1" />
+        <button
+          className={`btn-ghost text-xs flex items-center gap-1 ${localOnly ? 'text-[var(--color-accent)] bg-[var(--color-primary-light)]' : ''}`}
+          onClick={async () => {
+            const next = !localOnly;
+            setLocalOnly(next);
+            if (id && id !== 'new') await update(id, { localOnly: next });
+          }}
+          title={localOnly ? '取消仅本地：允许同步此文档' : '设为仅本地：此文档不会上传到 GitHub'}
+        >
+          <Shield className="h-3.5 w-3.5" /> {localOnly ? '仅本地' : '设为仅本地'}
+        </button>
         {/* 置顶切换 */}
         {currentEntry?.id && (
           <button
@@ -511,7 +563,7 @@ export default function JournalEditor() {
       {/* 工具栏隐藏时的展开按钮 */}
       {!showToolbar && (
         <div className="flex items-center px-2 py-1 border-b border-[var(--color-border)]">
-          <button className="btn-ghost p-1.5" onClick={toggleToolbar} title="显示工具栏">
+          <button className="btn-ghost p-1.5" onClick={toggleToolbar} title="显示工具栏" aria-label="显示编辑器工具栏">
             <ChevronDown className="h-4 w-4" />
           </button>
         </div>
@@ -525,7 +577,7 @@ export default function JournalEditor() {
             style={{ width: docListWidth }}
           >
             <aside className="h-full border-r border-[var(--color-border-strong)] bg-[var(--color-surface)] overflow-y-auto p-2 animate-slide-down">
-              <DocTree />
+              <DocTree beforeNavigate={handleSave} />
             </aside>
             {/* 可拖拽调整宽度的把手 */}
             <div
@@ -535,8 +587,8 @@ export default function JournalEditor() {
             />
           </div>
         )}
-        <div className="flex-1 overflow-y-auto">
-          <div className="editor-reading-column mx-auto w-full max-w-[900px] px-4 py-5 sm:px-7 sm:py-7 lg:px-10">
+        <div className="editor-document-scroll flex-1 overflow-y-auto">
+          <div className="editor-reading-column mx-auto w-full max-w-[1120px] px-4 py-5 sm:px-7 sm:py-7 lg:px-12 lg:py-10">
             {/* 标题 */}
             <textarea
               ref={titleRef}
@@ -584,6 +636,8 @@ export default function JournalEditor() {
               <RichTextEditor
                 value={content}
                 onChange={setContent}
+                editorState={editorState}
+                onEditorStateChange={setEditorState}
                 autoFocus={isNew}
                 onAIAction={handleSelectionAI}
                 onWikilinkClick={handleWikilinkClick}
@@ -595,7 +649,7 @@ export default function JournalEditor() {
                 className="w-full min-h-[60vh] bg-transparent border-none outline-none resize-none font-mono text-sm leading-[1.5]"
                 placeholder="# 在此输入 Markdown..."
                 value={content}
-                onChange={(e) => setContent(e.target.value)}
+                onChange={(e) => { setContent(e.target.value); setEditorState(undefined); }}
                 spellCheck={false}
               />
             )}

@@ -2,6 +2,7 @@
 // GET 兼容旧版摘要搜索；POST 会搜索并抓取网页正文，失败时服务端退回轻量摘要搜索。
 
 import type { WebSearchProvider } from '../db/schema';
+import { recordDiagnostic } from '../observability/diagnostics';
 
 export interface WebResult {
   title: string;
@@ -23,6 +24,29 @@ export interface WebSearchOptions {
   fetchLimit?: number;
 }
 
+const SEARCH_TIMEOUT_MS = 20000;
+const CACHE_TTL_MS = 60_000;
+const MAX_QUERY_LENGTH = 500;
+const responseCache = new Map<string, { expiresAt: number; pages: WebFetchedPage[] }>();
+
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = SEARCH_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    globalThis.clearTimeout(timer);
+  }
+}
+
+function cacheKey(query: string, options: WebSearchOptions): string {
+  return JSON.stringify([query, options.provider ?? '', options.baseUrl ?? '', options.limit ?? 5, options.fetchLimit ?? 3]);
+}
+
+function boundedLimit(value: number | undefined, fallback: number, max: number): number {
+  return Math.max(1, Math.min(max, Number(value) || fallback));
+}
+
 function searchApiUrl(): string {
   const configured = (import.meta.env.VITE_SEARCH_API_URL || '').trim().replace(/\/+$/, '');
   if (!configured) return '/api/search';
@@ -31,7 +55,7 @@ function searchApiUrl(): string {
 
 async function browserDuckDuckGoFallback(query: string, limit: number): Promise<WebFetchedPage[]> {
   try {
-    const response = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`);
+    const response = await fetchWithTimeout(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`);
     if (!response.ok) return [];
     const data = await response.json();
     const pages: WebFetchedPage[] = [];
@@ -65,7 +89,7 @@ async function browserDuckDuckGoFallback(query: string, limit: number): Promise<
  */
 export async function searchWeb(query: string, limit = 5): Promise<WebResult[]> {
   try {
-    const res = await fetch(`${searchApiUrl()}?q=${encodeURIComponent(query)}`);
+    const res = await fetchWithTimeout(`${searchApiUrl()}?q=${encodeURIComponent(query)}`);
     if (!res.ok) return [];
     const data = await res.json();
     return (data.results || []).slice(0, limit);
@@ -78,27 +102,50 @@ export async function searchWeb(query: string, limit = 5): Promise<WebResult[]> 
  * 搜索并抓取网页正文。主 provider 不可用时，服务端会尽量退回摘要内容。
  */
 export async function searchAndFetchWeb(query: string, options: WebSearchOptions = {}): Promise<WebFetchedPage[]> {
+  const normalizedQuery = query.trim().slice(0, MAX_QUERY_LENGTH);
+  if (!normalizedQuery) return [];
+  const normalizedOptions = {
+    ...options,
+    limit: boundedLimit(options.limit, 5, 10),
+    fetchLimit: boundedLimit(options.fetchLimit, 3, 5),
+  };
+  const key = cacheKey(normalizedQuery, normalizedOptions);
+  const cached = responseCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.pages;
+  responseCache.delete(key);
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
   try {
     const res = await fetch(searchApiUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        query,
+        query: normalizedQuery,
         fetch: true,
         provider: options.provider,
         baseUrl: options.baseUrl,
         apiKey: options.apiKey,
-        limit: options.limit ?? 5,
-        fetchLimit: options.fetchLimit ?? 3,
+        limit: normalizedOptions.limit,
+        fetchLimit: normalizedOptions.fetchLimit,
       }),
+      signal: controller.signal,
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      recordDiagnostic({ category: 'ai', operation: 'web-search', outcome: 'failure', message: `HTTP ${res.status}` });
+      return [];
+    }
     const data = await res.json();
     const pages = Array.isArray(data.pages) ? data.pages : [];
-    if (pages.length > 0 || options.provider !== 'duckduckgo') return pages;
-    return browserDuckDuckGoFallback(query, options.limit ?? 5);
-  } catch {
-    return options.provider === 'duckduckgo' ? browserDuckDuckGoFallback(query, options.limit ?? 5) : [];
+    const result = pages.length > 0 || options.provider !== 'duckduckgo'
+      ? pages
+      : await browserDuckDuckGoFallback(normalizedQuery, normalizedOptions.limit);
+    responseCache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, pages: result });
+    return result;
+  } catch (error) {
+    recordDiagnostic({ category: 'ai', operation: 'web-search', outcome: 'failure', message: error instanceof Error ? error.message : String(error) });
+    return options.provider === 'duckduckgo' ? browserDuckDuckGoFallback(normalizedQuery, normalizedOptions.limit) : [];
+  } finally {
+    globalThis.clearTimeout(timeout);
   }
 }
 

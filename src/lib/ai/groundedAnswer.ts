@@ -1,5 +1,6 @@
 import { routeAI } from './router';
 import type { RetrievedChunk } from './retrieval';
+import { trimTextToTokenBudget } from './tokenBudget';
 
 export interface GroundedAnswer {
   answer: string;
@@ -23,10 +24,10 @@ function parseObject(text: string): Record<string, unknown> | null {
 }
 
 function buildMessages(question: string, chunks: RetrievedChunk[]) {
-  const context = chunks.map((chunk, index) => {
+  const context = trimTextToTokenBudget(chunks.map((chunk, index) => {
     const path = chunk.headingPath?.length ? chunk.headingPath.join(' > ') : chunk.heading || '正文';
     return `[${index + 1}] chunkId=${chunk.chunkId}\n来源：${chunk.title} / ${path}\n${chunk.content.slice(0, 1200)}`;
-  }).join('\n\n---\n\n').slice(0, 9000);
+  }).join('\n\n---\n\n'), 4500);
   return [
     {
       role: 'system' as const,
@@ -47,10 +48,10 @@ function buildMessages(question: string, chunks: RetrievedChunk[]) {
 }
 
 function buildStreamingMessages(question: string, chunks: RetrievedChunk[]) {
-  const context = chunks.map((chunk, index) => {
+  const context = trimTextToTokenBudget(chunks.map((chunk, index) => {
     const path = chunk.headingPath?.length ? chunk.headingPath.join(' > ') : chunk.heading || '正文';
     return `[${index + 1}] 来源：${chunk.title} / ${path}\n${chunk.content.slice(0, 1200)}`;
-  }).join('\n\n---\n\n').slice(0, 9000);
+  }).join('\n\n---\n\n'), 4500);
   return [
     {
       role: 'system' as const,

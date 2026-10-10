@@ -5,35 +5,16 @@ import type {
   RetrievalSettings,
 } from '../db/schema';
 
-export const DEFAULT_MODEL_PROFILES: AIModelProfile[] = [
-  {
-    id: 'local-dsv4',
-    name: '本地 dsv4',
-    kind: 'chat',
-    baseUrl: 'http://61.172.167.64:4900/v1',
-    modelId: 'dsv4',
-    apiKey: '',
-    enabled: true,
-  },
-  {
-    id: 'local-bge-small-zh',
-    name: '本地 BGE-small-zh',
-    kind: 'embedding',
-    baseUrl: 'http://61.172.167.64:4901/v1',
-    modelId: 'BAAI/bge-small-zh-v1.5',
-    apiKey: '',
-    enabled: false,
-    dimension: 512,
-  },
-];
+/** 默认不注入任何远程地址或模型；只有客户明确配置后才允许发送数据。 */
+export const DEFAULT_MODEL_PROFILES: AIModelProfile[] = [];
 
 export const DEFAULT_MODEL_BINDINGS: AIModelBindings = {
-  answerModelId: 'local-dsv4',
-  embeddingModelId: 'local-bge-small-zh',
-  rerankerModelId: 'local-dsv4',
-  reviewTutorModelId: 'local-dsv4',
-  evaluatorModelId: 'local-dsv4',
-  plannerModelId: 'local-dsv4',
+  answerModelId: '',
+  embeddingModelId: undefined,
+  rerankerModelId: undefined,
+  reviewTutorModelId: '',
+  evaluatorModelId: '',
+  plannerModelId: '',
 };
 
 export const DEFAULT_RETRIEVAL_SETTINGS: RetrievalSettings = {
@@ -65,4 +46,3 @@ export function getEmbeddingProfile(settings: AppSettings): AIModelProfile | und
 export function getRetrievalSettings(settings: AppSettings): RetrievalSettings {
   return { ...DEFAULT_RETRIEVAL_SETTINGS, ...(settings.retrieval ?? {}) };
 }
-

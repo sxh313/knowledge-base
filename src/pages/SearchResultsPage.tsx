@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Search, Star, Trash2, Bookmark, Filter, Sparkles, RotateCcw } from 'lucide-react';
 import { searchDocuments, type SearchResult } from '../lib/search/searchDocuments';
 import { parseQuery } from '../lib/search/queryParser';
-import { getSavedSearches, saveSavedSearch, deleteSavedSearch } from '../lib/db/queries';
+import { getSavedSearches, saveSavedSearch, deleteSavedSearch } from '../lib/db/repositories/search';
 import { useJournalStore } from '../stores/journalStore';
 import type { SavedSearch } from '../lib/db/schema';
 import { buildSearchAIContext, saveSearchAIContext } from '../lib/ai/searchContext';
@@ -110,7 +110,7 @@ export default function SearchResultsPage() {
     <div className="content-frame flex h-full flex-col animate-fade-in">
       <div className="page-hero px-1">
         <div className="page-hero-copy">
-          <div className="page-kicker">Find anything</div>
+          <div className="page-kicker">搜索工作区</div>
           <h1 className="text-lg font-bold mb-2 flex items-center gap-2">
           <Search className="h-4 w-4" /> 高级搜索
           </h1>
