@@ -5,6 +5,28 @@ const API = 'https://api.github.com';
 export const DOCUMENT_JSON_ROOT = 'documents-json';
 const META_PATH = `${DOCUMENT_JSON_ROOT}/_meta/data.json`;
 
+async function mapConcurrent<T, R>(items: T[], operation: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  let failed = false;
+  const workers = Array.from({ length: Math.min(3, items.length) }, async () => {
+    while (!failed && next < items.length) {
+      const index = next++;
+      try {
+        results[index] = await operation(items[index]);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    }
+  });
+  // Drain active requests before releasing the sync lock after a failure.
+  const outcomes = await Promise.allSettled(workers);
+  const failure = outcomes.find((outcome) => outcome.status === 'rejected');
+  if (failure?.status === 'rejected') throw failure.reason;
+  return results;
+}
+
 export interface DocumentJsonPayload {
   version: 1;
   exportedAt: number;
@@ -37,17 +59,29 @@ function repoBase(cfg: SyncConfig): string {
 }
 
 async function gh<T>(cfg: SyncConfig, method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${repoBase(cfg)}${path}`, {
-    method,
-    headers: headers(cfg.token),
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(`GitHub ${method} ${path} 失败: HTTP ${res.status} ${detail.slice(0, 200)}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const res = await fetch(`${repoBase(cfg)}${path}`, {
+      method,
+      headers: headers(cfg.token),
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`GitHub ${method} ${path} 失败: HTTP ${res.status} ${detail.slice(0, 200)}`);
+    }
+    const text = await res.text();
+    return (text ? JSON.parse(text) : undefined) as T;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error('GitHub 同步请求超时（30 秒），请检查网络或代理后重试');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  const text = await res.text();
-  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 function b64encode(value: string): string {
@@ -93,7 +127,8 @@ async function getHead(cfg: SyncConfig): Promise<{ commitSha: string; treeSha: s
 }
 
 async function listTree(cfg: SyncConfig, treeSha: string): Promise<TreeEntry[]> {
-  const result = await gh<{ tree: TreeEntry[] }>(cfg, 'GET', `/git/trees/${treeSha}?recursive=1`);
+  const result = await gh<{ tree: TreeEntry[]; truncated?: boolean }>(cfg, 'GET', `/git/trees/${treeSha}?recursive=1`);
+  if (result.truncated) throw new Error('GitHub 仓库目录过大，无法完整读取。请使用独立的同步仓库后重试。');
   return result.tree ?? [];
 }
 
@@ -110,13 +145,18 @@ async function isLegacySyncedJournalMarkdown(cfg: SyncConfig, entry: TreeEntry):
   return /^id:\s*\S+/m.test(frontmatter) && /^createdAt:\s*\S+/m.test(frontmatter) && /^updatedAt:\s*\S+/m.test(frontmatter);
 }
 
-async function createBlob(cfg: SyncConfig, value: unknown): Promise<string> {
+async function createBlob(cfg: SyncConfig, value: unknown, existingSha?: string | null): Promise<string> {
   const json = JSON.stringify(value, null, 2);
   const byteSize = new Blob([json]).size;
   const maxBytes = 95 * 1024 * 1024;
   if (byteSize > maxBytes) {
     throw new Error(`单个同步 JSON 为 ${(byteSize / 1024 / 1024).toFixed(1)}MB，超过 95MB 安全上限。请移除该文档的大附件或清理全局历史后重试。`);
   }
+  // Git hashes the UTF-8 content with its blob header, so unchanged files need no upload.
+  const bytes = new TextEncoder().encode(`blob ${byteSize}\0${json}`);
+  const digest = await crypto.subtle.digest('SHA-1', bytes);
+  const sha = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  if (sha === existingSha) return sha;
   const content = b64encode(json);
   const result = await gh<{ sha: string }>(cfg, 'POST', '/git/blobs', { content, encoding: 'base64' });
   return result.sha;
@@ -139,7 +179,7 @@ function journalIdOf(row: unknown): string | undefined {
 export function splitCategorizedSnapshot(data: FullData): { meta: FullData; documents: DocumentJsonPayload[] } {
   const documents = (data.journals as JournalEntry[]).map((journal) => ({
     version: 1 as const,
-    exportedAt: Date.now(),
+    exportedAt: 0,
     journal,
     notes: data.notes.filter((row) => journalIdOf(row) === journal.id),
     cards: data.cards.filter((row) => journalIdOf(row) === journal.id),
@@ -156,7 +196,7 @@ export function splitCategorizedSnapshot(data: FullData): { meta: FullData; docu
     documents,
     meta: {
       ...data,
-      exportedAt: Date.now(),
+      exportedAt: 0,
       journals: [],
       notes: data.notes.filter(isUnlinked),
       cards: data.cards.filter(isUnlinked),
@@ -197,18 +237,16 @@ export async function readRemoteSnapshot(cfg: SyncConfig): Promise<RemoteSnapsho
 
   if (meta || documents.length > 0) {
     const base = meta?.sha ? await readBlobJson<FullData>(cfg, meta.sha) : emptyData();
-    const payloads: DocumentJsonPayload[] = [];
-    for (const entry of documents) {
-      if (!entry.sha) continue;
-      const value = await readBlobJson<DocumentJsonPayload | JournalEntry>(cfg, entry.sha);
+    const payloads = await mapConcurrent(documents, async (entry): Promise<DocumentJsonPayload> => {
+      const value = await readBlobJson<DocumentJsonPayload | JournalEntry>(cfg, entry.sha!);
       // 兼容开发预览期间生成的“文档对象直存”格式。
-      payloads.push('journal' in value ? value : {
+      return 'journal' in value ? value : {
         version: 1,
         exportedAt: Date.now(),
         journal: value,
         notes: [], cards: [], journalVersions: [], attachments: [], aiConversations: [],
-      });
-    }
+      };
+    });
     return { data: combineCategorizedSnapshot(base, payloads), commitSha, format: 'categorized-json' };
   }
 
@@ -240,18 +278,23 @@ export async function writeRemoteSnapshot(cfg: SyncConfig, data: FullData, expec
   }
   // 旧版曾把用户文档写到仓库 docs/。只删除带知屿文档 frontmatter 的文件，
   // 保留发布指南、架构说明等普通项目文档。
-  for (const entry of tree.filter((item) => item.type === 'blob' && item.path.startsWith('docs/') && item.path.endsWith('.md'))) {
-    if (await isLegacySyncedJournalMarkdown(cfg, entry)) {
+  const legacyDocs = tree.filter((item) => item.type === 'blob' && item.path.startsWith('docs/') && item.path.endsWith('.md'));
+  const legacyFlags = await mapConcurrent(legacyDocs, (entry) => isLegacySyncedJournalMarkdown(cfg, entry));
+  for (const [index, entry] of legacyDocs.entries()) {
+    if (legacyFlags[index]) {
       changes.set(entry.path, { path: entry.path, mode: '100644', type: 'blob', sha: null });
     }
   }
 
   const { meta, documents } = splitCategorizedSnapshot(data);
-  changes.set(META_PATH, { path: META_PATH, mode: '100644', type: 'blob', sha: await createBlob(cfg, meta) });
-  for (const document of documents) {
-    const path = documentJsonPath(document.journal);
-    changes.set(path, { path, mode: '100644', type: 'blob', sha: await createBlob(cfg, document) });
-  }
+  const existing = new Map(tree.filter((entry) => entry.type === 'blob').map((entry) => [entry.path, entry.sha]));
+  const files = [{ path: META_PATH, value: meta }, ...documents.map((document) => ({ path: documentJsonPath(document.journal), value: document }))];
+  await mapConcurrent(files, async ({ path, value }) => {
+    const sha = await createBlob(cfg, value, existing.get(path));
+    if (sha === existing.get(path)) changes.delete(path);
+    else changes.set(path, { path, mode: '100644', type: 'blob', sha });
+  });
+  if (changes.size === 0) return current.commitSha;
 
   const newTree = await gh<{ sha: string }>(cfg, 'POST', '/git/trees', {
     base_tree: current.treeSha,

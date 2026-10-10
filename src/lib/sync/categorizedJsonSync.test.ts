@@ -1,11 +1,14 @@
-import { describe, expect, it } from 'vitest';
-import type { JournalEntry } from '../db/schema';
+import { createHash } from 'node:crypto';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { JournalEntry, SyncConfig } from '../db/schema';
 import type { FullData } from './merge';
 import {
   combineCategorizedSnapshot,
   documentJsonPath,
   safePathSegment,
   splitCategorizedSnapshot,
+  readRemoteSnapshot,
+  writeRemoteSnapshot,
 } from './categorizedJsonSync';
 
 const journal = (overrides: Partial<JournalEntry> = {}): JournalEntry => ({
@@ -19,6 +22,88 @@ const journal = (overrides: Partial<JournalEntry> = {}): JournalEntry => ({
   createdAt: 1,
   updatedAt: 2,
   ...overrides,
+});
+
+const cfg: SyncConfig = { enabled: true, owner: 'owner', repo: 'repo', branch: 'main', path: 'data.json', token: 'test', autoSync: false };
+const blobSha = (value: unknown) => {
+  const json = JSON.stringify(value, null, 2);
+  return createHash('sha1').update(`blob ${Buffer.byteLength(json)}\0${json}`).digest('hex');
+};
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+describe('GitHub snapshot requests', () => {
+  it('does not upload or commit unchanged Unicode documents even with a new export timestamp', async () => {
+    const data = snapshot();
+    const { meta, documents } = splitCategorizedSnapshot(data);
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/git/ref/')) return Response.json({ object: { sha: 'head' } });
+      if (url.includes('/git/commits/')) return Response.json({ tree: { sha: 'tree' } });
+      if (url.includes('/git/trees/')) return Response.json({ tree: [
+        { path: 'documents-json/_meta/data.json', type: 'blob', sha: blobSha(meta) },
+        { path: documentJsonPath(documents[0].journal), type: 'blob', sha: blobSha(documents[0]) },
+      ] });
+      throw new Error(`Unexpected upload: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await writeRemoteSnapshot(cfg, { ...data, exportedAt: Date.now() }, 'head')).toBe('head');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('uploads only a changed document and atomically removes its old category path', async () => {
+    const data = snapshot();
+    const { meta, documents } = splitCategorizedSnapshot(data);
+    const oldPath = documentJsonPath(documents[0].journal);
+    const newJournal = journal({ subject: '学习', content: '# 新正文' });
+    let treeChanges: unknown;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/git/ref/')) return Response.json({ object: { sha: 'head' } });
+      if (url.endsWith('/git/commits/head')) return Response.json({ tree: { sha: 'tree' } });
+      if (url.includes('/git/trees/tree')) return Response.json({ tree: [
+        { path: 'documents-json/_meta/data.json', type: 'blob', sha: blobSha(meta) },
+        { path: oldPath, type: 'blob', sha: blobSha(documents[0]) },
+      ] });
+      if (url.endsWith('/git/blobs')) return Response.json({ sha: 'new-blob' });
+      if (url.endsWith('/git/trees')) {
+        treeChanges = JSON.parse(String(init?.body)).tree;
+        return Response.json({ sha: 'new-tree' });
+      }
+      if (url.endsWith('/git/commits')) return Response.json({ sha: 'new-head' });
+      if (url.includes('/git/refs/')) return Response.json({});
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await writeRemoteSnapshot(cfg, { ...data, journals: [newJournal] }, 'head')).toBe('new-head');
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/git/blobs'))).toHaveLength(1);
+    expect(treeChanges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: oldPath, sha: null }),
+      expect.objectContaining({ path: documentJsonPath(newJournal), sha: 'new-blob' }),
+    ]));
+    expect(treeChanges).toHaveLength(2);
+  });
+
+  it('rejects a truncated tree before uploading or merging an incomplete snapshot', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/git/ref/')) return Response.json({ object: { sha: 'head' } });
+      if (url.includes('/git/commits/')) return Response.json({ tree: { sha: 'tree' } });
+      return Response.json({ tree: [], truncated: true });
+    }));
+    await expect(readRemoteSnapshot(cfg)).rejects.toThrow('无法完整读取');
+    await expect(writeRemoteSnapshot(cfg, snapshot(), 'head')).rejects.toThrow('无法完整读取');
+  });
+
+  it('ends a stalled request after 30 seconds', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    })));
+    const pending = expect(readRemoteSnapshot(cfg)).rejects.toThrow('超时（30 秒）');
+    await vi.advanceTimersByTimeAsync(30_000);
+    await pending;
+  });
 });
 
 const snapshot = (): FullData => ({

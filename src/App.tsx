@@ -50,6 +50,7 @@ export default function App() {
   const { applySystemChange } = useThemeStore();
   const { doSync } = useSyncStore();
   const syncEnabled = !!useSettingsStore((s) => s.settings?.sync?.enabled);
+  const autoSync = !!useSettingsStore((s) => s.settings?.sync?.autoSync);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
@@ -59,7 +60,7 @@ export default function App() {
 
   // 自动云同步：启用后，打开应用 / 切回标签页 / 恢复联网时自动同步一次
   useEffect(() => {
-    if (!syncEnabled) return;
+    if (!syncEnabled || !autoSync) return;
     const trigger = () => { if (document.visibilityState === 'visible') doSync(); };
     document.addEventListener('visibilitychange', trigger);
     window.addEventListener('online', trigger);
@@ -69,7 +70,7 @@ export default function App() {
       window.removeEventListener('online', trigger);
       clearTimeout(t);
     };
-  }, [syncEnabled, doSync]);
+  }, [syncEnabled, autoSync, doSync]);
 
   useEffect(() => {
     const timer = window.setInterval(() => { void checkDailyLearningReminder().catch(() => undefined); }, 60_000);
